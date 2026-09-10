@@ -1,6 +1,6 @@
 // ============================================================
-//  CATEGORY PAGE JAVASCRIPT - COMPLETE FIXED VERSION
-//  Location: D:\my-business-website\public\js\category.js
+//  CATEGORY PAGE JAVASCRIPT - Business Categories Only
+//  Location: public/js/category.js
 // ============================================================
 
 // ============================================================
@@ -36,360 +36,269 @@ function showToast(message, type) {
 }
 
 // ============================================================
-//  RENDER PRODUCTS
+//  LOAD BUSINESS CATEGORIES (Not Product Categories)
 // ============================================================
-function renderProducts(products) {
-    const container = document.getElementById('productGrid');
-    if (!container) return;
-    
-    if (!products || products.length === 0) {
-        container.innerHTML = `<p style="text-align:center;padding:40px;color:#94a3b8;">No products found.</p>`;
-        return;
-    }
 
-    const cart = typeof getCart === 'function' ? getCart() : [];
-    
-    container.innerHTML = products.map(p => {
-        const inCart = cart.some(item => item.id === p.id);
-        const btnText = inCart ? 'Add More' : 'Add to Cart';
-        const btnClass = inCart ? 'in-cart' : '';
-        const qtyId = `cat-qty-${p.id}`;
-
-        let imageHtml = '';
-        if (p.image) {
-            imageHtml = `<img src="${p.image}" alt="${p.name}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;background:#e2e8f0;font-size:2rem;\\'>📦</div>'">`;
-        } else {
-            imageHtml = `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e2e8f0;font-size:2rem;">📦</div>`;
-        }
-
-        let badgesHtml = '';
-        if (p.isFlashSale) {
-            badgesHtml += `<div class="flash-badge">🔥</div>`;
-        }
-        if (p.isNewArrival) {
-            badgesHtml += `<div class="new-badge">🆕</div>`;
-        }
-
-        const ratingHtml = p.rating ? `<div class="rating"><span>⭐</span>(${p.rating})</div>` : '';
-
-        let swatchesHtml = '';
-        if (p.variants && p.variants.length > 0) {
-            swatchesHtml = '<div class="variant-swatches">';
-            p.variants.slice(0, 3).forEach(v => {
-                const bg = v.image ? `url(${v.image})` : '';
-                swatchesHtml += `<div class="swatch" style="background-image:${bg};" title="${v.name}" onclick="event.stopPropagation(); location.href='/product-detail.html?id=${p.id}&variant=${v.id}'"></div>`;
-            });
-            if (p.variants.length > 3) {
-                swatchesHtml += `<span style="font-size:0.6rem;color:#94a3b8;">+${p.variants.length - 3}</span>`;
-            }
-            swatchesHtml += '</div>';
-        }
-
-        return `
-            <div class="product-card">
-                <div class="media-wrap" onclick="location.href='/product-detail.html?id=${p.id}'">
-                    ${imageHtml}
-                    <div class="quick-view-icon"><i class="fas fa-eye"></i></div>
-                    ${badgesHtml}
-                    <i id="wishlist-icon-${p.id}" class="far fa-heart" onclick="event.stopPropagation(); toggleWishlist(${p.id})" style="position:absolute; top:8px; left:8px; font-size:1.2rem; background:white; padding:4px; border-radius:50%; cursor:pointer; z-index:10;"></i>
-                    <div class="hover-preview">
-                        <div class="product-name">${p.name}</div>
-                        <div class="product-price">${p.price}</div>
-                        ${ratingHtml}
-                        ${swatchesHtml}
-                    </div>
-                </div>
-                <div class="info">
-                    <div class="name">${p.name} ${inCart ? '<span class="green-tick">✔</span>' : ''}</div>
-                    <div class="price">${p.price}</div>
-                    ${p.rating ? `<div class="rating"><span>⭐</span>(${p.rating})</div>` : ''}
-                    <div class="actions">
-                        <div class="qty-control">
-                            <button onclick="changeCardQty(${p.id}, -1, 'cat-qty-')">−</button>
-                            <span id="${qtyId}">1</span>
-                            <button onclick="changeCardQty(${p.id}, 1, 'cat-qty-')">+</button>
-                        </div>
-                        <button class="btn-add ${btnClass}" onclick="addCardToCartFromCategory(${p.id}, 'cat-qty-')">
-                            <i class="fas fa-cart-plus"></i> ${btnText}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-// ============================================================
-//  CHANGE CARD QUANTITY
-// ============================================================
-function changeCardQty(productId, delta, prefix) {
-    const qtySpan = document.getElementById(`${prefix}${productId}`);
-    if (!qtySpan) return;
-    let current = parseInt(qtySpan.textContent) || 1;
-    current = Math.max(1, current + delta);
-    qtySpan.textContent = current;
-}
-
-// ============================================================
-//  ADD CARD TO CART
-// ============================================================
-function addCardToCartFromCategory(productId, prefix) {
-    const qtySpan = document.getElementById(`${prefix}${productId}`);
-    const qty = qtySpan ? parseInt(qtySpan.textContent) || 1 : 1;
-    if (typeof addToCart === 'function') {
-        addToCart(productId, qty);
-    } else {
-        showToast('Please login first.', 'error');
-    }
-    if (qtySpan) qtySpan.textContent = '1';
-}
-
-// ============================================================
-//  TOGGLE WISHLIST
-// ============================================================
-async function toggleWishlist(productId) {
-    if (!isLoggedIn()) {
-        openAuthModal('login');
-        return;
-    }
-    try {
-        const res = await fetch('/api/wishlist', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${window.customerToken}`
-            },
-            body: JSON.stringify({ product_id: productId })
-        });
-        const data = await res.json();
-        if (data.success) {
-            const icon = document.getElementById(`wishlist-icon-${productId}`);
-            if (icon) {
-                if (data.action === 'added') {
-                    icon.className = 'fas fa-heart';
-                    icon.style.color = '#ef4444';
-                } else {
-                    icon.className = 'far fa-heart';
-                    icon.style.color = '';
-                }
-            }
-            showToast(data.action === 'added' ? '❤️ Added to wishlist' : '💔 Removed from wishlist', 'success');
-        }
-    } catch (err) {
-        console.error('Wishlist error:', err);
-        showToast('Network error', 'error');
-    }
-}
-
-// ============================================================
-//  EXTRACT CATEGORIES
-// ============================================================
-function extractCategories(products) {
-    const categoryMap = new Map();
-    products.forEach(p => {
-        if (p.category) {
-            const count = categoryMap.get(p.category) || 0;
-            categoryMap.set(p.category, count + 1);
-        }
-    });
-    return Array.from(categoryMap.entries())
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-// ============================================================
-//  RENDER CATEGORIES
-// ============================================================
-function renderCategories(categories) {
+async function loadBusinessCategories() {
     const container = document.getElementById('categoryGrid');
     if (!container) return;
-    
-    if (!categories || categories.length === 0) {
-        container.innerHTML = `<p class="no-categories-msg" style="grid-column:1/-1; color:#94a3b8; text-align:center; padding:20px;">No categories available.</p>`;
-        return;
-    }
-    const icons = ['📱', '👗', '🏠', '💄', '💊', '⚽', '📚', '🎵', '🍕', '🚗', '💻', '🛋️', '👟', '🎮', '📷'];
-    container.innerHTML = categories.map((cat, i) => {
-        const icon = icons[i % icons.length];
-        return `
-            <div class="category-card" onclick="filterByCategory('${cat.name}')">
-                <div class="icon">${icon}</div>
-                <div class="name">${cat.name}</div>
-                <div class="count">${cat.count} product${cat.count > 1 ? 's' : ''}</div>
-            </div>
-        `;
-    }).join('');
-}
 
-// ============================================================
-//  POPULATE CATEGORY DROPDOWN
-// ============================================================
-function populateCategoryDropdown(categories) {
-    const select = document.getElementById('categoryFilter');
-    if (!select) return;
-    select.innerHTML = '<option value="all">All Categories</option>';
-    categories.forEach(cat => {
-        select.innerHTML += `<option value="${cat.name}">${cat.name}</option>`;
-    });
-}
-
-// ============================================================
-//  FILTER BY CATEGORY
-// ============================================================
-function filterByCategory(category) {
-    document.getElementById('categoryFilter').value = category;
-    document.getElementById('searchInput').value = '';
-    window.handleSearch();
-    document.getElementById('productsContainer').scrollIntoView({ behavior: 'smooth' });
-}
-
-// ============================================================
-//  SEARCH HANDLER
-// ============================================================
-window.handleSearch = function() {
-    const search = document.getElementById('searchInput').value.toLowerCase().trim();
-    const category = document.getElementById('categoryFilter').value;
-
-    let filtered = window.allProducts || [];
-    if (category !== 'all') {
-        filtered = filtered.filter(p => p.category === category);
-    }
-    if (search) {
-        filtered = filtered.filter(p => p.name.toLowerCase().includes(search));
-    }
-    renderProducts(filtered);
-};
-
-window.handleSearchWithFeedback = function() {
-    const btn = document.getElementById('searchBtn');
-    btn.classList.add('clicked');
-    setTimeout(() => btn.classList.remove('clicked'), 700);
-    window.handleSearch();
-};
-
-// ============================================================
-//  LOAD DATA
-// ============================================================
-async function initCategoryPage() {
-    console.log('🔄 Initializing category page...');
-    
     try {
-        // Try to use existing products from app.js first
-        if (window.allProducts && window.allProducts.length > 0) {
-            console.log('📦 Using existing products:', window.allProducts.length);
-            const products = window.allProducts;
-            const categories = extractCategories(products);
-            renderCategories(categories);
-            populateCategoryDropdown(categories);
-            renderProducts(products);
-            console.log('✅ Category page initialized from existing data');
+        const res = await fetch('/api/businesses/categories/all');
+        if (!res.ok) throw new Error('Failed to load categories');
+        const categories = await res.json();
+
+        if (!categories || categories.length === 0) {
+            container.innerHTML = `
+                <p class="no-categories-msg" style="grid-column:1/-1; color:#94a3b8; text-align:center; padding:20px;">
+                    No business categories available yet.
+                </p>
+            `;
             return;
         }
-        
-        // Fetch products from API
-        console.log('📦 Fetching products from API...');
-        const res = await fetch('/api/products');
-        if (!res.ok) {
-            throw new Error(`Failed to fetch products: ${res.status}`);
-        }
-        const products = await res.json();
-        
-        console.log('📦 Products loaded:', products.length);
-        window.allProducts = products;
 
-        const categories = extractCategories(products);
-        console.log('📂 Categories found:', categories.length);
-        
-        renderCategories(categories);
-        populateCategoryDropdown(categories);
-        renderProducts(products);
-        
-        console.log('✅ Category page initialized successfully');
-        
+        // Icons for different business categories
+        const icons = ['🏪', '👗', '🔧', '📱', '🍕', '🏠', '💊', '💄', '📚', '⚽', '🚗', '🛠️', '📦'];
+
+        container.innerHTML = categories.map((cat, i) => {
+            const icon = cat.icon || icons[i % icons.length] || '🏪';
+            // Get count of businesses in this category
+            const count = cat.business_count || 0;
+            return `
+                <div class="category-card" onclick="navigateToBusinessesByCategory('${cat.id}')">
+                    <div class="icon">${icon}</div>
+                    <div class="name">${cat.name}</div>
+                    <div class="count">${count} business${count !== 1 ? 'es' : ''}</div>
+                </div>
+            `;
+        }).join('');
+
     } catch (err) {
-        console.error('❌ Error initializing category page:', err);
-        const categoryGrid = document.getElementById('categoryGrid');
-        if (categoryGrid) {
-            categoryGrid.innerHTML = `<p class="no-categories-msg" style="grid-column:1/-1; color:#ef4444; text-align:center; padding:20px;">Error loading categories: ${err.message}</p>`;
-        }
-        const productGrid = document.getElementById('productGrid');
-        if (productGrid) {
-            productGrid.innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">Error loading products: ${err.message}</p>`;
-        }
-        showToast('Failed to load products. Please refresh the page.', 'error');
+        console.error('❌ Error loading business categories:', err);
+        container.innerHTML = `
+            <p class="no-categories-msg" style="grid-column:1/-1; color:#ef4444; text-align:center; padding:20px;">
+                Error loading categories: ${err.message}
+            </p>
+        `;
+        showToast('Failed to load categories', 'error');
     }
 }
 
 // ============================================================
-//  LOAD SHOP NAME
+//  NAVIGATE TO BUSINESSES BY CATEGORY
 // ============================================================
-async function loadShopName() {
+
+function navigateToBusinessesByCategory(categoryId) {
+    // Redirect to marketplace with category filter
+    window.location.href = `/?category=${categoryId}`;
+}
+
+// ============================================================
+//  AUTH FUNCTIONS
+// ============================================================
+
+function openAuthModal(tab = 'login') {
+    const modal = document.getElementById('authModal');
+    if (!modal) return;
+    modal.classList.add('active');
+    switchAuthTab(tab);
+}
+window.openAuthModal = openAuthModal;
+
+function closeAuthModal() {
+    const modal = document.getElementById('authModal');
+    if (!modal) return;
+    modal.classList.remove('active');
+}
+window.closeAuthModal = closeAuthModal;
+
+function switchAuthTab(tab) {
+    const loginForm = document.getElementById('authLoginForm');
+    const registerForm = document.getElementById('authRegisterForm');
+    const title = document.getElementById('authModalTitle');
+    if (!loginForm || !registerForm || !title) return;
+    if (tab === 'login') {
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+        title.textContent = '🔑 Login';
+    } else {
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'block';
+        title.textContent = '📝 Create Account';
+    }
+}
+window.switchAuthTab = switchAuthTab;
+
+function toggleAuthPwd(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+    } else {
+        input.type = 'password';
+        icon.className = 'fas fa-eye';
+    }
+}
+window.toggleAuthPwd = toggleAuthPwd;
+
+// ============================================================
+//  HANDLE AUTH LOGIN
+// ============================================================
+
+async function handleAuthLogin() {
+    const email = document.getElementById('authLoginEmail').value.trim();
+    const password = document.getElementById('authLoginPassword').value;
+    const status = document.getElementById('authLoginStatus');
+    if (!status) return;
+    status.textContent = '';
+
+    if (!email || !password) {
+        status.textContent = '❌ Email and password are required.';
+        status.style.color = '#ef4444';
+        return;
+    }
+
+    status.textContent = '⏳ Logging in...';
+    status.style.color = '#2563eb';
+
     try {
-        const res = await fetch('/api/shop');
-        if (!res.ok) throw new Error('Failed to load shop');
-        const shop = await res.json();
-        const nameHeader = document.getElementById('shopNameHeader');
-        if (nameHeader) nameHeader.textContent = shop.name || 'Our Business';
+        const res = await fetch('/api/auth/customer/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            status.textContent = '✅ Logged in! Redirecting...';
+            status.style.color = '#16a34a';
+
+            window.customerToken = 'cookie-auth';
+            localStorage.setItem('currentUser', JSON.stringify(data.customer));
+            window.currentUser = data.customer;
+
+            closeAuthModal();
+
+            if (typeof showToast === 'function') {
+                showToast('✅ Welcome back, ' + (data.customer.name || 'User') + '!', 'success');
+            }
+
+            setTimeout(() => {
+                window.location.href = '/account.html';
+            }, 1000);
+
+        } else {
+            status.textContent = '❌ ' + (data.error || 'Login failed');
+            status.style.color = '#ef4444';
+        }
     } catch (err) {
-        console.error('Error loading shop name:', err);
+        status.textContent = '❌ Network error. Please try again.';
+        status.style.color = '#ef4444';
+        console.error('Login error:', err);
     }
 }
+window.handleAuthLogin = handleAuthLogin;
 
 // ============================================================
-//  UPDATE CART BADGE
+//  HANDLE AUTH REGISTER
 // ============================================================
-function updateCartBadge() {
-    const cart = typeof getCart === 'function' ? getCart() : [];
-    const count = cart.reduce((sum, item) => sum + item.quantity, 0);
-    const badge = document.getElementById('cartBadge');
-    if (badge) {
-        if (count > 0) {
-            badge.textContent = count;
-            badge.style.display = 'inline';
+
+async function handleAuthRegister() {
+    const name = document.getElementById('authRegName').value.trim();
+    const email = document.getElementById('authRegEmail').value.trim();
+    const phone = document.getElementById('authRegPhone').value.trim();
+    const password = document.getElementById('authRegPassword').value;
+    const confirm = document.getElementById('authRegConfirm').value;
+    const status = document.getElementById('authRegisterStatus');
+    if (!status) return;
+    status.textContent = '';
+
+    if (!name || !email || !phone || !password || !confirm) {
+        status.textContent = '❌ All fields are required.';
+        status.style.color = '#ef4444';
+        return;
+    }
+
+    const phoneRegex = /^[0-9]{10,15}$/;
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (!phoneRegex.test(cleanPhone)) {
+        status.textContent = '❌ Please enter a valid phone number (10-15 digits).';
+        status.style.color = '#ef4444';
+        return;
+    }
+
+    if (password.length < 6) {
+        status.textContent = '❌ Password must be at least 6 characters.';
+        status.style.color = '#ef4444';
+        return;
+    }
+    if (password !== confirm) {
+        status.textContent = '❌ Passwords do not match.';
+        status.style.color = '#ef4444';
+        return;
+    }
+
+    status.textContent = '⏳ Creating account...';
+    status.style.color = '#2563eb';
+
+    try {
+        const res = await fetch('/api/auth/customer/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, phone: cleanPhone, password })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            status.textContent = '✅ Account created! Logging in...';
+            status.style.color = '#16a34a';
+
+            window.customerToken = 'cookie-auth';
+            localStorage.setItem('currentUser', JSON.stringify(data.customer));
+            window.currentUser = data.customer;
+
+            closeAuthModal();
+
+            if (typeof showToast === 'function') {
+                showToast('✅ Welcome, ' + (data.customer.name || 'User') + '! Account created.', 'success');
+            }
+
+            setTimeout(() => {
+                window.location.href = '/account.html';
+            }, 1500);
+
         } else {
-            badge.style.display = 'none';
+            status.textContent = '❌ ' + (data.error || 'Registration failed');
+            status.style.color = '#ef4444';
         }
+    } catch (err) {
+        status.textContent = '❌ Network error. Please try again.';
+        status.style.color = '#ef4444';
+        console.error('Register error:', err);
     }
 }
-
-function updateNavCartBadge() {
-    const cart = typeof getCart === 'function' ? getCart() : [];
-    const count = cart.reduce((sum, item) => sum + item.quantity, 0);
-    const badge = document.getElementById('navCartBadge');
-    if (badge) {
-        if (count > 0) {
-            badge.textContent = count;
-            badge.classList.add('show');
-        } else {
-            badge.classList.remove('show');
-        }
-    }
-}
-
-// ============================================================
-//  EXPOSE FUNCTIONS GLOBALLY
-// ============================================================
-window.filterByCategory = filterByCategory;
-window.renderProducts = renderProducts;
-window.changeCardQty = changeCardQty;
-window.addCardToCartFromCategory = addCardToCartFromCategory;
-window.toggleWishlist = toggleWishlist;
-window.showToast = showToast;
-window.initCategoryPage = initCategoryPage;
-window.handleSearch = handleSearch;
-window.handleSearchWithFeedback = handleSearchWithFeedback;
-window.updateCartBadge = updateCartBadge;
-window.updateNavCartBadge = updateNavCartBadge;
+window.handleAuthRegister = handleAuthRegister;
 
 // ============================================================
 //  INIT
 // ============================================================
+
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('📄 Category page loaded');
-    loadShopName();
-    initCategoryPage();
-    updateCartBadge();
-    updateNavCartBadge();
+    console.log('📄 Category page loaded - Business Categories only');
+    loadBusinessCategories();
+
+    // Load shop name
+    const nameHeader = document.getElementById('shopNameHeader');
+    if (nameHeader) {
+        fetch('/api/shop')
+            .then(res => res.json())
+            .then(shop => {
+                nameHeader.textContent = shop.name || 'Shop Kenya';
+            })
+            .catch(() => {});
+    }
 });
 
-console.log('✅ Category page JS loaded successfully');
+console.log('✅ Category.js loaded successfully');

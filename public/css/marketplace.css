@@ -1,0 +1,1115 @@
+/* ============================================================
+   MARKETPLACE CSS - Multi-Vendor Platform with Dashboard Layout
+   Location: public/css/marketplace.css
+   ============================================================ */
+
+/* ============================================================
+   APP LAYOUT - SIDEBAR + MARKETPLACE
+   ============================================================ */
+
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  background: #f1f5f9;
+}
+
+/* ============================================================
+   LEFT SIDEBAR
+   ============================================================ */
+
+.sidebar-dashboard {
+  width: 260px;
+  min-height: 100vh;
+  background: #0f172a;
+  color: #e2e8f0;
+  flex-shrink: 0;
+  display: none;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.sidebar-dashboard.visible {
+  display: flex;
+}
+
+.sidebar-dashboard::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-dashboard::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.sidebar-dashboard::-webkit-scrollbar-thumb {
+  background: #facc15;
+  border-radius: 4px;
+}
+
+.sidebar-dashboard .sidebar-header {
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.sidebar-dashboard .sidebar-header h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #facc15;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.sidebar-dashboard .sidebar-header .user-name {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.sidebar-dashboard .sidebar-menu {
+  padding: 12px 0;
+  flex: 1;
+}
+
+.sidebar-dashboard .menu-label {
+  padding: 8px 22px 6px;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+
+.sidebar-dashboard .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 22px;
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+  background: none;
+  border-right: none;
+  border-top: none;
+  border-bottom: none;
+  width: 100%;
+  text-align: left;
+}
+
+.sidebar-dashboard .menu-item:hover {
+  background: rgba(255,255,255,0.05);
+  color: white;
+  border-left-color: #facc15;
+}
+
+.sidebar-dashboard .menu-item.active {
+  background: rgba(255,255,255,0.08);
+  color: #facc15;
+  border-left-color: #facc15;
+}
+
+.sidebar-dashboard .menu-item i {
+  width: 20px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.sidebar-dashboard .menu-item .badge {
+  background: #ef4444;
+  color: white;
+  font-size: 0.55rem;
+  padding: 1px 10px;
+  border-radius: 12px;
+  margin-left: auto;
+  font-weight: 700;
+}
+
+.sidebar-dashboard .menu-item .badge.green {
+  background: #22c55e;
+}
+
+.sidebar-dashboard .menu-item.logout {
+  color: #ef4444;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 14px;
+}
+
+.sidebar-dashboard .menu-item.logout:hover {
+  background: rgba(239,68,68,0.1);
+  border-left-color: #ef4444;
+  color: #ef4444;
+}
+
+/* ============================================================
+   MAIN CONTENT
+   ============================================================ */
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================================
+   TOP BAR
+   ============================================================ */
+
+.top-bar {
+  background: #ffffff;
+  padding: 10px 20px;
+  border-bottom: 1px solid #e8ecf1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.top-bar .brand {
+  font-weight: 800;
+  font-size: 1rem;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.top-bar .brand span {
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.top-bar .top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.top-bar .top-bar-right .user-badge {
+  font-size: 0.75rem;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 4px 14px;
+  border-radius: 20px;
+}
+
+.top-bar .top-bar-right .logout-btn {
+  background: none;
+  border: none;
+  color: #ef4444;
+  font-weight: 600;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.top-bar .top-bar-right .logout-btn:hover {
+  color: #dc2626;
+}
+
+.top-bar .hamburger {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #64748b;
+  padding: 4px;
+}
+
+.top-bar .hamburger:hover {
+  color: #0f172a;
+}
+
+/* ============================================================
+   MARKETPLACE CONTENT
+   ============================================================ */
+
+.marketplace-container {
+  flex: 1;
+  padding: 16px 20px 80px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ============================================================
+   DASHBOARD PANEL (slides in from right)
+   ============================================================ */
+
+.dashboard-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 600px;
+  max-width: 100%;
+  height: 100vh;
+  background: #f8fafc;
+  box-shadow: -4px 0 30px rgba(0,0,0,0.1);
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-panel.open {
+  transform: translateX(0);
+}
+
+.dashboard-panel .panel-header {
+  padding: 14px 20px;
+  background: #ffffff;
+  border-bottom: 1px solid #e8ecf1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.dashboard-panel .panel-header h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.dashboard-panel .panel-header .close-panel {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 4px 8px;
+}
+
+.dashboard-panel .panel-header .close-panel:hover {
+  color: #ef4444;
+}
+
+.dashboard-panel .panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.dashboard-panel .panel-body iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* ============================================================
+   SIDEBAR OVERLAY (mobile)
+   ============================================================ */
+
+.sidebar-overlay-dash {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.4);
+  z-index: 150;
+  display: none;
+}
+
+.sidebar-overlay-dash.active {
+  display: block;
+}
+
+/* ============================================================
+   HERO BANNER
+   ============================================================ */
+
+.hero-banner {
+  background: radial-gradient(circle at 15% 20%, rgba(250, 204, 21, .22), transparent 24%), radial-gradient(circle at 85% 10%, rgba(45, 212, 191, .2), transparent 28%), linear-gradient(135deg, #10213d, #173f48);
+  padding: 14px 20px 12px;
+  text-align: center;
+  color: white;
+  margin: 0 0 12px 0;
+  border: 1px solid rgba(250, 204, 21, .35);
+  border-radius: 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, .14);
+}
+
+.hero-banner h1 {
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  font-weight: 800;
+  margin-bottom: 3px;
+}
+
+.hero-banner p {
+  font-size: .82rem;
+  opacity: 0.8;
+  margin-bottom: 8px;
+}
+
+.hero-stats {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.hero-stats .stat {
+  text-align: center;
+}
+
+.hero-stats .stat .number {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #facc15;
+  display: block;
+}
+
+.hero-stats .stat .label {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+/* ============================================================
+   SEARCH & FILTER BAR
+   ============================================================ */
+
+.search-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  background: white;
+  margin: 0 0 16px 0;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  align-items: center;
+}
+
+.search-filter-bar .search-wrapper {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  min-width: 200px;
+}
+
+.search-filter-bar .search-wrapper input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.search-filter-bar .search-wrapper input:focus {
+  border-color: #2563eb;
+}
+
+.search-filter-bar .search-wrapper button {
+  padding: 10px 20px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+  white-space: nowrap;
+}
+
+.search-filter-bar .search-wrapper button:hover {
+  background: #1d4ed8;
+}
+
+.search-filter-bar select {
+  padding: 10px 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: white;
+  cursor: pointer;
+  min-width: 140px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748b' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.search-filter-bar select:focus {
+  border-color: #2563eb;
+  outline: none;
+}
+
+/* ============================================================
+   BUSINESS GRID
+   ============================================================ */
+
+.business-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  padding: 0;
+}
+
+/* ============================================================
+   BUSINESS CARD
+   ============================================================ */
+
+.business-card {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform 0.3s, box-shadow 0.3s;
+  cursor: pointer;
+  border: 1px solid #f0f4f8;
+}
+
+.business-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+}
+
+.business-card .card-image {
+  width: 100%;
+  height: 160px;
+  background: #e2e8f0;
+  position: relative;
+  overflow: hidden;
+}
+
+.business-card .card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.business-card .card-image .no-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 3rem;
+  background: #f1f5f9;
+}
+
+.business-card .card-badges {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.business-card .card-badges .badge {
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.business-card .card-badges .badge.verified {
+  background: #22c55e;
+  color: white;
+}
+
+.business-card .card-badges .badge.featured {
+  background: #facc15;
+  color: #0f172a;
+}
+
+.business-card .card-body {
+  padding: 12px 14px 14px;
+}
+
+.business-card .card-body .business-name {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.business-card .card-body .business-location {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.business-card .card-body .business-description {
+  font-size: 0.8rem;
+  color: #475569;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.business-card .card-body .business-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.7rem;
+  color: #64748b;
+  border-top: 1px solid #f1f4f8;
+  padding-top: 8px;
+}
+
+.business-card .card-body .business-stats span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.business-card .card-body .business-stats .rating {
+  color: #f59e0b;
+}
+
+/* ============================================================
+   FEATURED SECTION
+   ============================================================ */
+
+.featured-section {
+  padding: 16px 0;
+}
+
+.featured-section h2 {
+  font-size: 1.1rem;
+  font-weight: 800;
+  padding: 0 0 12px 0;
+  color: #0f172a;
+}
+
+.businesses-section {
+  padding: 16px 0;
+}
+
+.businesses-section h2 {
+  font-size: 1.1rem;
+  font-weight: 800;
+  padding: 0 0 12px 0;
+  color: #0f172a;
+}
+
+/* ============================================================
+   EMPTY STATE
+   ============================================================ */
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #94a3b8;
+}
+
+.empty-state .icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+
+.empty-state h3 {
+  font-size: 1.1rem;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.empty-state p {
+  font-size: 0.85rem;
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+
+.btn {
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .sidebar-dashboard {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 160;
+    border-radius: 0;
+    display: flex;
+  }
+
+  .sidebar-dashboard.visible {
+    display: flex;
+  }
+
+  .sidebar-dashboard.mobile-open {
+    transform: translateX(0);
+  }
+
+  .top-bar .hamburger {
+    display: block;
+  }
+
+  .dashboard-panel {
+    width: 100%;
+  }
+
+  .marketplace-container {
+    padding: 12px 12px 80px;
+  }
+
+  .top-bar .brand {
+    font-size: 0.85rem;
+  }
+
+  .business-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+
+  .hero-banner h1 {
+    font-size: 1.4rem;
+  }
+
+  .hero-stats {
+    gap: 20px;
+  }
+
+  .hero-stats .stat .number {
+    font-size: 1.4rem;
+  }
+
+  .search-filter-bar .search-wrapper {
+    min-width: 100%;
+  }
+
+  .search-filter-bar select {
+    flex: 1;
+    min-width: 100px;
+  }
+}
+
+@media (max-width: 480px) {
+  .business-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .business-card .card-image {
+    height: 120px;
+  }
+
+  .business-card .card-body .business-name {
+    font-size: 0.85rem;
+  }
+
+  .search-filter-bar {
+    padding: 8px 10px;
+  }
+
+  .hero-banner {
+    padding: 20px 12px;
+  }
+}
+
+/* ============================================================
+   CENTRAL MARKETPLACE WORKSPACE
+   The marketplace owns logged-in navigation; feature views render in place.
+   ============================================================ */
+
+.app-container {
+  display: block;
+  min-height: 100vh;
+}
+
+.sidebar-dashboard,
+.sidebar-overlay-dash,
+.dashboard-panel,
+.top-bar .hamburger,
+#userBadge,
+.admin-dot {
+  display: none !important;
+}
+
+.main-content {
+  width: 100%;
+}
+
+.integrated-workspace[hidden],
+.marketplace-bottom-nav[hidden] {
+  display: none !important;
+}
+
+.integrated-workspace {
+  /* Override the retired fixed-overlay dashboard in index.css. The workspace
+     belongs in document flow so Marketplace remains directly beneath it. */
+  position: relative;
+  z-index: auto;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  display: block;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px 20px 8px;
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.workspace-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  border: 1px solid #c8e6c8;
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(22, 101, 52, 0.12), transparent 38%),
+    linear-gradient(135deg, #f0f7f0, #e8f5e9);
+}
+
+.workspace-kicker {
+  margin: 0 0 4px;
+  color: #397043;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.workspace-heading h2 {
+  margin: 0;
+  color: #163b21;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  letter-spacing: -0.03em;
+}
+
+.workspace-menu-toggle {
+  display: none;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #b7d9b7;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1f5c2b;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workspace-close {
+  display: none;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #b7d9b7;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #315e3a;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.integrated-workspace.is-open .workspace-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-tabs,
+.workspace-subtabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.workspace-tabs {
+  padding: 10px 16px 0;
+  border: 1px solid #c8e6c8;
+  border-bottom: 0;
+  background: #f0f7f0;
+}
+
+.workspace-tab,
+.workspace-subtab {
+  flex: 0 0 auto;
+  min-height: 42px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: #47604c;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.workspace-tab {
+  padding: 0 14px;
+}
+
+.workspace-tab:hover,
+.workspace-subtab:hover {
+  color: #165b27;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.workspace-tab.is-active {
+  border-bottom-color: #1f7a34;
+  background: #2f7d3f;
+  color: #ffffff;
+}
+
+.workspace-subtabs {
+  gap: 8px;
+  padding: 8px 18px;
+  border: 1px solid #c8e6c8;
+  border-bottom: 0;
+  background: #edf8ed;
+}
+
+.workspace-subtab {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #c8e6c8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #276238;
+  font-size: 0.7rem;
+}
+
+.workspace-subtab.is-active {
+  border-color: #2f7d3f;
+  background: #d8f0d9;
+  color: #194c25;
+}
+
+.workspace-content {
+  display: none;
+  overflow: hidden;
+  min-height: 560px;
+  border: 1px solid #c8e6c8;
+  border-radius: 0 0 18px 18px;
+  background: linear-gradient(145deg, #f0f7f0, #e8f5e9);
+  box-shadow: 0 16px 35px rgba(29, 79, 37, 0.11);
+}
+
+.integrated-workspace.is-open .workspace-content {
+  display: block;
+}
+
+.workspace-content iframe {
+  display: block;
+  width: 100%;
+  height: min(68vh, 720px);
+  min-height: 560px;
+  border: 0;
+  background: transparent;
+}
+
+.marketplace-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 1360px;
+  margin: 18px auto 0;
+  padding: 0 20px;
+  color: #4d6b53;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.marketplace-divider::before,
+.marketplace-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #c8e6c8;
+}
+
+.marketplace-bottom-nav {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 36px);
+  overflow-x: auto;
+  padding: 7px;
+  border: 1px solid #b9d8bc;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 12px 30px rgba(20, 69, 29, 0.18);
+  backdrop-filter: blur(12px);
+}
+
+.marketplace-bottom-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #315e3a;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.marketplace-bottom-nav button:hover,
+.marketplace-bottom-nav button.is-active {
+  background: #e3f3e4;
+  color: #175526;
+}
+
+/* The signed-in marketplace header deliberately exposes Logout only. */
+#userBadge {
+  display: none !important;
+}
+
+body.workspace-active .marketplace-container {
+  padding-bottom: 108px;
+}
+
+/* A richer, friendlier account workspace without adding height. */
+.workspace-heading {
+  border-color: #b7d7c0;
+  background: radial-gradient(circle at 88% 5%, rgba(250, 204, 21, .35), transparent 28%), linear-gradient(125deg, #124a3a, #1c6a4f 58%, #287a66);
+  box-shadow: 0 9px 20px rgba(19, 78, 58, .12);
+}
+.workspace-kicker { color: #fef3c7; }
+.workspace-heading h2 { color: #fff; }
+.workspace-tabs { border-color: #b7d7c0; background: linear-gradient(90deg, #fffdf3, #ecf8ef); }
+.workspace-tab.is-active { border-bottom-color: #eab308; background: linear-gradient(135deg, #237344, #17624d); }
+
+@media (max-width: 720px) {
+  .integrated-workspace {
+    padding: 12px 10px 4px;
+  }
+
+  .workspace-heading {
+    align-items: center;
+    padding: 15px 16px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .workspace-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .workspace-tabs {
+    display: none;
+    flex-wrap: wrap;
+    align-items: stretch;
+    padding: 10px;
+  }
+
+  .workspace-tabs.is-expanded {
+    display: flex;
+  }
+
+  .workspace-tab {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 120px;
+    border: 1px solid #c8e6c8;
+    border-radius: 9px;
+  }
+
+  .workspace-tab.is-active {
+    border-color: #2f7d3f;
+  }
+
+  .workspace-subtabs {
+    padding: 8px 10px;
+  }
+
+  .workspace-content {
+    min-height: 520px;
+    border-radius: 0 0 14px 14px;
+  }
+
+  .workspace-content iframe {
+    height: 62vh;
+    min-height: 520px;
+  }
+
+  .marketplace-bottom-nav {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    justify-content: flex-start;
+    max-width: none;
+    border-radius: 14px;
+  }
+
+  .marketplace-bottom-nav button {
+    flex: 1 0 auto;
+    justify-content: center;
+    min-width: 88px;
+  }
+}

@@ -726,3 +726,18 @@
   border-radius: 12px;
   display: inline-block;
 }
+/* Cart is also rendered inside the Marketplace workspace after login. */
+html.embedded .header { display: none !important; }
+html.embedded .cart-page { max-width: none; margin: 0; padding: 18px; }
+html.embedded .back-link { display: none; }
+
+/* Empty-cart discovery: customers choose a business before products. */
+.business-recommendation-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
+.business-recommendation-card { overflow:hidden; border:1px solid #e2e8f0; border-radius:10px; background:#fff; color:#0f172a; text-decoration:none; transition:transform .18s ease,box-shadow .18s ease; }
+.business-recommendation-card:hover { transform:translateY(-2px); box-shadow:0 8px 18px rgba(15,23,42,.12); }
+.business-recommendation-card img, .business-recommendation-card .business-recommendation-image { display:block; width:100%; height:104px; object-fit:cover; background:#f1f5f9; }
+.business-recommendation-card .business-recommendation-image { display:grid; place-items:center; font-size:1.6rem; }
+.business-recommendation-info { padding:9px 10px; }
+.business-recommendation-name { overflow:hidden; font-size:.8rem; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.business-recommendation-location { margin-top:3px; color:#64748b; font-size:.68rem; }
+.business-recommendation-meta { display:flex; gap:8px; margin-top:5px; color:#475569; font-size:.66rem; }

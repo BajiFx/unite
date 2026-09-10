@@ -21,6 +21,16 @@ router.get('/', cacheMiddleware(300), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM shop LIMIT 1');
     if (result.rows.length === 0) {
+      const businessResult = await pool.query('SELECT * FROM businesses WHERE is_active = true ORDER BY id LIMIT 1');
+      if (businessResult.rows.length > 0) {
+        const business = businessResult.rows[0];
+        return res.json({
+          ...business,
+          name: business.business_name,
+          base_url: process.env.BASE_URL || ''
+        });
+      }
+
       // Return default shop data instead of error
       return res.json({
         id: 1,
@@ -66,6 +76,20 @@ router.get('/', cacheMiddleware(300), async (req, res) => {
     res.json({ ...row, heroImage });
   } catch (err) {
     console.error('❌ Shop GET error:', err);
+    try {
+      const businessResult = await pool.query('SELECT * FROM businesses WHERE is_active = true ORDER BY id LIMIT 1');
+      if (businessResult.rows.length > 0) {
+        const business = businessResult.rows[0];
+        return res.json({
+          ...business,
+          name: business.business_name,
+          base_url: process.env.BASE_URL || ''
+        });
+      }
+    } catch (businessError) {
+      console.error('❌ Business compatibility lookup error:', businessError);
+    }
+
     // Return default shop data on error
     res.json({
       id: 1,

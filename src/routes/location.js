@@ -1,10 +1,10 @@
-﻿// ============================================================
+// ============================================================
 //  LOCATION ROUTES - Complete Fixed Version
-//  Location: D:\my-business-website\src\routes\location.js
+//  Location: src/routes/location.js
 // ============================================================
 
 const express = require('express');
-const { pool } = require('../config/database');
+const { pool, logError } = require('../config/database');
 const { authMiddleware, adminOnly, customerOnly } = require('../middleware/auth');
 const router = express.Router();
 
@@ -24,6 +24,7 @@ router.get('/admin/requests', authMiddleware, adminOnly, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Location requests error:', err);
+    logError(err, 'Location requests');
     res.status(500).json({ error: err.message });
   }
 });
@@ -45,6 +46,7 @@ router.post('/admin/requests/:id/approve', authMiddleware, adminOnly, async (req
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Approve location error:', err);
+    logError(err, 'Approve location');
     res.status(500).json({ error: err.message });
   }
 });
@@ -60,17 +62,24 @@ router.post('/admin/requests/:id/reject', authMiddleware, adminOnly, async (req,
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Reject location error:', err);
+    logError(err, 'Reject location');
     res.status(500).json({ error: err.message });
   }
 });
 
 // ============================================================
-//  CUSTOMER - REQUEST LOCATION
+//  CUSTOMER - REQUEST LOCATION - FIXED
 // ============================================================
 
 router.post('/customer/request', authMiddleware, customerOnly, async (req, res) => {
-  const customerId = req.userId;
   try {
+    const customerId = req.userId;
+
+    // Validate customerId
+    if (!customerId || customerId === req.email) {
+      return res.status(400).json({ error: 'Invalid user session' });
+    }
+
     const existing = await pool.query(
       'SELECT * FROM location_requests WHERE customer_id = $1 AND status = $2',
       [customerId, 'pending']
@@ -78,7 +87,7 @@ router.post('/customer/request', authMiddleware, customerOnly, async (req, res) 
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'You already have a pending request.' });
     }
-    
+
     const approved = await pool.query(
       'SELECT * FROM location_requests WHERE customer_id = $1 AND status = $2',
       [customerId, 'approved']
@@ -86,11 +95,12 @@ router.post('/customer/request', authMiddleware, customerOnly, async (req, res) 
     if (approved.rows.length > 0) {
       return res.json({ success: true, alreadyApproved: true });
     }
-    
+
     await pool.query('INSERT INTO location_requests (customer_id, status) VALUES ($1, $2)', [customerId, 'pending']);
     res.json({ success: true, message: 'Request sent. Awaiting admin approval.' });
   } catch (err) {
     console.error('❌ Request location error:', err);
+    logError(err, 'Request location');
     res.status(500).json({ error: err.message });
   }
 });
@@ -100,21 +110,26 @@ router.post('/customer/request', authMiddleware, customerOnly, async (req, res) 
 // ============================================================
 
 router.get('/customer/status', authMiddleware, customerOnly, async (req, res) => {
-  const customerId = req.userId;
   try {
-    // First check if location_requests table exists
+    const customerId = req.userId;
+
+    // Validate customerId
+    if (!customerId || customerId === req.email) {
+      return res.json({ status: 'none' });
+    }
+
+    // Check if location_requests table exists
     const tableCheck = await pool.query(`
       SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_name = 'location_requests'
       )
     `);
-    
+
     if (!tableCheck.rows[0].exists) {
-      // Table doesn't exist - return 'none' status
       return res.json({ status: 'none' });
     }
-    
+
     const result = await pool.query(
       'SELECT status FROM location_requests WHERE customer_id = $1 ORDER BY updated_at DESC LIMIT 1',
       [customerId]
@@ -123,7 +138,7 @@ router.get('/customer/status', authMiddleware, customerOnly, async (req, res) =>
     res.json({ status });
   } catch (err) {
     console.error('❌ Location status error:', err);
-    // Return 'none' instead of error to prevent frontend breaking
+    logError(err, 'Location status');
     res.json({ status: 'none' });
   }
 });
@@ -147,6 +162,7 @@ router.post('/admin/toggle', authMiddleware, adminOnly, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Toggle location error:', err);
+    logError(err, 'Toggle location');
     res.status(500).json({ error: err.message });
   }
 });
@@ -168,6 +184,7 @@ router.post('/admin/update', authMiddleware, adminOnly, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Update location error:', err);
+    logError(err, 'Update location');
     res.status(500).json({ error: err.message });
   }
 });

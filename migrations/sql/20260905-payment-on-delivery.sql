@@ -1,0 +1,36 @@
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS online_payment_enabled BOOLEAN DEFAULT TRUE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS payment_on_delivery_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS require_pod_agreement BOOLEAN DEFAULT TRUE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS allow_replacements BOOLEAN DEFAULT TRUE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS allow_cancellations BOOLEAN DEFAULT TRUE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS allow_returns BOOLEAN DEFAULT TRUE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS allow_refunds BOOLEAN DEFAULT TRUE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS allow_reorders BOOLEAN DEFAULT TRUE;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS cancellation_hours INTEGER DEFAULT 24;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS return_days INTEGER DEFAULT 14;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS pod_agreement_text TEXT;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20) DEFAULT 'online';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS pod_agreement_signed BOOLEAN DEFAULT FALSE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS pod_agreement_signed_at TIMESTAMP;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS pod_agreement_ip VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_on_delivery BOOLEAN DEFAULT FALSE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_on_delivery_at TIMESTAMP;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_on_delivery_method VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS replacement_requested BOOLEAN DEFAULT FALSE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS return_requested BOOLEAN DEFAULT FALSE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_requested BOOLEAN DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS pod_agreements (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE UNIQUE,
+    business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
+    agreement_text TEXT NOT NULL,
+    ip_address VARCHAR(50),
+    user_agent TEXT,
+    signed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_payment_mode ON orders(payment_mode);
+CREATE INDEX IF NOT EXISTS idx_pod_agreements_business_id ON pod_agreements(business_id);

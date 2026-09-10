@@ -58,7 +58,7 @@ function initMap(userLat, userLng) {
     const userIcon = L.divIcon({ className: 'user-marker', html: '🧑‍🦯', iconSize: [30, 30] });
     userMarker = L.marker([userLat, userLng], { icon: userIcon }).addTo(map).bindPopup('You are here');
     map.setView([userLat, userLng], 15);
-    
+
     updateInfo(userLat, userLng);
     drawRoute(userLat, userLng);
 }

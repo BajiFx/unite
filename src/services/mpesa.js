@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 //  mpesa.js - M-Pesa Integration with Simulation Mode
 //  Location: D:\my-business-website\src\services\mpesa.js
 // ================================================================
@@ -30,8 +30,8 @@ async function getMpesaAccessToken() {
   const consumerSecret = process.env.MPESA_CONSUMER_SECRET;
 
   // Check if credentials are configured
-  if (!consumerKey || !consumerSecret || 
-      consumerKey === 'YOUR_CONSUMER_KEY_HERE' || 
+  if (!consumerKey || !consumerSecret ||
+      consumerKey === 'YOUR_CONSUMER_KEY_HERE' ||
       consumerKey === 'your_consumer_key_here') {
     console.warn('⚠️ M-Pesa credentials not configured. Using simulation mode.');
     return null;
@@ -40,7 +40,8 @@ async function getMpesaAccessToken() {
   try {
     const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
     const response = await retryOperation(async () => {
-      const res = await fetch('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
+      const baseUrl = process.env.MPESA_ENVIRONMENT === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
+      const res = await fetch(`${baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
         method: 'GET',
         headers: {
           'Authorization': `Basic ${auth}`,
@@ -68,11 +69,11 @@ async function getMpesaAccessToken() {
 }
 
 // ---- Initiate M-Pesa STK Push ----
-async function initiateMpesaStkPush(phoneNumber, amount, accountReference, transactionDesc = 'Payment for order') {
+async function initiateMpesaStkPush(phoneNumber, amount, accountReference, transactionDesc = 'Payment for order', options = {}) {
   try {
     // Get access token
     const accessToken = await retryOperation(() => getMpesaAccessToken());
-    
+
     // If no token, use simulation mode
     if (!accessToken) {
       console.warn('⚠️ Using M-Pesa simulation mode');
@@ -85,7 +86,8 @@ async function initiateMpesaStkPush(phoneNumber, amount, accountReference, trans
       };
     }
 
-    const shortcode = process.env.MPESA_SHORTCODE || '174379';
+    const paymentType = ['paybill', 'till', 'pochi'].includes(options.paymentType) ? options.paymentType : 'paybill';
+    const shortcode = options.shortcode || process.env.MPESA_SHORTCODE || '174379';
     const passkey = process.env.MPESA_PASSKEY;
     const callbackUrl = getCallbackUrl('mpesa');
 
@@ -127,13 +129,13 @@ async function initiateMpesaStkPush(phoneNumber, amount, accountReference, trans
       BusinessShortCode: shortcode,
       Password: password,
       Timestamp: timestamp,
-      TransactionType: 'CustomerPayBillOnline',
+      TransactionType: paymentType === 'paybill' ? 'CustomerPayBillOnline' : 'CustomerBuyGoodsOnline',
       Amount: Math.round(amount),
       PartyA: formattedPhone,
       PartyB: shortcode,
       PhoneNumber: formattedPhone,
       CallBackURL: callbackUrl,
-      AccountReference: accountReference || `ORD-${Date.now()}`,
+      AccountReference: options.accountReference || accountReference || `ORD-${Date.now()}`,
       TransactionDesc: transactionDesc || 'Payment for order'
     };
 
@@ -144,7 +146,8 @@ async function initiateMpesaStkPush(phoneNumber, amount, accountReference, trans
 
     // Make the API call
     const response = await retryOperation(async () => {
-      const res = await fetch('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
+      const baseUrl = process.env.MPESA_ENVIRONMENT === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
+      const res = await fetch(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -152,7 +155,7 @@ async function initiateMpesaStkPush(phoneNumber, amount, accountReference, trans
         },
         body: JSON.stringify(requestBody)
       });
-      
+
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`STK Push failed: ${res.status} - ${text}`);
@@ -195,7 +198,7 @@ async function initiateMpesaStkPush(phoneNumber, amount, accountReference, trans
 async function queryMpesaStatus(checkoutRequestId) {
   try {
     const accessToken = await getMpesaAccessToken();
-    
+
     if (!accessToken) {
       return {
         success: false,
@@ -206,7 +209,7 @@ async function queryMpesaStatus(checkoutRequestId) {
 
     const shortcode = process.env.MPESA_SHORTCODE || '174379';
     const passkey = process.env.MPESA_PASSKEY;
-    
+
     if (!passkey || passkey === 'YOUR_PASSKEY_HERE') {
       return {
         success: false,
@@ -233,7 +236,7 @@ async function queryMpesaStatus(checkoutRequestId) {
     });
 
     const data = await response.json();
-    
+
     return {
       success: true,
       data: data
@@ -249,8 +252,8 @@ async function queryMpesaStatus(checkoutRequestId) {
 }
 
 // ---- Export ----
-module.exports = { 
-  getMpesaAccessToken, 
+module.exports = {
+  getMpesaAccessToken,
   initiateMpesaStkPush,
   queryMpesaStatus
 };

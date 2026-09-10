@@ -1,4 +1,4 @@
-﻿const { pool, logError } = require('../config/database');
+const { pool, logError } = require('../config/database');
 const { getCallbackUrl } = require('../utils/helpers');
 const { MAX_RETRY_ATTEMPTS, RETRY_DELAY_MS } = require('../utils/constants');
 
@@ -61,7 +61,7 @@ async function getAirtelAccessToken() {
 async function initiateAirtelPayment(phoneNumber, amount, accountReference, transactionDesc = 'Payment for order') {
   try {
     const accessToken = await retryOperation(() => getAirtelAccessToken());
-    
+
     if (!accessToken) {
       console.warn('⚠️ Using Airtel simulation mode');
       return {

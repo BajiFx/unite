@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const { pool, logError } = require('../config/database');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const router = express.Router();
@@ -8,16 +8,16 @@ router.get('/admin', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { period = 'week' } = req.query;
     const interval = period === 'week' ? '7 days' : period === 'month' ? '30 days' : '1 day';
-    
+
     const revenueResult = await pool.query(
       `SELECT DATE(created_at) as date, SUM(total) as revenue, COUNT(*) as orders
-       FROM orders 
+       FROM orders
        WHERE status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')
        AND created_at > NOW() - INTERVAL '${interval}'
        GROUP BY DATE(created_at)
        ORDER BY date ASC`
     );
-    
+
     const topProducts = await pool.query(
       `SELECT oi.product_name, SUM(oi.quantity) as total_sold, SUM(oi.quantity * CAST(REPLACE(oi.price, 'Ksh ', '') AS DECIMAL)) as revenue
        FROM order_items oi
@@ -28,30 +28,30 @@ router.get('/admin', authMiddleware, adminOnly, async (req, res) => {
        ORDER BY total_sold DESC
        LIMIT 10`
     );
-    
+
     const customerStats = await pool.query(
       `SELECT COUNT(*) as total_customers,
        COUNT(CASE WHEN created_at > NOW() - INTERVAL '${interval}' THEN 1 END) as new_customers
        FROM customers`
     );
-    
+
     const orderStats = await pool.query(
       `SELECT status, COUNT(*) as count
        FROM orders
        GROUP BY status`
     );
-    
+
     const refundStats = await pool.query(
       `SELECT refund_status, COUNT(*) as count
        FROM orders
        WHERE refund_status IS NOT NULL AND refund_status != 'none'
        GROUP BY refund_status`
     );
-    
+
     const lowStock = await pool.query(
       `SELECT id, name, stock FROM products WHERE stock < 10 ORDER BY stock ASC LIMIT 20`
     );
-    
+
     res.json({
       period,
       revenue: revenueResult.rows,
@@ -63,7 +63,7 @@ router.get('/admin', authMiddleware, adminOnly, async (req, res) => {
       totalOrders: revenueResult.rows.reduce((sum, row) => sum + parseInt(row.orders || 0), 0),
       lowStock: lowStock.rows
     });
-    
+
   } catch (err) {
     console.error('❌ Analytics error:', err);
     logError(err, 'Analytics');

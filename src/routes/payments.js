@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const { body, validationResult } = require('express-validator');
 const fs = require('fs');
 const path = require('path');
@@ -49,10 +49,10 @@ router.post('/mpesa-callback', async (req, res) => {
     const isSuccess = resultCode === '0';
 
     const paymentResult = await pool.query(`
-      SELECT id, order_id, customer_id 
-      FROM payments 
+      SELECT id, order_id, customer_id
+      FROM payments
       WHERE transaction_id = $1 OR (payment_details->>'checkoutRequestId' = $1)
-      ORDER BY created_at DESC 
+      ORDER BY created_at DESC
       LIMIT 1
     `, [checkoutRequestId]);
 
@@ -61,8 +61,8 @@ router.post('/mpesa-callback', async (req, res) => {
       const orderId = payment.order_id;
 
       await pool.query(`
-        UPDATE payments 
-        SET status = $1, 
+        UPDATE payments
+        SET status = $1,
             transaction_id = COALESCE($2, transaction_id),
             payment_details = payment_details || $3
         WHERE id = $4
@@ -84,8 +84,8 @@ router.post('/mpesa-callback', async (req, res) => {
 
       if (isSuccess && orderId) {
         await pool.query(`
-          UPDATE orders 
-          SET payment_status = 'paid', 
+          UPDATE orders
+          SET payment_status = 'paid',
               status = 'pending'
           WHERE id = $1 AND status = 'pending_payment'
         `, [orderId]);
@@ -147,7 +147,7 @@ router.post('/mpesa/initiate', authMiddleware, sensitiveLimiter, [
   }
 
   try {
-    const { phone, amount, orderId } = req.body;
+    const { phone, amount, orderId, payment_type } = req.body;
     const customerId = req.userId;
 
     if (amount < 1) {
@@ -175,7 +175,12 @@ router.post('/mpesa/initiate', authMiddleware, sensitiveLimiter, [
       actualOrderId = orderResult.rows[0].id;
     }
 
-    const stkResult = await initiateMpesaStkPush(phone, amount, orderRef);
+    const businessResult = actualOrderId ? await pool.query(`SELECT b.mpesa_payment_type, b.mpesa_paybill_number, b.mpesa_paybill_account, b.mpesa_till_number, b.pochi_la_biashara_number FROM orders o JOIN businesses b ON b.id = o.business_id WHERE o.id = $1`, [actualOrderId]) : { rows: [] };
+    const paymentSettings = businessResult.rows[0] || {};
+    const type = payment_type || paymentSettings.mpesa_payment_type || 'paybill';
+    if (!['paybill', 'till', 'pochi'].includes(type)) return res.status(400).json({ error: 'Invalid payment type' });
+    const shortcode = type === 'paybill' ? paymentSettings.mpesa_paybill_number : type === 'till' ? paymentSettings.mpesa_till_number : paymentSettings.pochi_la_biashara_number;
+    const stkResult = await initiateMpesaStkPush(phone, amount, orderRef, 'Payment for order', { paymentType: type, shortcode, accountReference: type === 'paybill' ? paymentSettings.mpesa_paybill_account || orderRef : orderRef });
 
     if (stkResult.success) {
       const paymentResult = await pool.query(`
@@ -189,6 +194,10 @@ router.post('/mpesa/initiate', authMiddleware, sensitiveLimiter, [
         stkResult.checkoutRequestId || `SIM-${Date.now()}`,
         JSON.stringify({
           phone: phone,
+          payment_type: type,
+          shortcode: shortcode || process.env.MPESA_SHORTCODE || '174379',
+          account_reference: type === 'paybill' ? paymentSettings.mpesa_paybill_account || orderRef : orderRef,
+          transaction_type: type === 'paybill' ? 'CustomerPayBillOnline' : 'CustomerBuyGoodsOnline',
           checkoutRequestId: stkResult.checkoutRequestId,
           isSimulation: stkResult.isSimulation || false
         })
@@ -230,7 +239,7 @@ router.get('/mpesa/status/:checkoutRequestId', authMiddleware, async (req, res) 
 
     if (checkoutRequestId.startsWith('SIM-')) {
       const paymentResult = await pool.query(`
-        SELECT status FROM payments 
+        SELECT status FROM payments
         WHERE transaction_id = $1
       `, [checkoutRequestId]);
 
@@ -272,15 +281,15 @@ router.get('/mpesa/status/:checkoutRequestId', authMiddleware, async (req, res) 
     });
 
     const data = await response.json();
-    
+
     const paymentResult = await pool.query(`
-      SELECT id FROM payments 
+      SELECT id FROM payments
       WHERE transaction_id = $1 OR (payment_details->>'checkoutRequestId' = $1)
     `, [checkoutRequestId]);
 
     if (paymentResult.rows.length > 0) {
       await pool.query(`
-        UPDATE payments 
+        UPDATE payments
         SET payment_details = payment_details || $1
         WHERE id = $2
       `, [
@@ -326,7 +335,7 @@ router.post('/mpesa/save-credentials', authMiddleware, async (req, res) => {
 
     const envPath = path.join(process.cwd(), '.env');
     let envContent = '';
-    
+
     if (fs.existsSync(envPath)) {
       envContent = fs.readFileSync(envPath, 'utf8');
     }
@@ -533,10 +542,10 @@ router.post('/airtel-callback', async (req, res) => {
     const status = body.status || body.transaction_status || body.state || body.resultCode;
     const orderRef = body.reference || body.accountReference || body.external_id;
 
-    const isSuccess = 
-      status === 'success' || 
-      status === 'completed' || 
-      status === 'SUCCESS' || 
+    const isSuccess =
+      status === 'success' ||
+      status === 'completed' ||
+      status === 'SUCCESS' ||
       status === 'approved' ||
       status === 'APPROVED' ||
       status === '00';
@@ -559,15 +568,15 @@ router.post('/airtel-callback', async (req, res) => {
     const orderId = orderResult.rows[0].id;
 
     await pool.query(`
-      UPDATE payments 
-      SET status = $1, 
+      UPDATE payments
+      SET status = $1,
           transaction_id = COALESCE($2, transaction_id),
           payment_details = payment_details || $3
       WHERE order_id = $4 AND method = 'airtel'
     `, [
       isSuccess ? 'success' : 'failed',
       transactionId || uuidv4(),
-      JSON.stringify({ 
+      JSON.stringify({
         callback: body,
         callbackReceivedAt: new Date().toISOString()
       }),
@@ -576,8 +585,8 @@ router.post('/airtel-callback', async (req, res) => {
 
     if (isSuccess) {
       await pool.query(`
-        UPDATE orders 
-        SET payment_status = 'paid', 
+        UPDATE orders
+        SET payment_status = 'paid',
             status = 'pending'
         WHERE id = $1 AND status = 'pending_payment'
       `, [orderId]);
@@ -638,7 +647,7 @@ router.get('/airtel/status/:transactionId', authMiddleware, async (req, res) => 
 
     if (transactionId.startsWith('SIM-AIRTEL-')) {
       const paymentResult = await pool.query(`
-        SELECT status FROM payments 
+        SELECT status FROM payments
         WHERE transaction_id = $1
       `, [transactionId]);
 
@@ -675,7 +684,7 @@ router.get('/airtel/status/:transactionId', authMiddleware, async (req, res) => 
     const data = await response.json();
 
     const paymentResult = await pool.query(`
-      SELECT id FROM payments 
+      SELECT id FROM payments
       WHERE transaction_id = $1
     `, [transactionId]);
 
@@ -707,21 +716,21 @@ router.post('/paypal/create-order', authMiddleware, async (req, res) => {
     const { amount, orderId, currency = 'KES' } = req.body;
     const paypalClient = getPaypalClient();
     const paypal = require('@paypal/checkout-server-sdk');
-    
+
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Invalid amount' });
     }
-    
+
     if (!paypalClient) {
       const transactionId = `SIM-PAYPAL-${uuidv4().substring(0, 8)}`;
-      
+
       const paymentResult = await pool.query(
         `INSERT INTO payments (customer_id, order_id, amount, method, status, transaction_id, payment_details)
          VALUES ($1, $2, $3, 'paypal', 'pending', $4, $5)
          RETURNING *`,
         [req.userId, orderId || null, amount, transactionId, JSON.stringify({ isSimulation: true })]
       );
-      
+
       return res.json({
         success: true,
         orderId: paymentResult.rows[0].id,
@@ -731,7 +740,7 @@ router.post('/paypal/create-order', authMiddleware, async (req, res) => {
         message: 'PayPal payment simulated successfully'
       });
     }
-    
+
     const request = new paypal.orders.OrdersCreateRequest();
     request.prefer('return=representation');
     request.requestBody({
@@ -752,17 +761,17 @@ router.post('/paypal/create-order', authMiddleware, async (req, res) => {
         cancel_url: `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment-cancel.html`
       }
     });
-    
+
     const response = await paypalClient.execute(request);
     const approvalUrl = response.result.links.find(link => link.rel === 'approve').href;
-    
+
     const paymentResult = await pool.query(
       `INSERT INTO payments (customer_id, order_id, amount, method, status, transaction_id, payment_details)
        VALUES ($1, $2, $3, 'paypal', 'pending', $4, $5)
        RETURNING *`,
       [req.userId, orderId || null, amount, response.result.id, JSON.stringify({ paypalOrder: response.result })]
     );
-    
+
     res.json({
       success: true,
       orderId: paymentResult.rows[0].id,
@@ -770,7 +779,7 @@ router.post('/paypal/create-order', authMiddleware, async (req, res) => {
       approvalUrl: approvalUrl,
       isSimulation: false
     });
-    
+
   } catch (error) {
     console.error('❌ PayPal order creation error:', error);
     res.status(500).json({ error: 'Failed to create PayPal order: ' + error.message });
@@ -786,16 +795,16 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
     const { orderId, paypalOrderId } = req.body;
     const paypalClient = getPaypalClient();
     const paypal = require('@paypal/checkout-server-sdk');
-    
+
     if (!orderId || !paypalOrderId) {
       return res.status(400).json({ error: 'Order ID and PayPal Order ID required' });
     }
-    
+
     const paymentCheck = await pool.query(
       `SELECT * FROM payments WHERE transaction_id = $1 AND customer_id = $2`,
       [paypalOrderId, req.userId]
     );
-    
+
     if (paymentCheck.rows.length > 0 && paymentCheck.rows[0].payment_details?.isSimulation) {
       await pool.query(
         `UPDATE payments SET status = 'success' WHERE id = $1`,
@@ -803,36 +812,36 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
       );
       return res.json({ success: true, message: 'Simulation payment captured' });
     }
-    
+
     if (!paypalClient) {
       return res.status(400).json({ error: 'PayPal not configured' });
     }
-    
+
     const request = new paypal.orders.OrdersCaptureRequest(paypalOrderId);
     request.requestBody({});
-    
+
     const response = await paypalClient.execute(request);
-    
+
     if (response.result.status === 'COMPLETED') {
       await pool.query(
-        `UPDATE payments SET status = 'success', payment_details = payment_details || $1 
+        `UPDATE payments SET status = 'success', payment_details = payment_details || $1
          WHERE transaction_id = $2`,
         [JSON.stringify({ captureResult: response.result }), paypalOrderId]
       );
-      
+
       const orderResult = await pool.query(
         `SELECT id FROM orders WHERE id = $1`,
         [orderId]
       );
-      
+
       if (orderResult.rows.length > 0) {
         await pool.query(
-          `UPDATE orders SET payment_status = 'paid', status = 'pending' 
+          `UPDATE orders SET payment_status = 'paid', status = 'pending'
            WHERE id = $1 AND status = 'pending_payment'`,
           [orderId]
         );
         await appendOrderStatus(orderId, 'pending', 'PayPal payment successful. Order confirmed.');
-        
+
         try {
           const orderWithCustomer = await pool.query(
             `SELECT o.*, c.name AS customer_name, c.email AS customer_email
@@ -841,7 +850,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
              WHERE o.id = $1`,
             [orderId]
           );
-          
+
           if (orderWithCustomer.rows.length > 0) {
             const order = orderWithCustomer.rows[0];
             const itemsResult = await pool.query('SELECT * FROM order_items WHERE order_id = $1', [orderId]);
@@ -852,7 +861,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
         } catch (emailError) {
           console.error('⚠️ Email send failed:', emailError.message);
         }
-        
+
         const io = req.app.get('io');
         io.emit('new-order', { orderId });
         io.to(`order_${orderId}`).emit('payment-updated', {
@@ -861,7 +870,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
           transactionId: paypalOrderId
         });
       }
-      
+
       res.json({
         success: true,
         message: 'Payment captured successfully',
@@ -874,7 +883,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
         status: response.result.status
       });
     }
-    
+
   } catch (error) {
     console.error('❌ PayPal capture error:', error);
     res.status(500).json({ error: 'Failed to capture payment: ' + error.message });
@@ -942,7 +951,7 @@ router.post('/initiate', authMiddleware, async (req, res) => {
       if (!validateKenyanPhone(phone)) {
         return res.status(400).json({ error: 'Invalid phone number. Must be a valid Kenyan number.' });
       }
-      
+
       const stkResult = await initiateMpesaStkPush(phone, amount, `ORD-${orderId || Date.now()}`);
 
       if (stkResult.success) {
@@ -982,7 +991,7 @@ router.post('/initiate', authMiddleware, async (req, res) => {
       if (!validateKenyanPhone(phone)) {
         return res.status(400).json({ error: 'Invalid phone number. Must be a valid Kenyan number.' });
       }
-      
+
       const airtelResult = await initiateAirtelPayment(phone, amount, `ORD-${orderId || Date.now()}`);
 
       if (airtelResult.success) {

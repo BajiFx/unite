@@ -101,7 +101,7 @@ async function testMpesaIntegration() {
     console.log('📋 Test 4: Testing STK Push (optional)...');
     const testPhone = process.env.TEST_MPESA_PHONE || '254700000000';
     const testAmount = 1;
-    
+
     console.log(`   Test Phone: ${testPhone}`);
     console.log(`   Test Amount: Ksh ${testAmount}`);
     console.log('   ⚠️ This will send an STK Push to the test phone number');

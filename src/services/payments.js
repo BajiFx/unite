@@ -66,11 +66,11 @@ router.post('/mpesa-callback', async (req, res) => {
     // Find the payment record
     const paymentResult = await pool.query(`
       SELECT id, order_id, customer_id, payment_details
-      FROM payments 
-      WHERE transaction_id = $1 
+      FROM payments
+      WHERE transaction_id = $1
          OR (payment_details->>'checkoutRequestId' = $1)
          OR (payment_details->>'checkoutRequestID' = $1)
-      ORDER BY created_at DESC 
+      ORDER BY created_at DESC
       LIMIT 1
     `, [checkoutRequestId]);
 
@@ -79,17 +79,17 @@ router.post('/mpesa-callback', async (req, res) => {
       // Try to find by merchant request ID
       const altResult = await pool.query(`
         SELECT id, order_id, customer_id
-        FROM payments 
+        FROM payments
         WHERE payment_details->>'merchantRequestId' = $1
-        ORDER BY created_at DESC 
+        ORDER BY created_at DESC
         LIMIT 1
       `, [merchantRequestId]);
-      
+
       if (altResult.rows.length === 0) {
         console.error('❌ No payment found in database');
         return res.status(200).json({ ResultCode: 0, ResultDesc: 'Callback received' });
       }
-      
+
       paymentResult.rows = altResult.rows;
     }
 
@@ -98,8 +98,8 @@ router.post('/mpesa-callback', async (req, res) => {
 
     // Update payment record
     await pool.query(`
-      UPDATE payments 
-      SET status = $1, 
+      UPDATE payments
+      SET status = $1,
           transaction_id = COALESCE($2, transaction_id),
           payment_details = payment_details || $3
       WHERE id = $4
@@ -124,10 +124,10 @@ router.post('/mpesa-callback', async (req, res) => {
     // If payment successful and we have an order ID
     if (isSuccess && orderId) {
       console.log(`✅ Updating order ${orderId} status to pending`);
-      
+
       await pool.query(`
-        UPDATE orders 
-        SET payment_status = 'paid', 
+        UPDATE orders
+        SET payment_status = 'paid',
             status = 'pending',
             updated_at = NOW()
         WHERE id = $1 AND status = 'pending_payment'
@@ -307,7 +307,7 @@ router.get('/mpesa/status/:checkoutRequestId', authMiddleware, async (req, res) 
     // Check if it's a simulation
     if (checkoutRequestId.startsWith('SIM-')) {
       const paymentResult = await pool.query(`
-        SELECT status FROM payments 
+        SELECT status FROM payments
         WHERE transaction_id = $1 OR (payment_details->>'checkoutRequestId' = $1)
       `, [checkoutRequestId]);
 
@@ -332,13 +332,13 @@ router.get('/mpesa/status/:checkoutRequestId', authMiddleware, async (req, res) 
       const data = statusResult.data;
       if (data.ResultCode === '0') {
         const paymentResult = await pool.query(`
-          SELECT id FROM payments 
+          SELECT id FROM payments
           WHERE transaction_id = $1 OR (payment_details->>'checkoutRequestId' = $1)
         `, [checkoutRequestId]);
-        
+
         if (paymentResult.rows.length > 0) {
           await pool.query(`
-            UPDATE payments 
+            UPDATE payments
             SET status = 'success',
                 payment_details = payment_details || $1
             WHERE id = $2
@@ -348,7 +348,7 @@ router.get('/mpesa/status/:checkoutRequestId', authMiddleware, async (req, res) 
           ]);
         }
       }
-      
+
       res.json({
         success: true,
         data: statusResult.data
@@ -386,7 +386,7 @@ router.post('/mpesa/save-credentials', authMiddleware, async (req, res) => {
 
     const envPath = path.join(process.cwd(), '.env');
     let envContent = '';
-    
+
     if (fs.existsSync(envPath)) {
       envContent = fs.readFileSync(envPath, 'utf8');
     }
@@ -458,8 +458,8 @@ router.get('/mpesa/test-connection', authMiddleware, async (req, res) => {
     const consumerKey = process.env.MPESA_CONSUMER_KEY;
     const consumerSecret = process.env.MPESA_CONSUMER_SECRET;
 
-    if (!consumerKey || !consumerSecret || 
-        consumerKey === 'YOUR_CONSUMER_KEY_HERE' || 
+    if (!consumerKey || !consumerSecret ||
+        consumerKey === 'YOUR_CONSUMER_KEY_HERE' ||
         consumerKey === 'your_consumer_key_here') {
       return res.status(400).json({
         success: false,
@@ -508,14 +508,14 @@ router.post('/paypal/create-order', authMiddleware, async (req, res) => {
   try {
     const { amount, orderId, currency = 'KES' } = req.body;
     const customerId = req.userId;
-    
+
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Invalid amount' });
     }
-    
+
     // Create PayPal order
     const result = await createPaypalOrder(amount, orderId, currency);
-    
+
     if (result.success) {
       // Create payment record
       const paymentResult = await pool.query(`
@@ -550,7 +550,7 @@ router.post('/paypal/create-order', authMiddleware, async (req, res) => {
         message: result.message || 'Failed to create PayPal order'
       });
     }
-    
+
   } catch (error) {
     console.error('❌ PayPal order creation error:', error);
     res.status(500).json({ error: 'Failed to create PayPal order: ' + error.message });
@@ -564,17 +564,17 @@ router.post('/paypal/create-order', authMiddleware, async (req, res) => {
 router.post('/paypal/capture', authMiddleware, async (req, res) => {
   try {
     const { orderId, paypalOrderId } = req.body;
-    
+
     if (!orderId || !paypalOrderId) {
       return res.status(400).json({ error: 'Order ID and PayPal Order ID required' });
     }
-    
+
     // Check if it's a simulation
     const paymentCheck = await pool.query(`
-      SELECT * FROM payments 
+      SELECT * FROM payments
       WHERE transaction_id = $1 AND customer_id = $2
     `, [paypalOrderId, req.userId]);
-    
+
     if (paymentCheck.rows.length > 0 && paymentCheck.rows[0].payment_details?.isSimulation) {
       await pool.query(
         `UPDATE payments SET status = 'success' WHERE id = $1`,
@@ -582,14 +582,14 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
       );
       return res.json({ success: true, message: 'Simulation payment captured' });
     }
-    
+
     // Capture actual PayPal order
     const result = await capturePaypalOrder(paypalOrderId);
-    
+
     if (result.success) {
       // Update payment record
       await pool.query(`
-        UPDATE payments 
+        UPDATE payments
         SET status = 'success',
             payment_details = payment_details || $1
         WHERE transaction_id = $2
@@ -597,24 +597,24 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
         JSON.stringify({ captureResult: result.data }),
         paypalOrderId
       ]);
-      
+
       // Update order status
       const orderResult = await pool.query(
         `SELECT id FROM orders WHERE id = $1`,
         [orderId]
       );
-      
+
       if (orderResult.rows.length > 0) {
         await pool.query(`
-          UPDATE orders 
-          SET payment_status = 'paid', 
+          UPDATE orders
+          SET payment_status = 'paid',
               status = 'pending',
               updated_at = NOW()
           WHERE id = $1 AND status = 'pending_payment'
         `, [orderId]);
-        
+
         await appendOrderStatus(orderId, 'pending', 'PayPal payment successful. Order confirmed.');
-        
+
         try {
           const orderWithCustomer = await pool.query(`
             SELECT o.*, c.name AS customer_name, c.email AS customer_email
@@ -622,7 +622,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
             JOIN customers c ON o.customer_id = c.id
             WHERE o.id = $1
           `, [orderId]);
-          
+
           if (orderWithCustomer.rows.length > 0) {
             const order = orderWithCustomer.rows[0];
             const itemsResult = await pool.query(
@@ -636,7 +636,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
         } catch (emailError) {
           console.error('⚠️ Email send failed:', emailError.message);
         }
-        
+
         const io = req.app.get('io');
         io.emit('new-order', { orderId });
         io.to(`order_${orderId}`).emit('payment-updated', {
@@ -645,7 +645,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
           transactionId: paypalOrderId
         });
       }
-      
+
       res.json({
         success: true,
         message: 'Payment captured successfully',
@@ -657,7 +657,7 @@ router.post('/paypal/capture', authMiddleware, async (req, res) => {
         message: result.message || 'Payment capture failed'
       });
     }
-    
+
   } catch (error) {
     console.error('❌ PayPal capture error:', error);
     res.status(500).json({ error: 'Failed to capture payment: ' + error.message });
@@ -776,10 +776,10 @@ router.post('/airtel-callback', async (req, res) => {
     const status = body.status || body.transaction_status || body.state || body.resultCode;
     const orderRef = body.reference || body.accountReference || body.external_id || body.order_ref;
 
-    const isSuccess = 
-      status === 'success' || 
-      status === 'completed' || 
-      status === 'SUCCESS' || 
+    const isSuccess =
+      status === 'success' ||
+      status === 'completed' ||
+      status === 'SUCCESS' ||
       status === 'approved' ||
       status === 'APPROVED' ||
       status === '00';
@@ -804,15 +804,15 @@ router.post('/airtel-callback', async (req, res) => {
 
     // Update payment record
     await pool.query(`
-      UPDATE payments 
-      SET status = $1, 
+      UPDATE payments
+      SET status = $1,
           transaction_id = COALESCE($2, transaction_id),
           payment_details = payment_details || $3
       WHERE order_id = $4 AND method = 'airtel'
     `, [
       isSuccess ? 'success' : 'failed',
       transactionId || null,
-      JSON.stringify({ 
+      JSON.stringify({
         callbackReceivedAt: new Date().toISOString(),
         callback: body
       }),
@@ -821,10 +821,10 @@ router.post('/airtel-callback', async (req, res) => {
 
     if (isSuccess) {
       console.log(`✅ Updating order ${orderId} status to pending (Airtel)`);
-      
+
       await pool.query(`
-        UPDATE orders 
-        SET payment_status = 'paid', 
+        UPDATE orders
+        SET payment_status = 'paid',
             status = 'pending',
             updated_at = NOW()
         WHERE id = $1 AND status = 'pending_payment'

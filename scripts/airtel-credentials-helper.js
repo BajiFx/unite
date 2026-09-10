@@ -27,42 +27,42 @@ async function setupAirtelCredentials() {
   console.log('\n========================================');
   console.log('  AIRTEL MONEY CREDENTIALS SETUP');
   console.log('========================================\n');
-  
+
   console.log('📝 Before you start:');
   console.log('  1. Go to https://developers.airtel.africa/');
   console.log('  2. Create an account if you don\'t have one');
   console.log('  3. Go to "My Apps" and create a new app');
   console.log('  4. Copy your Client ID and Client Secret');
   console.log(`\n🔗 Your callback URL: ${BASE_URL}/api/payments/airtel-callback\n`);
-  
+
   const envPath = path.join(__dirname, '..', '.env');
   let envContent = '';
-  
+
   if (fs.existsSync(envPath)) {
     envContent = fs.readFileSync(envPath, 'utf8');
     console.log('✅ Found existing .env file\n');
   }
-  
+
   console.log('Please enter your Airtel credentials:\n');
-  
+
   const clientId = await question('1. Client ID: ');
   const clientSecret = await question('2. Client Secret: ');
   const environment = await question('3. Environment (sandbox/production): ') || 'sandbox';
-  
+
   console.log('\n📝 Updating .env file...');
-  
+
   const lines = envContent.split('\n');
   const newLines = [];
-  
+
   const airtelKeys = {
     'AIRTEL_CLIENT_ID': clientId,
     'AIRTEL_CLIENT_SECRET': clientSecret,
     'AIRTEL_ENVIRONMENT': environment,
     'AIRTEL_CALLBACK_URL': `${BASE_URL}/api/payments/airtel-callback`
   };
-  
+
   let foundKeys = {};
-  
+
   for (const line of lines) {
     let isKey = false;
     for (const [key, value] of Object.entries(airtelKeys)) {
@@ -77,30 +77,31 @@ async function setupAirtelCredentials() {
       newLines.push(line);
     }
   }
-  
+
   for (const [key, value] of Object.entries(airtelKeys)) {
     if (value && value.trim() && !foundKeys[key]) {
       newLines.push(`${key}=${value}`);
     }
   }
-  
+
   fs.writeFileSync(envPath, newLines.join('\n'));
-  
+
   console.log('✅ .env file updated!\n');
   console.log('📋 Your Airtel configuration:');
   console.log(`   Client ID: ${clientId ? clientId.substring(0, 8) + '...' : 'NOT SET'}`);
   console.log(`   Environment: ${environment}`);
   console.log(`   Callback URL: ${BASE_URL}/api/payments/airtel-callback\n`);
-  
+
   console.log('📝 Next steps:');
   console.log('  1. Start your server: npm start');
   console.log('  2. Test Airtel Money from your frontend\n');
-  
+
   rl.close();
 }
 
 console.log('\n📊 Current Airtel Status:\n');
 
+async function main() {
 const clientId = process.env.AIRTEL_CLIENT_ID;
 const clientSecret = process.env.AIRTEL_CLIENT_SECRET;
 const environment = process.env.AIRTEL_ENVIRONMENT || 'sandbox';
@@ -128,3 +129,10 @@ if (clientId && clientSecret && clientId !== 'your_airtel_client_id_here') {
   console.log('⚠️ Some Airtel credentials are missing or invalid.\n');
   await setupAirtelCredentials();
 }
+}
+
+main().catch(error => {
+  console.error('Airtel credential setup failed:', error.message);
+  rl.close();
+  process.exitCode = 1;
+});

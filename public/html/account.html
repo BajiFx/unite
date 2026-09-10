@@ -4,204 +4,366 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
   <title>My Account</title>
-  
-  <!-- Main Global Styles -->
+
   <link rel="stylesheet" href="/style.css">
-  
-  <!-- External Libraries -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  
-  <!-- Page-Specific Styles -->
   <link rel="stylesheet" href="/css/account.css">
-  
-  <!-- Socket.IO -->
+  <script>
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
+      document.documentElement.classList.add('embedded');
+    }
+  </script>
+
   <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    /* ============================================================
+       OVERRIDE ALL OLD STYLES - FORCE HORIZONTAL LAYOUT
+       ============================================================ */
+
+    /* Force account layout */
+    .account-layout {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0;
+      background: #f8fafc;
+      min-height: 100vh;
+      display: block !important;
+    }
+
+    /* Hide ALL old sidebar elements */
+    .sidebar,
+    .sidebar-overlay,
+    .hamburger,
+    .close-sidebar,
+    .sidebar-header,
+    .sidebar-menu,
+    .menu-item,
+    .menu-label,
+    #sidebar,
+    #sidebarOverlay,
+    .account-header .header-left .hamburger,
+    .account-header .sidebar-toggle {
+      display: none !important;
+    }
+
+    /* Hide old header */
+    .header,
+    .account-header,
+    .index-header {
+      display: none !important;
+    }
+
+    /* Hide old bottom nav */
+    .bottom-nav,
+    .account-bottom-nav,
+    .index-bottom-nav {
+      display: none !important;
+    }
+
+    /* Hide old sidebar toggle button */
+    .embedded-sidebar-toggle {
+      display: none !important;
+    }
+
+    /* Remove any left margin/padding from old sidebar */
+    .account-main-content,
+    .admin-main-content,
+    .main-content {
+      margin-left: 0 !important;
+      padding-top: 0 !important;
+    }
+
+    /* Ensure account content panel shows */
+    .account-content-panel {
+      display: none !important;
+    }
+
+    .account-content-panel.active {
+      display: block !important;
+    }
+
+    /* Ensure horizontal nav shows */
+    .account-nav-horizontal {
+      display: flex !important;
+    }
+
+    /* Ensure top header shows */
+    .account-top-header {
+      display: flex !important;
+    }
+
+    /* Marketplace section */
+    .marketplace-section-account {
+      display: block !important;
+    }
+  </style>
 </head>
 <body>
 
-<!-- ===== HEADER ===== -->
-<div class="header">
-  <div class="header-left">
-    <button class="hamburger" onclick="toggleSidebar()">☰</button>
-    <h1>🛍️ <span id="shopNameHeader">Our Business</span></h1>
-  </div>
-  <div class="header-right">
-    <a href="/">Home</a>
-    <a href="/cart.html" class="cart-link">
-      <i class="fas fa-shopping-cart" style="font-size:1.2rem;"></i>
-      <span id="cartBadge">0</span>
-    </a>
-  </div>
-</div>
+<!-- ============================================================ -->
+<!-- ACCOUNT LAYOUT - HORIZONTAL -->
+<!-- ============================================================ -->
 
-<!-- ===== SIDEBAR ===== -->
-<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+<div class="account-layout" id="accountLayout">
 
-<div class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <h2>👤 My Account</h2>
-    <button class="close-sidebar" onclick="closeSidebar()">✕</button>
+  <!-- ============================================================ -->
+  <!-- TOP HEADER BAR -->
+  <!-- ============================================================ -->
+
+  <div class="account-top-header">
+    <div class="brand">
+      🛍️ <span>Shop Kenya</span>
+    </div>
+    <div class="user-info">
+      <span class="user-name"><i class="fas fa-user-circle"></i> <span id="headerUserName">George Onyango Ochieng</span></span>
+      <span class="user-phone"><i class="fas fa-phone"></i> <span id="headerUserPhone">+254 712 345 678</span></span>
+    </div>
   </div>
-  <div class="sidebar-menu">
-    <div class="menu-label">Main</div>
-    <div class="menu-item active" data-section="dashboard" onclick="navigateTo('dashboard')">
+
+  <!-- ============================================================ -->
+  <!-- HORIZONTAL NAVIGATION BAR -->
+  <!-- ============================================================ -->
+
+  <nav class="account-nav-horizontal" id="accountNav">
+    <button class="hamburger-mobile" onclick="toggleMobileNav()" aria-label="Menu">
+      <i class="fas fa-bars"></i>
+    </button>
+
+    <button class="nav-item active" data-section="dashboard" onclick="navigateToAccount('dashboard')">
       <i class="fas fa-chart-pie"></i> Dashboard
-    </div>
-    <div class="menu-item" data-section="orders" onclick="navigateTo('orders')">
-      <i class="fas fa-box"></i> My Orders
-      <span class="badge" id="orderBadge">0</span>
-    </div>
+    </button>
 
-    <div class="menu-label">Profile</div>
-    <div class="menu-item" data-section="profile" onclick="navigateTo('profile')">
+    <button class="nav-item" data-section="profile" onclick="navigateToAccount('profile')">
       <i class="fas fa-user"></i> My Profile
-    </div>
-    <div class="menu-item" data-section="addresses" onclick="navigateTo('addresses')">
+    </button>
+
+    <button class="nav-item" data-section="orders" onclick="navigateToAccount('orders')">
+      <i class="fas fa-box"></i> My Orders
+      <span class="badge" id="orderBadgeNav">0</span>
+    </button>
+
+    <button class="nav-item" data-section="addresses" onclick="navigateToAccount('addresses')">
       <i class="fas fa-map-marker-alt"></i> Addresses
-    </div>
+    </button>
 
-    <div class="menu-label">Payments</div>
-    <div class="menu-item" data-section="payments" onclick="navigateTo('payments')">
-      <i class="fas fa-credit-card"></i> Payment History
-    </div>
+    <button class="nav-item" data-section="payments" onclick="navigateToAccount('payments')">
+      <i class="fas fa-credit-card"></i> Payments
+    </button>
 
-    <div class="menu-label">Shop</div>
-    <div class="menu-item" onclick="window.location.href='/'">
-      <i class="fas fa-store"></i> Continue Shopping
-    </div>
-    <div class="menu-item" onclick="window.location.href='/cart.html'">
-      <i class="fas fa-shopping-cart"></i> View Cart
-      <span class="badge green" id="sidebarCartBadge">0</span>
-    </div>
+    <button class="nav-item cart" data-section="cart" onclick="navigateToAccount('cart')">
+      <i class="fas fa-shopping-cart"></i> Cart
+      <span class="badge green" id="cartBadgeNav">0</span>
+    </button>
 
-    <div class="menu-label">Account</div>
-    <div class="menu-item" onclick="logout()" style="color:#ef4444;">
+    <button class="nav-item messages" data-section="messages" onclick="navigateToAccount('messages')">
+      <i class="fas fa-envelope"></i> Messages
+      <span class="badge orange" id="messageBadgeNav">0</span>
+    </button>
+
+    <button class="nav-item logout" onclick="logout()">
       <i class="fas fa-sign-out-alt"></i> Logout
-    </div>
-    <div class="menu-item" onclick="deleteAccount()" style="color:#ef4444;">
-      <i class="fas fa-trash"></i> Delete Account
-    </div>
-  </div>
-</div>
+    </button>
+  </nav>
 
-<!-- ===== MAIN CONTENT ===== -->
-<div class="account-main-content" id="mainContent">
+  <!-- ============================================================ -->
+  <!-- CONTENT PANEL - SOFT GREEN BACKGROUND -->
+  <!-- ============================================================ -->
 
-  <!-- Dashboard Section -->
-  <div class="section active" id="section-dashboard">
-    <div class="section-header">
-      <h2>📊 Dashboard</h2>
-      <button class="btn btn-primary btn-sm" onclick="loadCustomerDashboard()"><i class="fas fa-sync-alt"></i> Refresh</button>
+  <!-- ===== DASHBOARD PANEL ===== -->
+  <div class="account-content-panel active" id="panel-dashboard">
+    <div class="panel-title">
+      <i class="fas fa-chart-pie"></i> Dashboard
+      <span class="subtitle">Welcome back!</span>
     </div>
 
-    <div class="account-card" id="profileSummary">
-      <div class="profile-header">
-        <div class="avatar" id="avatarInitial">G</div>
-        <div class="profile-info">
-          <h2 id="accountName">Loading...</h2>
-          <p id="accountEmail">Loading...</p>
-          <span class="member-since" id="memberSince">Member since: Loading...</span>
-        </div>
-      </div>
-      <div class="account-actions">
-        <button class="btn btn-success" onclick="navigateTo('orders')"><i class="fas fa-box"></i> My Orders</button>
-        <button class="btn btn-primary" onclick="window.location.href='/cart.html'"><i class="fas fa-shopping-cart"></i> Cart</button>
-        <button class="btn btn-danger" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+    <!-- Stats Grid -->
+    <div class="stats-grid-panel" id="statsGridPanel">
+      <!-- Populated by JavaScript -->
+    </div>
+
+    <!-- Recent Orders -->
+    <h4 id="recentOrdersTitle" style="font-size:0.9rem; font-weight:700; color:#0f172a; margin:16px 0 8px;">
+      <i class="fas fa-clock" style="color:#2e7d32;"></i> Recent Orders
+    </h4>
+    <div id="recentOrdersPanel">
+      <div class="loading-spinner">
+        <i class="fas fa-spinner fa-spin"></i>
+        Loading orders...
       </div>
     </div>
 
-    <div class="account-card">
-      <h3 style="font-size:1rem; font-weight:700; margin:0 0 8px 0;">📊 Your Order Dashboard</h3>
-      <div class="stats-grid" id="customerStatsGrid"></div>
-    </div>
-
-    <div class="account-card">
-      <h3 style="font-size:1rem; font-weight:700; margin:0 0 8px 0;">📋 Recent Orders</h3>
-      <div id="recentOrdersContainer"><p class="empty-msg">Loading orders...</p></div>
-    </div>
   </div>
 
-  <!-- Orders Section -->
-  <div class="section" id="section-orders">
-    <div class="section-header">
-      <h2>📦 My Orders</h2>
-      <button class="btn btn-primary btn-sm" onclick="loadOrdersTable()"><i class="fas fa-sync-alt"></i> Refresh</button>
+  <!-- ===== PROFILE PANEL ===== -->
+  <div class="account-content-panel" id="panel-profile">
+    <div class="panel-title">
+      <i class="fas fa-user"></i> My Profile
+      <span class="subtitle">Update your personal information</span>
     </div>
-    <div class="account-card">
-      <div id="ordersContainer"><p class="empty-msg">Loading orders...</p></div>
-    </div>
-  </div>
 
-  <!-- Profile Section -->
-  <div class="section" id="section-profile">
-    <div class="section-header">
-      <h2>👤 My Profile</h2>
-    </div>
-    <div class="account-card">
+    <div class="profile-form-panel">
       <div class="form-group">
         <label>Full Name</label>
-        <input type="text" id="profileName">
+        <input type="text" id="profileName" placeholder="Your full name">
       </div>
       <div class="form-group">
-        <label>Email</label>
-        <input type="email" id="profileEmail">
+        <label>Email Address</label>
+        <input type="email" id="profileEmail" placeholder="your@email.com">
       </div>
       <div class="form-group">
         <label>Phone Number</label>
-        <input type="tel" id="profilePhone">
+        <input type="tel" id="profilePhone" placeholder="+254 700 000 000">
       </div>
-      <button class="btn btn-primary" onclick="updateProfile()">Update Profile</button>
+      <button class="btn-quick primary" onclick="updateProfile()" style="padding:10px 24px;">
+        <i class="fas fa-save"></i> Update Profile
+      </button>
       <div id="profileStatus" style="margin-top:8px; font-size:0.9rem;"></div>
     </div>
   </div>
 
-  <!-- Addresses Section -->
-  <div class="section" id="section-addresses">
-    <div class="section-header">
-      <h2>📍 Saved Addresses</h2>
-      <button class="btn btn-primary btn-sm" onclick="showAddAddress()"><i class="fas fa-plus"></i> Add Address</button>
+  <!-- ===== ORDERS PANEL ===== -->
+  <div class="account-content-panel" id="panel-orders">
+    <div class="panel-title">
+      <i class="fas fa-box"></i> My Orders
+      <span class="subtitle" id="orderCountLabel">(0 orders)</span>
     </div>
-    <div class="account-card">
-      <div id="addressBookContainer"><p class="empty-msg">Loading addresses...</p></div>
+
+    <div id="ordersPanelContent">
+      <div class="loading-spinner">
+        <i class="fas fa-spinner fa-spin"></i>
+        Loading orders...
+      </div>
     </div>
   </div>
 
-  <!-- Payment History Section -->
-  <div class="section" id="section-payments">
-    <div class="section-header">
-      <h2>💳 Payment History</h2>
-      <button class="btn btn-primary btn-sm" onclick="loadPaymentHistory()"><i class="fas fa-sync-alt"></i> Refresh</button>
+  <!-- ===== ADDRESSES PANEL ===== -->
+  <div class="account-content-panel" id="panel-addresses">
+    <div class="panel-title">
+      <i class="fas fa-map-marker-alt"></i> My Addresses
+      <button class="btn-quick primary" onclick="showAddAddress()" style="padding:6px 16px; font-size:0.75rem; margin-left:auto;">
+        <i class="fas fa-plus"></i> Add Address
+      </button>
     </div>
-    <div class="account-card">
-      <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
-        <table class="payment-table" id="paymentHistoryTable">
-          <thead>
-            <tr>
-              <th style="text-align:left;">Payment Method</th>
-              <th style="text-align:right;">Amount</th>
-              <th style="text-align:center;">Status</th>
-              <th style="text-align:left;">Transaction ID</th>
-              <th style="text-align:left;">Date</th>
-            </tr>
-          </thead>
-          <tbody id="paymentHistoryBody">
-            <tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">Loading payments...</td></tr>
-          </tbody>
-        </table>
+
+    <div id="addressesPanelContent">
+      <div class="loading-spinner">
+        <i class="fas fa-spinner fa-spin"></i>
+        Loading addresses...
       </div>
+    </div>
+  </div>
+
+  <!-- ===== PAYMENTS PANEL ===== -->
+  <div class="account-content-panel" id="panel-payments">
+    <div class="panel-title">
+      <i class="fas fa-credit-card"></i> Payment History
+      <span class="subtitle">All your transactions</span>
+    </div>
+
+    <div id="paymentsPanelContent">
+      <div class="loading-spinner">
+        <i class="fas fa-spinner fa-spin"></i>
+        Loading payments...
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== CART PANEL ===== -->
+  <div class="account-content-panel" id="panel-cart">
+    <div class="panel-title">
+      <i class="fas fa-shopping-cart"></i> Shopping Cart
+      <span class="subtitle" id="cartCountLabel">(0 items)</span>
+    </div>
+
+    <div id="cartPanelContent">
+      <div class="loading-spinner">
+        <i class="fas fa-spinner fa-spin"></i>
+        Loading cart...
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MESSAGES PANEL ===== -->
+  <div class="account-content-panel" id="panel-messages">
+    <div class="panel-title">
+      <i class="fas fa-envelope"></i> Messages
+      <span class="subtitle" id="messageCountLabel">(0 unread)</span>
+    </div>
+
+    <div id="messagesPanelContent">
+      <div class="loading-spinner">
+        <i class="fas fa-spinner fa-spin"></i>
+        Loading messages...
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MARKETPLACE SECTION - ALWAYS VISIBLE BELOW -->
+  <!-- ============================================================ -->
+
+  <div class="marketplace-section-account">
+
+    <div class="marketplace-header">
+      <h2><i class="fas fa-store"></i> Marketplace</h2>
+      <a href="/">View All Businesses <i class="fas fa-arrow-right"></i></a>
+    </div>
+
+    <!-- Search & Filter -->
+    <div class="search-filter-bar-account">
+      <div class="search-wrapper">
+        <input type="search" id="businessSearchAccount" name="account-business-search" placeholder="Search businesses..." autocomplete="off" data-lpignore="true">
+        <button onclick="searchBusinessesAccount()"><i class="fas fa-search"></i> Search</button>
+      </div>
+      <select id="businessCategoryFilterAccount">
+        <option value="all">All Business Categories</option>
+      </select>
+      <select id="sortFilterAccount">
+        <option value="newest">Newest</option>
+        <option value="popular">Most Popular</option>
+        <option value="rating">Highest Rated</option>
+      </select>
+    </div>
+
+    <!-- Featured Businesses -->
+    <h3 style="font-size:0.9rem; font-weight:700; color:#0f172a; margin-bottom:10px;">
+      ⭐ Featured Businesses
+    </h3>
+    <div class="business-grid-account" id="featuredGridAccount">
+      <p style="text-align:center;padding:20px;color:#94a3b8;grid-column:1/-1;">Loading featured businesses...</p>
+    </div>
+
+    <!-- All Businesses -->
+    <h3 style="font-size:0.9rem; font-weight:700; color:#0f172a; margin:16px 0 10px;">
+      📋 All Businesses
+    </h3>
+    <div class="business-grid-account" id="businessGridAccount">
+      <p style="text-align:center;padding:20px;color:#94a3b8;grid-column:1/-1;">Loading businesses...</p>
+    </div>
+
+    <div style="text-align:center;margin-top:16px;">
+      <button class="btn-quick primary" id="loadMoreBtnAccount" onclick="loadMoreBusinessesAccount()" style="display:none;">
+        <i class="fas fa-arrow-down"></i> Load More
+      </button>
     </div>
   </div>
 
 </div>
 
-<!-- ===== ADDRESS MODAL ===== -->
+<!-- ============================================================ -->
+<!-- ADDRESS MODAL -->
+<!-- ============================================================ -->
+
 <div class="modal-overlay" id="addressModal">
   <div class="modal-box">
     <h3 style="font-size:1.2rem; font-weight:800; margin-bottom:12px;">Add New Address</h3>
     <div class="form-group">
       <label>Label</label>
       <select id="addressLabel">
-        <option>Home</option><option>Office</option><option>Other</option>
+        <option>Home</option>
+        <option>Office</option>
+        <option>Other</option>
       </select>
     </div>
     <div class="form-group">
@@ -220,29 +382,20 @@
       </div>
     </div>
     <input type="hidden" id="addressLocationName">
-    <div class="btn-row">
+    <div class="btn-row" style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
       <button class="btn btn-secondary" onclick="closeAddressModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveAddress()">Save</button>
+      <button class="btn btn-primary" onclick="saveAddress()">Save Address</button>
     </div>
   </div>
 </div>
 
-<!-- ===== BOTTOM NAV - FIXED ===== -->
-<div class="bottom-nav">
-  <a href="/"><i class="fas fa-home"></i><span>Home</span></a>
-  <a href="/category.html"><i class="fas fa-th-large"></i><span>Category</span></a>
-  <!-- FIXED: Messages tab now opens chat -->
-  <a href="#" onclick="openChatTab(); return false;"><i class="fas fa-envelope"></i><span>Messages</span></a>
-  <a href="/cart.html" style="position:relative;">
-    <i class="fas fa-shopping-cart"></i>
-    <span class="nav-badge" id="navCartBadge">0</span>
-    <span>Cart</span>
-  </a>
-  <a href="/account.html" class="active"><i class="fas fa-user"></i><span>Account</span></a>
-</div>
+<!-- ============================================================ -->
+<!-- SCRIPTS - ONLY ACCOUNT.JS (NO INDEX.JS) -->
+<!-- ============================================================ -->
 
-<!-- ===== SCRIPTS ===== -->
-<script src="/js/app.js"></script>
+<script src="/js/cart-store.js"></script>
+<script src="/js/cookie-auth-client.js"></script>
 <script src="/js/account.js"></script>
+
 </body>
 </html>

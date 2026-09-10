@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 //  SOCKET HANDLER - Complete Fixed Version
 //  Location: D:\my-business-website\src\socket\socketHandler.js
 // ================================================================
@@ -9,7 +9,10 @@ const jwt = require('jsonwebtoken');
 function setupSocketHandlers(io) {
   // Authentication middleware
   io.use((socket, next) => {
-    const token = socket.handshake.auth.token;
+    const cookieHeader = socket.handshake.headers.cookie || '';
+    const authCookie = cookieHeader.split(';').map(value => value.trim()).find(value => value.startsWith('authToken='));
+    const cookieToken = authCookie ? decodeURIComponent(authCookie.slice('authToken='.length)) : null;
+    const token = cookieToken;
     if (!token) {
       socket.customerId = null;
       socket.role = null;
@@ -40,7 +43,7 @@ function setupSocketHandlers(io) {
       try {
         const { message } = data;
         if (!message || !socket.customerId) return;
-        
+
         const result = await pool.query(
           'INSERT INTO chat_messages (customer_id, message, from_user) VALUES ($1, $2, $3) RETURNING *',
           [socket.customerId, message, 'Customer']
@@ -48,7 +51,7 @@ function setupSocketHandlers(io) {
         const newMsg = result.rows[0];
         const customerResult = await pool.query('SELECT name FROM customers WHERE id = $1', [socket.customerId]);
         const customerName = customerResult.rows[0]?.name || 'Customer';
-        
+
         io.emit('new-chat-message', { ...newMsg, customer_name: customerName });
       } catch (err) {
         console.error('Chat error:', err);
@@ -61,7 +64,7 @@ function setupSocketHandlers(io) {
       try {
         const { message } = data;
         if (!message) return;
-        
+
         const result = await pool.query(
           'INSERT INTO chat_messages (from_user, message) VALUES ($1, $2) RETURNING *',
           ['Seller', message]
@@ -114,7 +117,7 @@ function setupSocketHandlers(io) {
       socket.join(`order_${orderId}`);
       console.log(`Socket ${socket.id} joined order room: ${orderId}`);
     });
-    
+
     // ---- Leave Order Room ----
     socket.on('leave-order-room', (orderId) => {
       socket.leave(`order_${orderId}`);

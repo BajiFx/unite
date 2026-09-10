@@ -9,12 +9,17 @@ if (!productId) {
 }
 
 let detailQty = 1;
-let reviewRating = 0;
+let detailReviewRating = 0;
 let currentVariantId = null;
 let currentMediaIndex = 0;
 let currentProduct = null;
 let allVariants = [];
-let shopData = null;
+
+function fallbackMediaUrl(product) {
+  if (product.image) return product.image;
+  const label = String(product.name || 'Product').slice(0, 32).replace(/[<>&]/g, '');
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${label}</text></svg>`)}`;
+}
 
 // ============================================================
 //  FETCH SHOP DATA
@@ -34,16 +39,16 @@ async function fetchShopData() {
 //  GET AUTO SOCIAL LINKS
 // ============================================================
 function getAutoSocialLinks(product) {
-  const shop = shopData || {};
+  const shop = product || {};
   const productName = product.name || 'this product';
   const productPrice = product.price ? ` (${product.price})` : '';
   const message = `Hi, I'm interested in "${productName}"${productPrice}. Could I get more information about this product?`;
   const encodedMessage = encodeURIComponent(message);
-  const whatsappNumber = shop.whatsapp || '';
-  const instagramUser = shop.instagram || '';
-  const facebookUser = shop.facebook || '';
-  const tiktokUser = shop.tiktok || '';
-  const phone = shop.phone || '';
+  const whatsappNumber = shop.business_whatsapp || '';
+  const instagramUser = shop.business_instagram || '';
+  const facebookUser = shop.business_facebook || '';
+  const tiktokUser = shop.business_tiktok || '';
+  const phone = shop.business_phone || '';
   const cleanedWhatsapp = whatsappNumber.replace(/[^0-9]/g, '');
   return {
     whatsapp: cleanedWhatsapp ? `https://wa.me/${cleanedWhatsapp}?text=${encodedMessage}` : '#',
@@ -59,7 +64,6 @@ function getAutoSocialLinks(product) {
 // ============================================================
 async function loadProductDetail() {
   try {
-    await fetchShopData();
     const res = await fetch(`/api/products/${productId}/detail`);
     if (!res.ok) throw new Error('Product not found');
     const data = await res.json();
@@ -94,9 +98,13 @@ function renderDetail(product, reviews, related) {
   if (variant.image) {
     media.push({ id: null, type: 'image', url: variant.image });
   }
-  if (product.image && !media.length) {
-    media.push({ id: null, type: 'image', url: product.image });
-  }
+  const productImages = Array.isArray(product.images) ? product.images : [];
+  const productVideos = Array.isArray(product.videos) ? product.videos : [];
+  if (product.image && !productImages.includes(product.image)) productImages.unshift(product.image);
+  productImages.forEach(url => media.push({ id: null, type: 'image', url }));
+  if (product.video && !productVideos.includes(product.video)) productVideos.unshift(product.video);
+  productVideos.forEach(url => media.push({ id: null, type: 'video', url }));
+  if (!media.length) media.push({ id: null, type: 'image', url: fallbackMediaUrl(product) });
   if (currentMediaIndex >= media.length) currentMediaIndex = 0;
 
   // Color Variants
@@ -131,7 +139,9 @@ function renderDetail(product, reviews, related) {
   // Main media
   let mainMediaHtml = '';
   if (media.length > 0 && media[currentMediaIndex]) {
-    mainMediaHtml = `<img src="${media[currentMediaIndex].url}" alt="${product.name}">`;
+    mainMediaHtml = media[currentMediaIndex].type === 'video'
+      ? `<video src="${media[currentMediaIndex].url}" controls preload="metadata">Your browser cannot play this video.</video>`
+      : `<img src="${media[currentMediaIndex].url}" alt="${product.name}" onerror="this.src=fallbackMediaUrl({name:this.alt})">`;
   } else {
     mainMediaHtml = '<div class="no-image">📦</div>';
   }
@@ -203,8 +213,8 @@ function renderDetail(product, reviews, related) {
   if (returnEnabled) {
     returnPolicyHtml = `
       <div class="return-policy">
-        <strong>🔄 Return Policy:</strong> 
-        Returns accepted within ${returnDays} days of delivery. 
+        <strong>🔄 Return Policy:</strong>
+        Returns accepted within ${returnDays} days of delivery.
         ${restockingFee > 0 ? `Restocking fee: ${restockingFee}%. ` : ''}
         Products must be in ${returnCondition} condition.
       </div>
@@ -272,9 +282,12 @@ function renderDetail(product, reviews, related) {
 
   // Related
   let relatedHtml = '';
+  // A product without an uploaded photo still receives a deterministic visual
+  // card instead of the blank/emoji placeholder.
+  (related || []).forEach(item => { item.image = fallbackMediaUrl(item); });
   if (related && related.length > 0) {
     relatedHtml = related.slice(0, 4).map(p => `
-      <div class="related-item" onclick="location.href='/product-detail.html?id=${p.id}'">
+      <div class="related-item" data-name="${p.name.toLowerCase()}" data-category="${(p.category || '').toLowerCase()}" onclick="location.href='/product-detail.html?id=${p.id}&business=${encodeURIComponent(product.business_slug || '')}'">
         ${p.image ? `<img src="${p.image}" alt="${p.name}">` : `<div class="no-image">📦</div>`}
         <div class="related-info">
           <div class="related-name">${p.name}</div>
@@ -356,6 +369,10 @@ function renderDetail(product, reviews, related) {
 
     <div class="related-products">
       <h3>You may also like</h3>
+      <div class="products-filters related-filters">
+        <input id="relatedProductSearch" type="search" placeholder="Search this business's products" oninput="filterRelatedProducts()">
+        <select id="relatedProductCategory" onchange="filterRelatedProducts()"><option value="all">All product categories</option>${[...new Set((related || []).map(item => item.category).filter(Boolean))].map(category => `<option value="${category.toLowerCase()}">${category}</option>`).join('')}</select>
+      </div>
       <div class="related-grid">${relatedHtml}</div>
     </div>
   `;
@@ -380,6 +397,15 @@ function selectVariant(variantId) {
 function selectMedia(index) {
   currentMediaIndex = index;
   loadProductDetail();
+}
+
+function filterRelatedProducts() {
+  const query = (document.getElementById('relatedProductSearch')?.value || '').trim().toLowerCase();
+  const category = document.getElementById('relatedProductCategory')?.value || 'all';
+  document.querySelectorAll('.related-products .related-item').forEach(item => {
+    const matches = (!query || item.dataset.name.includes(query)) && (category === 'all' || item.dataset.category === category);
+    item.style.display = matches ? '' : 'none';
+  });
 }
 
 function changeDetailQty(delta) {
@@ -432,7 +458,7 @@ function buyNow() {
 //  REVIEW
 // ============================================================
 function setRating(rating) {
-  reviewRating = rating;
+  detailReviewRating = rating;
   const stars = document.querySelectorAll('#reviewStars span');
   stars.forEach((star, index) => {
     star.style.color = index < rating ? '#f59e0b' : '#d1d5db';
@@ -441,14 +467,14 @@ function setRating(rating) {
 
 function submitReview(productId) {
   const text = document.getElementById('reviewText').value.trim();
-  if (!reviewRating) { alert('Please select a rating.'); return; }
+  if (!detailReviewRating) { alert('Please select a rating.'); return; }
   if (!text) { alert('Please write a review.'); return; }
   const token = window.customerToken;
   if (!token) { alert('Please login first.'); return; }
   fetch(`/api/products/${productId}/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ rating: reviewRating, review_text: text })
+    body: JSON.stringify({ rating: detailReviewRating, review_text: text })
   })
     .then(res => res.json())
     .then(data => {
@@ -468,6 +494,25 @@ function submitReview(productId) {
 //  INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
+  const businessSlug = urlParams.get('business');
+  if (businessSlug) {
+    ['productBusinessHome', 'productBusinessHomeNav'].forEach(id => {
+      const link = document.getElementById(id);
+      if (link) link.href = `/business/${encodeURIComponent(businessSlug)}`;
+    });
+  }
+  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+  const isLoggedIn = Boolean(user.email);
+  ['productNavCategory', 'productNavMessages', 'productNavAccount'].forEach(id => {
+    const item = document.getElementById(id);
+    if (item) item.style.display = isLoggedIn ? 'flex' : 'none';
+  });
+  if (!isLoggedIn) {
+    ['productHeaderCart', 'productNavCart'].forEach(id => {
+      const item = document.getElementById(id);
+      if (item) item.href = '/?auth=login&next=cart';
+    });
+  }
   loadProductDetail();
   updateCartBadge();
   updateNavCartBadge();
@@ -483,3 +528,5 @@ window.setRating = setRating;
 window.submitReview = submitReview;
 window.loadProductDetail = loadProductDetail;
 window.loadAllReviews = loadAllReviews;
+window.fallbackMediaUrl = fallbackMediaUrl;
+window.filterRelatedProducts = filterRelatedProducts;

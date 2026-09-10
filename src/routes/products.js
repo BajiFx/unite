@@ -1,13 +1,13 @@
-﻿// ============================================================
-//  PRODUCTS ROUTES - Complete Fixed Version
-//  Location: D:\my-business-website\src\routes\products.js
+// ============================================================
+//  PRODUCTS ROUTES - COMPLETE MULTI-VENDOR VERSION
+//  Location: src/routes/products.js
 // ============================================================
 
 const express = require('express');
 const fs = require('fs');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/database');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, businessAdminOnly, getBusinessIdFromToken } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const { cacheMiddleware } = require('../../redis');
@@ -15,39 +15,52 @@ const { logAdminActivity } = require('../services/orderService');
 const router = express.Router();
 
 // ============================================================
-//  GET ALL PRODUCTS - FIXED
+//  GET ALL PRODUCTS (Public - with business filter)
 // ============================================================
 
 router.get('/', cacheMiddleware(60), async (req, res) => {
   try {
-    const { search, limit, category } = req.query;
-    let query = 'SELECT * FROM products';
+    const { search, limit, category, business_slug } = req.query;
+
+    let query = 'SELECT p.* FROM products p';
     let params = [];
-    let conditions = [];
+    let conditions = ['p.is_active = true'];
     let paramIndex = 1;
-    
+
+    // If business_slug is provided, filter by business
+    if (business_slug) {
+      query += ` JOIN businesses b ON p.business_id = b.id`;
+      conditions.push(`b.slug = $${paramIndex}`);
+      params.push(business_slug);
+      paramIndex++;
+    }
+
     if (search) {
-      conditions.push('name ILIKE $' + paramIndex);
+      conditions.push(`p.name ILIKE $${paramIndex}`);
       params.push(`%${search}%`);
       paramIndex++;
     }
+
     if (category && category !== 'all') {
-      conditions.push('category = $' + paramIndex);
+      conditions.push(`p.category = $${paramIndex}`);
       params.push(category);
       paramIndex++;
     }
+
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ');
     }
-    query += ' ORDER BY created_at DESC';
+
+    query += ' ORDER BY p.created_at DESC';
+
     if (limit) {
       query += ' LIMIT $' + paramIndex;
       params.push(parseInt(limit));
       paramIndex++;
     }
-    
+
     const result = await pool.query(query, params);
-    
+
     // Get variants for each product
     const products = [];
     for (const product of result.rows) {
@@ -57,28 +70,33 @@ router.get('/', cacheMiddleware(60), async (req, res) => {
           [product.id]
         );
         const variants = variantsResult.rows || [];
-        
-        // Get first image from variants or use product image
+
         let firstImage = null;
         if (variants.length > 0 && variants[0].image) {
           firstImage = variants[0].image;
         } else if (product.image) {
           firstImage = product.image;
         }
-        
-        // Calculate total stock
+
         let totalStock = 0;
         variants.forEach(v => { totalStock += parseInt(v.stock) || 0; });
-        
+
+        // Get business info
+        const businessResult = await pool.query(
+          'SELECT business_name, slug FROM businesses WHERE id = $1',
+          [product.business_id]
+        );
+        const business = businessResult.rows[0] || null;
+
         products.push({
           ...product,
           variants: variants,
           image: firstImage || product.image || null,
-          stock: totalStock || parseInt(product.stock) || 0
+          stock: totalStock || parseInt(product.stock) || 0,
+          business: business
         });
       } catch (variantErr) {
         console.error('Error fetching variants for product:', product.id, variantErr);
-        // Still return the product without variants
         products.push({
           ...product,
           variants: [],
@@ -87,11 +105,11 @@ router.get('/', cacheMiddleware(60), async (req, res) => {
         });
       }
     }
-    
+
     res.json(products);
   } catch (err) {
     console.error('❌ Products error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: err.message,
       details: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
@@ -113,7 +131,7 @@ router.get('/variants/batch', async (req, res) => {
 });
 
 // ============================================================
-//  GET PRODUCT DETAIL
+//  GET PRODUCT DETAIL (Public)
 // ============================================================
 
 router.get('/:id/detail', async (req, res) => {
@@ -122,21 +140,31 @@ router.get('/:id/detail', async (req, res) => {
     if (isNaN(id)) {
       return res.status(400).json({ error: 'Invalid product ID' });
     }
-    
-    const productResult = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
+
+    const productResult = await pool.query(`
+      SELECT p.*, b.business_name, b.slug as business_slug,
+             b.whatsapp AS business_whatsapp, b.tiktok AS business_tiktok,
+             b.instagram AS business_instagram, b.facebook AS business_facebook,
+             b.phone AS business_phone, b.email AS business_email,
+             b.website AS business_website, b.online_orders_enabled
+      FROM products p
+      LEFT JOIN businesses b ON p.business_id = b.id
+      WHERE p.id = $1 AND p.is_active = true
+    `, [id]);
+
     if (productResult.rows.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
-    
+
     const product = productResult.rows[0];
-    
+
     // Get variants
     const variantsResult = await pool.query(
       'SELECT * FROM product_variants WHERE product_id = $1 ORDER BY id',
       [id]
     );
     const variants = variantsResult.rows || [];
-    
+
     // Get reviews
     const reviewsResult = await pool.query(`
       SELECT pr.*, c.name AS customer_name
@@ -147,15 +175,17 @@ router.get('/:id/detail', async (req, res) => {
       LIMIT 20
     `, [id]);
     const reviews = reviewsResult.rows || [];
-    
-    // Get related products
+
+    // Get related products from the SAME business
     const relatedResult = await pool.query(`
-      SELECT * FROM products 
-      WHERE id != $1 
-      ORDER BY created_at DESC 
+      SELECT * FROM products
+      WHERE id != $1
+      AND business_id = $2
+      AND is_active = true
+      ORDER BY created_at DESC
       LIMIT 6
-    `, [id]);
-    
+    `, [id, product.business_id]);
+
     // Add first variant image to related products
     const related = [];
     for (const rel of relatedResult.rows) {
@@ -164,17 +194,19 @@ router.get('/:id/detail', async (req, res) => {
         [rel.id]
       );
       const variant = vRes.rows[0] || null;
-      related.push({ 
-        ...rel, 
-        image: variant ? variant.image : rel.image 
+      related.push({
+        ...rel,
+        // A variant may exist without its own image.  In that case retain the
+        // product's main image instead of replacing it with null.
+        image: variant?.image || rel.image || null
       });
     }
-    
-    res.json({ 
-      product, 
-      variants, 
-      reviews, 
-      related 
+
+    res.json({
+      product,
+      variants,
+      reviews,
+      related
     });
   } catch (err) {
     console.error('❌ Product detail error:', err);
@@ -183,19 +215,15 @@ router.get('/:id/detail', async (req, res) => {
 });
 
 // ============================================================
-//  CREATE PRODUCT
+//  CREATE PRODUCT (Business Admin only)
 // ============================================================
 
-router.post('/', authMiddleware, upload.fields([{ name: 'image' }, { name: 'variantImages' }]), [
+router.post('/', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
+  upload.fields([{ name: 'image' }, { name: 'variantImages' }]), [
   body('name').trim().escape().isLength({ min: 2 }).withMessage('Product name must be at least 2 characters'),
   body('price').trim().escape().isNumeric().withMessage('Price must be a number'),
   body('description').optional().trim().escape(),
-  body('category').optional().trim().escape(),
-  body('shipping').optional().trim().escape(),
-  body('badge1').optional().trim().escape(),
-  body('badge2').optional().trim().escape(),
-  body('contact').optional().trim().escape(),
-  body('rating').optional().trim().escape()
+  body('category').optional().trim().escape()
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -203,12 +231,14 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image' }, { name: 'vari
   }
 
   try {
-    const { 
-      name, price, category, contact, rating, badge1, badge2, shipping, 
+    const businessId = req.businessId;
+
+    const {
+      name, price, category, contact, rating, badge1, badge2, shipping,
       isFlashSale, isNewArrival, description, shipping_fee, free_shipping_eligible,
       return_enabled, return_window_days, restocking_fee_percent,
-      return_shipping_paid_by, return_condition, variants, old_price, 
-      discount_percent, stock, is_featured 
+      return_shipping_paid_by, return_condition, variants, old_price,
+      discount_percent, stock, is_featured
     } = req.body;
 
     let mainImage = null;
@@ -220,24 +250,25 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image' }, { name: 'vari
 
     const result = await pool.query(`
       INSERT INTO products (
-        name, price, old_price, discount_percent, category, contact, rating, 
+        name, price, old_price, discount_percent, category, contact, rating,
         badge1, badge2, shipping, isFlashSale, isNewArrival, image, description,
         shipping_fee, free_shipping_eligible, return_enabled, return_window_days,
         restocking_fee_percent, return_shipping_paid_by, return_condition,
-        stock, is_featured
+        stock, is_featured, business_id, is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
       RETURNING *
     `, [
       name, price, old_price || null, discount_percent || null, category, contact, rating,
-      badge1 || null, badge2 || null, shipping || null, 
-      isFlashSale === 'true' || isFlashSale === true, 
+      badge1 || null, badge2 || null, shipping || null,
+      isFlashSale === 'true' || isFlashSale === true,
       isNewArrival === 'true' || isNewArrival === true,
       mainImage, description || null,
       shipping_fee || null, free_shipping_eligible === 'true' || free_shipping_eligible === true,
       return_enabled !== 'false', return_window_days || 14, restocking_fee_percent || 0,
       return_shipping_paid_by || 'buyer', return_condition || 'unopened',
-      stock || 0, is_featured === 'true' || is_featured === true
+      stock || 0, is_featured === 'true' || is_featured === true,
+      businessId, true
     ]);
 
     const product = result.rows[0];
@@ -262,11 +293,10 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image' }, { name: 'vari
         }
       } catch (variantErr) {
         console.error('Error adding variants:', variantErr);
-        // Continue - variants are optional
       }
     }
 
-    await logAdminActivity(req.userId, 'CREATE_PRODUCT', { productId: product.id });
+    await logAdminActivity(req.userId, 'CREATE_PRODUCT', { productId: product.id, businessId });
     res.json({ success: true, product });
   } catch (err) {
     console.error('❌ Create product error:', err);
@@ -275,15 +305,13 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image' }, { name: 'vari
 });
 
 // ============================================================
-//  UPDATE PRODUCT
+//  UPDATE PRODUCT (Business Admin only)
 // ============================================================
 
-router.put('/:id', authMiddleware, upload.fields([{ name: 'image' }, { name: 'variantImages' }]), [
+router.put('/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
+  upload.fields([{ name: 'image' }, { name: 'variantImages' }]), [
   body('name').trim().escape().isLength({ min: 2 }).withMessage('Product name must be at least 2 characters'),
-  body('price').trim().escape().isNumeric().withMessage('Price must be a number'),
-  body('description').optional().trim().escape(),
-  body('category').optional().trim().escape(),
-  body('shipping').optional().trim().escape()
+  body('price').trim().escape().isNumeric().withMessage('Price must be a number')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -296,18 +324,22 @@ router.put('/:id', authMiddleware, upload.fields([{ name: 'image' }, { name: 'va
       return res.status(400).json({ error: 'Invalid product ID' });
     }
 
-    const existing = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
+    const existing = await pool.query(
+      'SELECT * FROM products WHERE id = $1 AND business_id = $2',
+      [id, req.businessId]
+    );
+
     if (existing.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
+      return res.status(404).json({ error: 'Product not found in your business' });
     }
     const oldProduct = existing.rows[0];
 
-    const { 
-      name, price, category, contact, rating, badge1, badge2, shipping, 
+    const {
+      name, price, category, contact, rating, badge1, badge2, shipping,
       isFlashSale, isNewArrival, description, shipping_fee, free_shipping_eligible,
       return_enabled, return_window_days, restocking_fee_percent,
-      return_shipping_paid_by, return_condition, variants, old_price, 
-      discount_percent, stock, is_featured 
+      return_shipping_paid_by, return_condition, variants, old_price,
+      discount_percent, stock, is_featured
     } = req.body;
 
     let image = oldProduct.image;
@@ -326,17 +358,18 @@ router.put('/:id', authMiddleware, upload.fields([{ name: 'image' }, { name: 'va
           return_enabled = $17, return_window_days = $18, restocking_fee_percent = $19,
           return_shipping_paid_by = $20, return_condition = $21, stock = $22,
           is_featured = COALESCE($23, is_featured)
-      WHERE id = $24 RETURNING *
+      WHERE id = $24 AND business_id = $25
+      RETURNING *
     `, [
       name, price, old_price || null, discount_percent || null, category,
       contact, rating, badge1, badge2, shipping,
-      isFlashSale === 'true' || isFlashSale === true, 
+      isFlashSale === 'true' || isFlashSale === true,
       isNewArrival === 'true' || isNewArrival === true,
       image, description || null,
       shipping_fee || null, free_shipping_eligible === 'true' || free_shipping_eligible === true,
       return_enabled !== 'false', return_window_days || 14, restocking_fee_percent || 0,
       return_shipping_paid_by || 'buyer', return_condition || 'unopened',
-      stock || 0, is_featured === 'true' || is_featured === true, id
+      stock || 0, is_featured === 'true' || is_featured === true, id, req.businessId
     ]);
 
     const product = result.rows[0];
@@ -365,7 +398,7 @@ router.put('/:id', authMiddleware, upload.fields([{ name: 'image' }, { name: 'va
       }
     }
 
-    await logAdminActivity(req.userId, 'UPDATE_PRODUCT', { productId: id });
+    await logAdminActivity(req.userId, 'UPDATE_PRODUCT', { productId: id, businessId: req.businessId });
     res.json({ success: true, product });
   } catch (err) {
     console.error('❌ Update product error:', err);
@@ -374,21 +407,29 @@ router.put('/:id', authMiddleware, upload.fields([{ name: 'image' }, { name: 'va
 });
 
 // ============================================================
-//  DELETE PRODUCT
+//  DELETE PRODUCT (Business Admin only)
 // ============================================================
 
-router.delete('/:id', authMiddleware, async (req, res) => {
+router.delete('/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ error: 'Invalid product ID' });
     }
 
-    // Delete variants first (cascade will handle it, but do it explicitly)
+    const result = await pool.query(
+      'DELETE FROM products WHERE id = $1 AND business_id = $2 RETURNING id',
+      [id, req.businessId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found in your business' });
+    }
+
+    // Delete variants (cascade will handle, but explicit is safer)
     await pool.query('DELETE FROM product_variants WHERE product_id = $1', [id]);
-    await pool.query('DELETE FROM products WHERE id = $1', [id]);
-    
-    await logAdminActivity(req.userId, 'DELETE_PRODUCT', { productId: id });
+
+    await logAdminActivity(req.userId, 'DELETE_PRODUCT', { productId: id, businessId: req.businessId });
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Delete product error:', err);
@@ -397,7 +438,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-//  PRODUCT REVIEWS - ADD REVIEW
+//  PRODUCT REVIEWS - ADD REVIEW (Customer)
 // ============================================================
 
 router.post('/:id/review', authMiddleware, [
@@ -412,15 +453,25 @@ router.post('/:id/review', authMiddleware, [
   if (req.role !== 'customer') {
     return res.status(403).json({ error: 'Only customers can write reviews.' });
   }
-  
+
   const productId = parseInt(req.params.id);
   if (isNaN(productId)) {
     return res.status(400).json({ error: 'Invalid product ID' });
   }
-  
+
   const { rating, review_text } = req.body;
-  
+
   try {
+    // Check if product exists and is active
+    const productCheck = await pool.query(
+      'SELECT id FROM products WHERE id = $1 AND is_active = true',
+      [productId]
+    );
+
+    if (productCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
     const existing = await pool.query(
       'SELECT id FROM product_reviews WHERE product_id = $1 AND customer_id = $2',
       [productId, req.userId]
@@ -428,7 +479,7 @@ router.post('/:id/review', authMiddleware, [
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'You have already reviewed this product.' });
     }
-    
+
     await pool.query(
       'INSERT INTO product_reviews (product_id, customer_id, rating, review_text) VALUES ($1, $2, $3, $4)',
       [productId, req.userId, rating, review_text]
@@ -449,8 +500,22 @@ router.post('/wishlist', authMiddleware, async (req, res) => {
   if (!product_id) {
     return res.status(400).json({ error: 'Product ID required' });
   }
-  
+
+  if (req.role !== 'customer') {
+    return res.status(403).json({ error: 'Only customers can use wishlist.' });
+  }
+
   try {
+    // Check if product exists
+    const productCheck = await pool.query(
+      'SELECT id FROM products WHERE id = $1 AND is_active = true',
+      [product_id]
+    );
+
+    if (productCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
     const existing = await pool.query(
       'SELECT id FROM wishlist WHERE customer_id = $1 AND product_id = $2',
       [req.userId, product_id]
@@ -471,11 +536,16 @@ router.post('/wishlist', authMiddleware, async (req, res) => {
 });
 
 router.get('/wishlist', authMiddleware, async (req, res) => {
+  if (req.role !== 'customer') {
+    return res.status(403).json({ error: 'Only customers can view wishlist.' });
+  }
+
   try {
     const result = await pool.query(`
-      SELECT w.*, p.name, p.price, p.image
+      SELECT w.*, p.name, p.price, p.image, p.business_id, b.business_name
       FROM wishlist w
       JOIN products p ON w.product_id = p.id
+      LEFT JOIN businesses b ON p.business_id = b.id
       WHERE w.customer_id = $1
       ORDER BY w.created_at DESC
     `, [req.userId]);

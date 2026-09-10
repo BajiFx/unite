@@ -1,6 +1,30 @@
 // ============================================================
-//  CART PAGE JAVASCRIPT - FIXED
+//  CART PAGE JAVASCRIPT - COMPLETE VERSION WITH BUSINESS SUPPORT
+//  Location: public/js/cart.js
 // ============================================================
+
+// Check if running in embedded mode (inside dashboard panel)
+// A workspace Cart is always rendered in an iframe.  The frame check prevents
+// an accidental redirect to the marketplace if a host/browser strips the
+// embedded query string during navigation.
+const isEmbeddedCart = new URLSearchParams(window.location.search).get('embedded') === '1' || window.self !== window.top;
+
+// If embedded, hide the header
+if (isEmbeddedCart) {
+  document.addEventListener('DOMContentLoaded', function() {
+    const header = document.querySelector('.header');
+    if (header) header.style.display = 'none';
+
+    const backLink = document.querySelector('.back-link');
+    if (backLink) backLink.style.display = 'none';
+
+    // Adjust cart page padding
+    const cartPage = document.querySelector('.cart-page');
+    if (cartPage) {
+      cartPage.style.paddingTop = '10px';
+    }
+  });
+}
 
 let cartItems = [];
 let selectedShippingTier = 'standard';
@@ -14,6 +38,10 @@ let selectedPaymentMethod = '';
 let allProductsForPreview = [];
 let mpesaPollingInterval = null;
 let airtelPollingInterval = null;
+let selectedDeliveryMethod = 'pickup';
+let businessDeliverySettings = null;
+let businessPaymentSettings = null;
+let currentBusinessId = null;
 
 const FREE_SHIPPING_THRESHOLD = 40000;
 
@@ -37,7 +65,13 @@ const kenyanBanks = [
 // ============================================================
 //  INIT
 // ============================================================
+
 document.addEventListener('DOMContentLoaded', function() {
+    const signedInUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    if (!isEmbeddedCart && !signedInUser.email) {
+        window.location.replace('/?auth=login&next=cart');
+        return;
+    }
     loadShopProfile();
     loadAllProductsForPreview();
     renderCartPage();
@@ -51,11 +85,224 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('recipientName').value = user.name || '';
         document.getElementById('recipientPhone').value = user.phone || user.email || '';
     }
+
+    // Get business ID from cart items
+    const cart = getCart();
+    if (cart && cart.length > 0) {
+        const businessIds = [...new Set(cart.map(item => item.business_id))];
+        if (businessIds.length === 1) {
+            currentBusinessId = businessIds[0];
+            loadBusinessSettings(currentBusinessId);
+        } else if (businessIds.length > 1) {
+            showToast('⚠️ You have items from multiple businesses. Please order from one business at a time.', 'warning');
+        }
+    }
 });
+
+// ============================================================
+//  LOAD BUSINESS SETTINGS
+// ============================================================
+
+async function loadBusinessSettings(businessId) {
+    try {
+        // Load delivery settings
+        const deliveryRes = await fetch(`/api/businesses/${businessId}/delivery`);
+        if (deliveryRes.ok) {
+            businessDeliverySettings = await deliveryRes.json();
+            updateDeliveryOptions();
+        }
+
+        // Load payment settings
+        const paymentRes = await fetch(`/api/businesses/${businessId}/payment-settings`);
+        if (paymentRes.ok) {
+            businessPaymentSettings = await paymentRes.json();
+            updatePaymentMethods();
+        }
+
+        // Check if online orders are enabled
+        const statusRes = await fetch(`/api/businesses/${businessId}/status`);
+        if (statusRes.ok) {
+            const status = await statusRes.json();
+            if (status.online_orders_enabled === false) {
+                showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
+                document.getElementById('placeOrderBtn').disabled = true;
+                document.getElementById('placeOrderBtn').innerHTML = '<i class="fas fa-store-alt-slash"></i> Orders Paused';
+            }
+        }
+    } catch (err) {
+        console.error('Error loading business settings:', err);
+    }
+}
+
+// ============================================================
+//  UPDATE PAYMENT METHODS BASED ON BUSINESS SETTINGS
+// ============================================================
+
+function updatePaymentMethods() {
+    const container = document.getElementById('paymentMethods');
+    if (!container || !businessPaymentSettings) return;
+
+    let html = '';
+    let hasMethods = false;
+
+    if (businessPaymentSettings.mpesa_enabled) {
+        hasMethods = true;
+        html += `
+            <div class="method" onclick="selectPaymentMethod('mpesa')">
+                <i class="fas fa-mobile-alt" style="color:#4CAF50;"></i> M-Pesa
+                ${businessPaymentSettings.mpesa_number ? `<span style="font-size:0.6rem; color:#64748b; margin-left:4px;">Paybill: ${businessPaymentSettings.mpesa_number}</span>` : ''}
+            </div>
+        `;
+    }
+
+    if (businessPaymentSettings.airtel_enabled) {
+        hasMethods = true;
+        html += `
+            <div class="method" onclick="selectPaymentMethod('airtel')">
+                <i class="fas fa-phone" style="color:#FF6600;"></i> Airtel Money
+            </div>
+        `;
+    }
+
+    if (businessPaymentSettings.bank_enabled) {
+        hasMethods = true;
+        html += `
+            <div class="method" onclick="selectPaymentMethod('bank')">
+                <i class="fas fa-university" style="color:#2563eb;"></i> Bank Transfer
+                ${businessPaymentSettings.bank_name ? `<span style="font-size:0.6rem; color:#64748b; margin-left:4px;">${businessPaymentSettings.bank_name}</span>` : ''}
+            </div>
+        `;
+    }
+
+    if (businessPaymentSettings.paypal_enabled) {
+        hasMethods = true;
+        html += `
+            <div class="method" onclick="selectPaymentMethod('paypal')">
+                <i class="fab fa-paypal" style="color:#0070BA;"></i> PayPal
+            </div>
+        `;
+    }
+
+    if (!hasMethods) {
+        html = `<p style="color:#94a3b8; font-size:0.85rem;">No payment methods available for this business.</p>`;
+    }
+
+    container.innerHTML = html;
+}
+
+// ============================================================
+//  UPDATE DELIVERY OPTIONS
+// ============================================================
+
+function updateDeliveryOptions() {
+    const container = document.getElementById('shippingOptions');
+    if (!container) return;
+
+    const subtotal = calculateSubtotal();
+    let html = '';
+    let hasOptions = false;
+
+    // Check if delivery is enabled
+    if (businessDeliverySettings && businessDeliverySettings.delivery_enabled) {
+        hasOptions = true;
+        const isFree = businessDeliverySettings.delivery_min_order_free > 0 &&
+                      subtotal >= businessDeliverySettings.delivery_min_order_free;
+
+        let fee = 0;
+        let feeLabel = 'Free';
+
+        if (!isFree) {
+            if (businessDeliverySettings.delivery_fee_type === 'fixed') {
+                fee = parseFloat(businessDeliverySettings.delivery_fee_fixed) || 0;
+                feeLabel = `Ksh ${fee.toFixed(2)}`;
+            } else if (businessDeliverySettings.delivery_fee_type === 'per_km') {
+                fee = parseFloat(businessDeliverySettings.delivery_fee_per_km) || 0;
+                feeLabel = `Ksh ${fee.toFixed(2)}/km`;
+            } else {
+                fee = 0;
+                feeLabel = 'Free';
+            }
+        }
+
+        const estimatedTime = businessDeliverySettings.delivery_estimated_time || 'Same day';
+        const deliveryMessage = businessDeliverySettings.delivery_no_message || '';
+
+        html += `
+            <div class="shipping-option selected" onclick="selectDeliveryMethod('delivery')" style="cursor:pointer;">
+                <span class="tier-name">🚚 Delivery (${estimatedTime})</span>
+                <span class="tier-price">${isFree ? '🎉 Free' : feeLabel}</span>
+            </div>
+        `;
+
+        // Show free delivery threshold
+        if (businessDeliverySettings.delivery_min_order_free > 0 && !isFree) {
+            const remaining = businessDeliverySettings.delivery_min_order_free - subtotal;
+            if (remaining > 0) {
+                html += `
+                    <div style="font-size:0.65rem; color:#f59e0b; margin-top:2px; padding:4px 8px; background:#fffbeb; border-radius:4px;">
+                        🎉 Add Ksh ${remaining.toFixed(2)} more for FREE delivery!
+                    </div>
+                `;
+            }
+        }
+
+        // Show delivery message if any
+        if (deliveryMessage) {
+            html += `
+                <div style="font-size:0.65rem; color:#64748b; margin-top:2px; padding:4px 8px; background:#f8fafc; border-radius:4px;">
+                    📝 ${deliveryMessage}
+                </div>
+            `;
+        }
+    }
+
+    // Pickup option (always available)
+    html += `
+        <div class="shipping-option" onclick="selectDeliveryMethod('pickup')" style="cursor:pointer;">
+            <span class="tier-name">📍 Pickup (Free)</span>
+            <span class="tier-price">Free</span>
+        </div>
+    `;
+
+    // Chat to arrange option
+    html += `
+        <div class="shipping-option" onclick="selectDeliveryMethod('chat')" style="cursor:pointer;">
+            <span class="tier-name">💬 Chat to arrange</span>
+            <span class="tier-price">Flexible</span>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+// ============================================================
+//  SELECT DELIVERY METHOD
+// ============================================================
+
+function selectDeliveryMethod(method) {
+    selectedDeliveryMethod = method;
+    document.querySelectorAll('.shipping-option').forEach(el => el.classList.remove('selected'));
+    const options = document.querySelectorAll('.shipping-option');
+    options.forEach(el => {
+        if (el.textContent.includes(method === 'delivery' ? '🚚 Delivery' : method === 'pickup' ? '📍 Pickup' : '💬 Chat')) {
+            el.classList.add('selected');
+        }
+    });
+
+    // Show/hide delivery fields
+    const deliveryFields = document.getElementById('deliveryFields');
+    const pickupFields = document.getElementById('pickupFields');
+    const chatFields = document.getElementById('chatFields');
+
+    if (deliveryFields) deliveryFields.style.display = method === 'delivery' ? 'block' : 'none';
+    if (pickupFields) pickupFields.style.display = method === 'pickup' ? 'block' : 'none';
+    if (chatFields) chatFields.style.display = method === 'chat' ? 'block' : 'none';
+}
 
 // ============================================================
 //  LOAD ALL PRODUCTS FOR PREVIEW
 // ============================================================
+
 function loadAllProductsForPreview() {
     fetch('/api/products')
         .then(res => res.json())
@@ -68,6 +315,7 @@ function loadAllProductsForPreview() {
 // ============================================================
 //  PRODUCT PREVIEW MODAL
 // ============================================================
+
 function openProductPreview(productId) {
     const modal = document.getElementById('productPreviewModal');
     const content = document.getElementById('previewContent');
@@ -124,16 +372,15 @@ function openProductPreview(productId) {
 
     modal.classList.add('active');
 }
-window.openProductPreview = openProductPreview;
 
 function closeProductPreview() {
     document.getElementById('productPreviewModal').classList.remove('active');
 }
-window.closeProductPreview = closeProductPreview;
 
 // ============================================================
 //  REVIEW ALL PRODUCTS MODAL
 // ============================================================
+
 function openReviewAllModal() {
     const modal = document.getElementById('reviewAllModal');
     const content = document.getElementById('reviewAllContent');
@@ -169,21 +416,20 @@ function openReviewAllModal() {
     content.innerHTML = html;
     modal.classList.add('active');
 }
-window.openReviewAllModal = openReviewAllModal;
 
 function closeReviewAll() {
     document.getElementById('reviewAllModal').classList.remove('active');
 }
-window.closeReviewAll = closeReviewAll;
 
 // ============================================================
 //  VALIDATE ADDRESS
 // ============================================================
+
 function validateAddress() {
     const county = document.getElementById('deliveryCounty').value.trim();
     const subCounty = document.getElementById('deliverySubCounty').value.trim();
     const location = document.getElementById('deliveryAddress').value.trim();
-    
+
     if (!county) {
         showToast('❌ Please enter your County.', 'error');
         document.getElementById('deliveryCounty').focus();
@@ -220,6 +466,7 @@ function validateAddress() {
 // ============================================================
 //  CART RENDER
 // ============================================================
+
 function renderCartPage() {
     const cart = getCart();
     const container = document.getElementById('cartItemsContainer');
@@ -233,6 +480,20 @@ function renderCartPage() {
 
     checkoutSections.style.display = 'block';
     cartItems = cart;
+
+    // Check if all items are from the same business
+    const businessIds = [...new Set(cart.map(item => item.business_id))];
+    if (businessIds.length > 1) {
+        showToast('⚠️ You have items from multiple businesses. Please order from one business at a time.', 'warning');
+        document.getElementById('placeOrderBtn').disabled = true;
+        document.getElementById('placeOrderBtn').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Multiple Businesses';
+    } else if (businessIds.length === 1) {
+        document.getElementById('placeOrderBtn').disabled = false;
+        document.getElementById('placeOrderBtn').innerHTML = '<i class="fas fa-check-circle"></i> Place Order';
+        currentBusinessId = businessIds[0];
+        loadBusinessSettings(currentBusinessId);
+    }
+
     let html = '';
     let total = 0;
     cart.forEach(item => {
@@ -250,6 +511,7 @@ function renderCartPage() {
                 <div class="details">
                     <div class="name" onclick="openProductPreview(${item.id})">${item.name}${variantName}</div>
                     <div class="price">${item.price}</div>
+                    ${item.business_id ? `<div style="font-size:0.55rem; color:#94a3b8;">Business ID: ${item.business_id}</div>` : ''}
                 </div>
                 <div class="qty-control">
                     <button onclick="updateCartQty(${item.id}, -1)">−</button>
@@ -266,7 +528,6 @@ function renderCartPage() {
     applyPromo();
     updateSummary(total);
 }
-window.renderCartPage = renderCartPage;
 
 function updateSummary(total) {
     const subtotal = total;
@@ -297,6 +558,7 @@ function calculateSubtotal() {
 // ============================================================
 //  SHIPPING
 // ============================================================
+
 function getShippingTiers(subtotal) {
     let standard, express, overnight;
     if (subtotal >= FREE_SHIPPING_THRESHOLD) {
@@ -362,11 +624,11 @@ function selectShippingTier(tier, price) {
     updateSummary(calculateSubtotal());
     updateShippingOptions(calculateSubtotal());
 }
-window.selectShippingTier = selectShippingTier;
 
 // ============================================================
 //  PROMO CODE
 // ============================================================
+
 function applyPromo() {
     const input = document.getElementById('promoInput');
     const code = input.value.trim();
@@ -396,11 +658,11 @@ function applyPromo() {
             updateSummary(calculateSubtotal());
         });
 }
-window.applyPromo = applyPromo;
 
 // ============================================================
 //  CART ACTIONS
 // ============================================================
+
 function updateCartQty(id, delta) {
     const cart = getCart();
     const item = cart.find(i => i.id === id);
@@ -410,7 +672,6 @@ function updateCartQty(id, delta) {
     renderCartPage();
     updateCartBadge();
 }
-window.updateCartQty = updateCartQty;
 
 function removeItemFromCart(id) {
     let cart = getCart();
@@ -419,12 +680,12 @@ function removeItemFromCart(id) {
     renderCartPage();
     updateCartBadge();
 }
-window.removeItemFromCart = removeItemFromCart;
 
 // ============================================================
-//  PLACE ORDER - FIXED
+//  PLACE ORDER - COMPLETE WITH BUSINESS VALIDATION
 // ============================================================
-function placeOrder() {
+
+async function placeOrder() {
     if (!isLoggedIn()) {
         showToast('❌ Please login to place an order', 'warning');
         openAuthModal('login');
@@ -435,6 +696,33 @@ function placeOrder() {
     if (!cart || cart.length === 0) {
         showToast('❌ Your cart is empty', 'error');
         return;
+    }
+
+    // Check if all items belong to the same business
+    const businessIds = [...new Set(cart.map(item => item.business_id))];
+    if (businessIds.length > 1) {
+        showToast('❌ Please order from one business at a time. Items from multiple businesses cannot be combined.', 'error');
+        return;
+    }
+
+    const businessId = businessIds[0];
+    if (!businessId) {
+        showToast('❌ Invalid business. Please add items to your cart again.', 'error');
+        return;
+    }
+
+    // Check if business accepts online orders
+    try {
+        const statusRes = await fetch(`/api/businesses/${businessId}/status`);
+        if (statusRes.ok) {
+            const status = await statusRes.json();
+            if (status.online_orders_enabled === false) {
+                showToast('❌ This business is not accepting online orders at the moment.', 'error');
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('Error checking business status:', err);
     }
 
     if (!validateAddress()) return;
@@ -450,9 +738,25 @@ function placeOrder() {
         subtotal += priceNum * item.quantity;
     });
 
+    // Get delivery settings
+    let deliveryFee = 0;
+    let deliveryMethod = selectedDeliveryMethod || 'pickup';
+
+    if (businessDeliverySettings && businessDeliverySettings.delivery_enabled && deliveryMethod === 'delivery') {
+        const isFree = businessDeliverySettings.delivery_min_order_free > 0 &&
+                      subtotal >= businessDeliverySettings.delivery_min_order_free;
+        if (!isFree) {
+            if (businessDeliverySettings.delivery_fee_type === 'fixed') {
+                deliveryFee = parseFloat(businessDeliverySettings.delivery_fee_fixed) || 0;
+            } else if (businessDeliverySettings.delivery_fee_type === 'per_km') {
+                deliveryFee = parseFloat(businessDeliverySettings.delivery_fee_per_km) || 0;
+            }
+        }
+    }
+
     const shipping = shippingCost || 0;
     const discount = promoDiscount || 0;
-    const grandTotal = subtotal + shipping - discount;
+    const grandTotal = subtotal + shipping + deliveryFee - discount;
 
     if (grandTotal <= 0) {
         showToast('❌ Invalid total amount', 'error');
@@ -475,7 +779,7 @@ function placeOrder() {
     const user = window.currentUser;
     const recipientName = user?.name || '';
     const recipientPhone = user?.phone || '';
-    const token = window.customerToken || localStorage.getItem('customerToken');
+    const token = window.customerToken;
 
     if (!token) {
         showToast('❌ Please login first', 'error');
@@ -497,6 +801,7 @@ function placeOrder() {
         },
         body: JSON.stringify({
             items,
+            business_id: businessId,
             shipping_tier: selectedShippingTier || 'standard',
             order_notes: orderNotes,
             promo_code: promoCode,
@@ -506,7 +811,9 @@ function placeOrder() {
             delivery_instructions: deliveryInstructions,
             customer_lat: document.getElementById('customerLat')?.value || null,
             customer_lng: document.getElementById('customerLng')?.value || null,
-            location_accuracy: document.getElementById('locationAccuracy')?.value || null
+            location_accuracy: document.getElementById('locationAccuracy')?.value || null,
+            delivery_method: deliveryMethod,
+            delivery_fee: deliveryFee
         }),
         signal: controller.signal
     })
@@ -527,11 +834,8 @@ function placeOrder() {
             pendingOrderId = data.order.id;
             window.pendingOrderId = data.order.id;
             showToast('✅ Order created! Please complete payment.', 'success');
-            
-            // Open payment modal
+
             openPaymentModal(grandTotal, data.order.id);
-            
-            // Clear cart
             clearCart();
         } else {
             showToast('❌ Failed to create order: ' + (data.error || 'Unknown error'), 'error');
@@ -548,21 +852,22 @@ function placeOrder() {
         showToast('❌ ' + errorMsg, 'error');
     });
 }
-window.placeOrder = placeOrder;
 
 // ============================================================
-//  PAYMENT - FIXED
+//  PAYMENT - COMPLETE
 // ============================================================
+
 function selectPaymentMethod(method) {
     selectedPaymentMethod = method;
     document.querySelectorAll('.method').forEach(el => el.classList.remove('selected'));
     const selectedEl = document.querySelector(`.method[onclick="selectPaymentMethod('${method}')"]`);
     if (selectedEl) selectedEl.classList.add('selected');
-    
+
     document.getElementById('paymentDetails').style.display = 'block';
     document.getElementById('phoneField').style.display = method === 'mpesa' || method === 'airtel' ? 'block' : 'none';
     document.getElementById('bankField').style.display = method === 'bank' ? 'block' : 'none';
-    
+    document.getElementById('paypalField').style.display = method === 'paypal' ? 'block' : 'none';
+
     const payBtn = document.getElementById('payNowBtn');
     if (payBtn) {
         if (method === 'mpesa') {
@@ -573,6 +878,10 @@ function selectPaymentMethod(method) {
             payBtn.textContent = '📱 Pay with Airtel Money';
             payBtn.onclick = processPayment;
             payBtn.disabled = false;
+        } else if (method === 'paypal') {
+            payBtn.textContent = '💳 Pay with PayPal';
+            payBtn.onclick = processPayment;
+            payBtn.disabled = false;
         } else {
             payBtn.textContent = '💳 Pay Now';
             payBtn.onclick = processPayment;
@@ -580,7 +889,6 @@ function selectPaymentMethod(method) {
         }
     }
 }
-window.selectPaymentMethod = selectPaymentMethod;
 
 function openPaymentModal(amount, orderId) {
     paymentTotal = amount;
@@ -590,13 +898,14 @@ function openPaymentModal(amount, orderId) {
     document.getElementById('paymentDetails').style.display = 'block';
     document.getElementById('phoneField').style.display = 'block';
     document.getElementById('bankField').style.display = 'none';
+    document.getElementById('paypalField').style.display = 'none';
     document.getElementById('paymentStatus').textContent = '';
-    
+
     const user = window.currentUser;
     if (user && user.phone) {
         document.getElementById('paymentPhone').value = user.phone;
     }
-    
+
     const payBtn = document.getElementById('payNowBtn');
     if (payBtn) {
         payBtn.disabled = false;
@@ -605,7 +914,6 @@ function openPaymentModal(amount, orderId) {
     }
     selectPaymentMethod('mpesa');
 }
-window.openPaymentModal = openPaymentModal;
 
 function closePaymentModal() {
     document.getElementById('paymentModal').classList.remove('active');
@@ -618,18 +926,18 @@ function closePaymentModal() {
         airtelPollingInterval = null;
     }
 }
-window.closePaymentModal = closePaymentModal;
 
 // ============================================================
-//  PROCESS PAYMENT - FIXED
+//  PROCESS PAYMENT - COMPLETE
 // ============================================================
+
 function processPayment() {
     const method = selectedPaymentMethod;
     if (!method) {
         showToast('❌ Please select a payment method', 'error');
         return;
     }
-    
+
     const payBtn = document.getElementById('payNowBtn');
     const statusEl = document.getElementById('paymentStatus');
     statusEl.className = 'payment-status loading';
@@ -652,9 +960,9 @@ function processPayment() {
             payBtn.disabled = false;
             return;
         }
-        
-        const token = window.customerToken || localStorage.getItem('customerToken');
-        
+
+        const token = window.customerToken;
+
         fetch('/api/payments/mpesa/initiate', {
             method: 'POST',
             headers: {
@@ -673,12 +981,10 @@ function processPayment() {
                 statusEl.className = 'payment-status success';
                 statusEl.textContent = '📱 STK Push sent! Please check your phone and enter PIN.';
                 payBtn.disabled = false;
-                
-                // Start polling if we have a checkout request ID
+
                 if (data.checkoutRequestId && !data.isSimulation) {
                     startMpesaPolling(data.checkoutRequestId);
                 } else if (data.isSimulation) {
-                    // Simulation mode - auto approve after delay
                     statusEl.textContent = '📱 Simulation mode: Payment will auto-approve in 10 seconds...';
                     setTimeout(() => {
                         statusEl.className = 'payment-status success';
@@ -716,9 +1022,9 @@ function processPayment() {
             payBtn.disabled = false;
             return;
         }
-        
-        const token = window.customerToken || localStorage.getItem('customerToken');
-        
+
+        const token = window.customerToken;
+
         fetch('/api/payments/airtel/initiate', {
             method: 'POST',
             headers: {
@@ -737,7 +1043,7 @@ function processPayment() {
                 statusEl.className = 'payment-status success';
                 statusEl.textContent = '📱 Airtel Money request sent! Please check your phone.';
                 payBtn.disabled = false;
-                
+
                 if (data.isSimulation) {
                     setTimeout(() => {
                         statusEl.className = 'payment-status success';
@@ -761,8 +1067,8 @@ function processPayment() {
             console.error('Airtel initiate error:', err);
         });
     } else if (method === 'paypal') {
-        const token = window.customerToken || localStorage.getItem('customerToken');
-        
+        const token = window.customerToken;
+
         fetch('/api/payments/paypal/create-order', {
             method: 'POST',
             headers: {
@@ -801,12 +1107,10 @@ function processPayment() {
             console.error('PayPal error:', err);
         });
     } else if (method === 'bank') {
-        // Bank transfer - manual verification
         statusEl.className = 'payment-status success';
         statusEl.textContent = '💳 Bank transfer details sent! Please complete payment and we will verify.';
         payBtn.disabled = false;
-        
-        // Show bank details
+
         fetch('/api/shop')
             .then(res => res.json())
             .then(shop => {
@@ -817,36 +1121,35 @@ function processPayment() {
             .catch(() => {});
     }
 }
-window.processPayment = processPayment;
 
 // ============================================================
-//  START MPESA POLLING - FIXED
+//  START MPESA POLLING
 // ============================================================
+
 function startMpesaPolling(checkoutRequestId) {
     if (mpesaPollingInterval) {
         clearInterval(mpesaPollingInterval);
         mpesaPollingInterval = null;
     }
-    
+
     let attempts = 0;
-    const maxAttempts = 60; // 5 minutes (60 * 5s)
+    const maxAttempts = 60;
     const statusEl = document.getElementById('paymentStatus');
 
     mpesaPollingInterval = setInterval(async () => {
         attempts++;
-        
+
         try {
-            const token = window.customerToken || localStorage.getItem('customerToken');
+            const token = window.customerToken;
             const response = await fetch(`/api/payments/mpesa/status/${checkoutRequestId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
 
-            // Check if payment is complete
             if (data.data && data.data.ResultCode !== undefined) {
                 clearInterval(mpesaPollingInterval);
                 mpesaPollingInterval = null;
-                
+
                 if (data.data.ResultCode === '0') {
                     statusEl.className = 'payment-status success';
                     statusEl.textContent = '✅ Payment successful! Order confirmed.';
@@ -861,8 +1164,7 @@ function startMpesaPolling(checkoutRequestId) {
                     showToast('❌ Payment failed. Please try again.', 'error');
                 }
             }
-            
-            // Timeout
+
             if (attempts >= maxAttempts) {
                 clearInterval(mpesaPollingInterval);
                 mpesaPollingInterval = null;
@@ -877,25 +1179,24 @@ function startMpesaPolling(checkoutRequestId) {
                 mpesaPollingInterval = null;
             }
         }
-    }, 5000); // Poll every 5 seconds
+    }, 5000);
 }
-window.startMpesaPolling = startMpesaPolling;
 
 function startAirtelPolling(transactionId) {
     if (airtelPollingInterval) {
         clearInterval(airtelPollingInterval);
         airtelPollingInterval = null;
     }
-    
+
     let attempts = 0;
     const maxAttempts = 60;
     const statusEl = document.getElementById('paymentStatus');
 
     airtelPollingInterval = setInterval(async () => {
         attempts++;
-        
+
         try {
-            const token = window.customerToken || localStorage.getItem('customerToken');
+            const token = window.customerToken;
             const response = await fetch(`/api/payments/airtel/status/${transactionId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -937,18 +1238,17 @@ function startAirtelPolling(transactionId) {
         }
     }, 5000);
 }
-window.startAirtelPolling = startAirtelPolling;
 
 // ============================================================
 //  BANK SEARCH
 // ============================================================
+
 function populateBankDropdown() {
     const dropdown = document.getElementById('bankDropdown');
-    dropdown.innerHTML = kenyanBanks.map(b => 
+    dropdown.innerHTML = kenyanBanks.map(b =>
         `<div class="bank-item" onclick="selectBank('${b}')">${b}</div>`
     ).join('');
 }
-window.populateBankDropdown = populateBankDropdown;
 
 function filterBanks() {
     const query = document.getElementById('bankSearch').value.toLowerCase();
@@ -966,18 +1266,17 @@ function filterBanks() {
     });
     dropdown.classList.toggle('show', hasVisible || query.length > 0);
 }
-window.filterBanks = filterBanks;
 
 function selectBank(bank) {
     document.getElementById('bankSearch').value = bank;
     document.getElementById('selectedBank').value = bank;
     document.getElementById('bankDropdown').classList.remove('show');
 }
-window.selectBank = selectBank;
 
 // ============================================================
 //  TIMER
 // ============================================================
+
 function startReservationTimer() {
     if (getCart().length === 0) { document.getElementById('stockTimer').style.display = 'none'; return; }
     document.getElementById('stockTimer').style.display = 'inline-block';
@@ -989,8 +1288,8 @@ function startReservationTimer() {
         const mins = Math.floor(timeLeft / 60);
         const secs = timeLeft % 60;
         timerDisplay.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-        if (timeLeft <= 0) { 
-            clearInterval(timerInterval); 
+        if (timeLeft <= 0) {
+            clearInterval(timerInterval);
             showToast('⏳ Items reservation expired. Please refresh cart.', 'warning');
         }
     }, 1000);
@@ -999,7 +1298,8 @@ function startReservationTimer() {
 // ============================================================
 //  RECOMMENDED
 // ============================================================
-function loadRecommended() {
+
+function loadProductRecommendationsLegacy() {
     fetch('/api/products?limit=6')
         .then(res => res.json())
         .then(products => {
@@ -1018,9 +1318,48 @@ function loadRecommended() {
         .catch(() => {});
 }
 
+// The empty cart is a discovery screen. Recommend businesses, not products,
+// so a customer explicitly chooses a shop before browsing its catalogue.
+function loadRecommended() {
+    fetch('/api/businesses?limit=6&sort=popular')
+        .then(res => {
+            if (!res.ok) throw new Error('Could not load businesses');
+            return res.json();
+        })
+        .then(data => {
+            const container = document.getElementById('recommendedGrid');
+            if (!container) return;
+            const businesses = Array.isArray(data.businesses) ? data.businesses : [];
+            if (businesses.length === 0) {
+                container.innerHTML = '<p style="color:#64748b;font-size:.8rem;">No businesses are available right now.</p>';
+                return;
+            }
+            container.innerHTML = businesses.slice(0, 6).map(business => `
+                <a class="business-recommendation-card" href="/business/${encodeURIComponent(business.slug)}">
+                    ${business.logo
+                        ? `<img src="${business.logo}" alt="${business.business_name}" loading="lazy">`
+                        : '<div class="business-recommendation-image">Shop</div>'}
+                    <div class="business-recommendation-info">
+                        <div class="business-recommendation-name">${business.business_name}</div>
+                        <div class="business-recommendation-location">${business.location || 'Kenya'}</div>
+                        <div class="business-recommendation-meta">
+                            <span>★ ${Number(business.avg_rating || 0).toFixed(1)}</span>
+                            <span>${business.product_count || 0} products</span>
+                        </div>
+                    </div>
+                </a>
+            `).join('');
+        })
+        .catch(() => {
+            const container = document.getElementById('recommendedGrid');
+            if (container) container.innerHTML = '<p style="color:#64748b;font-size:.8rem;">Unable to load businesses right now.</p>';
+        });
+}
+
 // ============================================================
 //  LOAD SHOP PROFILE
 // ============================================================
+
 async function loadShopProfile() {
     try {
         const res = await fetch('/api/shop');
@@ -1036,6 +1375,7 @@ async function loadShopProfile() {
 // ============================================================
 //  EXPOSE GLOBALS
 // ============================================================
+
 window.renderCartPage = renderCartPage;
 window.updateCartQty = updateCartQty;
 window.removeItemFromCart = removeItemFromCart;
@@ -1055,5 +1395,7 @@ window.populateBankDropdown = populateBankDropdown;
 window.startMpesaPolling = startMpesaPolling;
 window.startAirtelPolling = startAirtelPolling;
 window.loadShopProfile = loadShopProfile;
+window.selectDeliveryMethod = selectDeliveryMethod;
+window.loadBusinessSettings = loadBusinessSettings;
 
 console.log('✅ Cart page initialized successfully');

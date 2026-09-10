@@ -3,15 +3,12 @@
 //  Location: D:\my-business-website\public\js\admin-orders.js
 // ============================================================
 
-const adminToken = localStorage.getItem('token');
-if (!adminToken) {
-  alert('Please login as admin.');
-  window.location.href = '/admin.html';
-}
+const adminToken = null;
 let socket = null;
 let ordersData = [];
 
 function logoutAdmin() {
+  fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   localStorage.removeItem('token');
   window.location.href = '/admin.html';
 }
@@ -34,6 +31,39 @@ function resetFilters() {
   document.getElementById('filterSearch').value = '';
   document.getElementById('filterStart').value = '';
   document.getElementById('filterEnd').value = '';
+  loadOrders();
+}
+
+function toggleAllOrders(checked) {
+  document.querySelectorAll('.order-select').forEach(input => { input.checked = checked; });
+}
+
+async function applyBulkStatus() {
+  const status = document.getElementById('bulkStatus').value;
+  const orderIds = [...document.querySelectorAll('.order-select:checked')].map(input => Number(input.value));
+  if (!status || orderIds.length === 0) return alert('Select orders and a status first.');
+  if (!confirm(`Update ${orderIds.length} order(s) to ${status}?`)) return;
+  const response = await fetch('/api/admin/orders/bulk-status', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderIds, status })
+  });
+  const data = await response.json();
+  if (!response.ok || !data.success) return alert(data.error || 'Bulk update failed.');
+  loadOrders();
+}
+
+async function deleteSelectedOrders() {
+  const orderIds = [...document.querySelectorAll('.order-select:checked')].map(input => Number(input.value));
+  if (orderIds.length === 0) return alert('Select orders first.');
+  if (!confirm('Delete selected orders only if they are cancelled or completed?')) return;
+  const response = await fetch('/api/admin/orders/bulk', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderIds })
+  });
+  const data = await response.json();
+  if (!response.ok || !data.success) return alert(data.error || 'Bulk delete failed.');
   loadOrders();
 }
 
@@ -256,10 +286,12 @@ function renderOrderCard(order) {
     `;
   }
   actionsHtml += ` <button class="btn btn-info btn-sm" onclick="togglePayments(${order.id})">Payments</button>`;
+  actionsHtml += ` <a class="btn btn-secondary btn-sm" href="/api/orders/${order.id}/receipt" target="_blank"><i class="fas fa-file-pdf"></i> Receipt</a>`;
 
   return `
     <div class="order-card ${urgentClass}">
       <div class="order-header">
+        <label><input class="order-select" type="checkbox" value="${order.id}"></label>
         <span class="id">Order ${ref}</span>
         <span>${order.customer_name}</span>
         <span class="status status-${order.status}">${order.status.toUpperCase()}</span>
@@ -571,3 +603,6 @@ window.sendOrderConfirmation = sendOrderConfirmation;
 window.handleReturn = handleReturn;
 window.toggleReturnDetails = toggleReturnDetails;
 window.logoutAdmin = logoutAdmin;
+window.toggleAllOrders = toggleAllOrders;
+window.applyBulkStatus = applyBulkStatus;
+window.deleteSelectedOrders = deleteSelectedOrders;

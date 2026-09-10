@@ -4,15 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
   <title>Shopping Cart</title>
-  
+
   <!-- Main Global Styles -->
   <link rel="stylesheet" href="/style.css">
-  
+
   <!-- External Libraries -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  
+
   <!-- Page-Specific Styles -->
   <link rel="stylesheet" href="/css/cart.css">
+  <script>if (new URLSearchParams(window.location.search).get('embedded') === '1') document.documentElement.classList.add('embedded');</script>
 </head>
 <body>
 
@@ -21,7 +22,7 @@
   <h1>🛍️ <span id="shopNameHeader">Our Business</span></h1>
   <div class="header-right">
     <a href="/"><i class="fas fa-home"></i> Home</a>
-    <a href="/account.html"><i class="fas fa-user"></i> Account</a>
+    <a href="/account.html" id="cartHeaderAccount"><i class="fas fa-user"></i> Account</a>
     <a href="/cart.html" class="cart-link">
       <i class="fas fa-shopping-cart" style="font-size:1.2rem;"></i>
       <span id="cartBadge">0</span>
@@ -51,14 +52,14 @@
       <!-- Delivery Location -->
       <div class="cart-section" id="locationSection">
         <h3><i class="fas fa-map-marker-alt" style="color:#2563eb;"></i> Where to send your order?</h3>
-        
+
         <div style="background:#f0fdf4; padding:8px 12px; border-radius:6px; margin-bottom:10px; border-left:3px solid #22c55e;">
           <p style="font-size:0.8rem; color:#166534; margin:0;">
-            <i class="fas fa-info-circle"></i> 
+            <i class="fas fa-info-circle"></i>
             Tell us exactly where to deliver. Please give clear directions so our driver can find you easily.
           </p>
         </div>
-        
+
         <div class="location-fields">
           <div>
             <label>📍 County <span style="color:#ef4444;">*</span></label>
@@ -77,7 +78,7 @@
             <input type="text" id="deliveryInstructions" placeholder="e.g., Call me when you arrive, or leave with guard">
           </div>
         </div>
-        
+
         <input type="hidden" id="recipientName" value="">
         <input type="hidden" id="recipientPhone" value="">
         <input type="hidden" id="customerLat" value="">
@@ -99,7 +100,7 @@
           <button onclick="applyPromo()">Apply</button>
         </div>
         <div class="promo-hint">
-          <i class="fas fa-info-circle"></i> 
+          <i class="fas fa-info-circle"></i>
           What is a promo code? A discount code that gives you savings on your order.
         </div>
         <div id="promoMessage" style="font-size:0.65rem; margin-top:2px;"></div>
@@ -129,7 +130,8 @@
 
   <div id="recommendedSection" style="margin-top:16px;">
     <h3 style="font-size:0.9rem; font-weight:700;">You may also like</h3>
-    <div id="recommendedGrid" class="related-grid"></div>
+    <p style="margin:4px 0 10px; color:#64748b; font-size:0.78rem;">Explore a business to view its products and add what you like to your cart.</p>
+    <div id="recommendedGrid" class="business-recommendation-grid"></div>
   </div>
 </div>
 
@@ -168,7 +170,7 @@
     <h3>💳 Choose Payment Method</h3>
     <div id="paymentBody">
       <p>Total amount: <strong id="paymentTotal">Ksh 0</strong></p>
-      
+
       <div class="payment-methods" id="paymentMethods">
         <div class="method" onclick="selectPaymentMethod('mpesa')">
           <i class="fas fa-mobile-alt" style="color:#4CAF50;"></i> M-Pesa
@@ -180,13 +182,13 @@
           <i class="fas fa-university" style="color:#2563eb;"></i> Bank Transfer
         </div>
       </div>
-      
+
       <div id="paymentDetails" style="display:none; margin-top:10px;">
         <div id="phoneField" style="display:none;">
           <label>Phone Number:</label>
           <input type="text" id="paymentPhone" placeholder="0712345678" class="payment-field">
         </div>
-        
+
         <div id="bankField" style="display:none;">
           <label>Select your bank:</label>
           <div class="bank-search-container">
@@ -199,7 +201,7 @@
           <label style="margin-top:8px;">PIN:</label>
           <input type="password" id="paymentBankPin" placeholder="Enter your PIN" class="payment-field">
         </div>
-        
+
         <button class="btn btn-success" id="payNowBtn" onclick="processPayment()" style="margin-top:8px; padding:10px 20px; border-radius:8px; border:none; background:#22c55e; color:white; font-weight:700; cursor:pointer; width:100%;">
           💳 Pay Now
         </button>
@@ -215,19 +217,20 @@
 <!-- ===== BOTTOM NAV - FIXED ===== -->
 <div class="bottom-nav">
   <a href="/"><i class="fas fa-home"></i><span>Home</span></a>
-  <a href="/category.html"><i class="fas fa-th-large"></i><span>Category</span></a>
+  <a href="/category.html" id="cartNavCategory"><i class="fas fa-th-large"></i><span>Category</span></a>
   <!-- FIXED: Messages tab now opens chat -->
-  <a href="#" onclick="openChatTab(); return false;"><i class="fas fa-envelope"></i><span>Messages</span></a>
+  <a href="#" id="cartNavMessages" onclick="openChatTab(); return false;"><i class="fas fa-envelope"></i><span>Messages</span></a>
   <a href="/cart.html" class="active" style="position:relative;">
     <i class="fas fa-shopping-cart"></i>
     <span class="nav-badge" id="navCartBadge">0</span>
     <span>Cart</span>
   </a>
-  <a href="/account.html"><i class="fas fa-user"></i><span>Account</span></a>
+  <a href="/account.html" id="cartNavAccount"><i class="fas fa-user"></i><span>Account</span></a>
 </div>
 
 <!-- ===== SCRIPTS ===== -->
 <script src="/socket.io/socket.io.js"></script>
+<script src="/js/cart-store.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/cart.js"></script>
 </body>

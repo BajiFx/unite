@@ -4,7 +4,7 @@
 
 const urlParams = new URLSearchParams(window.location.search);
 const orderId = urlParams.get('orderId') || urlParams.get('PayerID') || null;
-const token = localStorage.getItem('customerToken');
+const token = window.customerToken;
 
 if (orderId && token) {
     const paypalOrderId = urlParams.get('token') || urlParams.get('paymentId');

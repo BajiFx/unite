@@ -18,7 +18,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 async function saveMpesaCredentials(consumerKey, consumerSecret, passkey, shortcode, callbackUrl, environment) {
   const envPath = path.join(__dirname, '..', '.env');
   let envContent = '';
-  
+
   if (fs.existsSync(envPath)) {
     envContent = fs.readFileSync(envPath, 'utf8');
   }

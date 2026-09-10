@@ -2,6 +2,8 @@
    SELLER CHAT PAGE STYLES
    ============================================================ */
 
+html.embedded .seller-chat-header { display: none; }
+
 .seller-chat-body {
   background: #f4f6f9;
   height: 100vh;

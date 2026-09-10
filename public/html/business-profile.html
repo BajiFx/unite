@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>Business Profile</title>
+
+  <!-- Main Global Styles -->
+  <link rel="stylesheet" href="/style.css">
+
+  <!-- External Libraries -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Page-Specific Styles -->
+  <link rel="stylesheet" href="/css/business-profile.css">
+  <link rel="stylesheet" href="/css/product-detail.css">
+</head>
+<body class="index-body">
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+  <div class="header-left">
+    <h1>🛍️ <span id="businessNameHeader">Business</span></h1>
+  </div>
+  <div class="header-right" id="headerRight">
+    <!-- PUBLIC NAV (Guest) -->
+    <div id="publicNav" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <a href="#" onclick="openAuthModal('login'); return false;" class="auth-btn" id="authLoginBtn" style="color:#2563eb; font-weight:700;">
+        <i class="fas fa-sign-in-alt"></i> Login
+      </a>
+      <a href="#" onclick="openAuthModal('register'); return false;" class="auth-btn" id="authRegisterBtn" style="background:#2563eb; color:white; padding:6px 14px; border-radius:20px; font-weight:700; text-decoration:none; font-size:0.75rem; display:inline-flex; align-items:center; gap:4px;">
+        <i class="fas fa-user-plus"></i> Register
+      </a>
+    </div>
+
+    <!-- LOGGED IN NAV -->
+    <div id="loggedInNav" style="display:none; gap:8px; align-items:center; flex-wrap:wrap;">
+      <a href="#" onclick="logout(); return false;" id="logoutBtn" style="color:#ef4444; font-weight:600; font-size:0.75rem; display:inline-flex; align-items:center; gap:4px;">
+        <i class="fas fa-sign-out-alt"></i> Logout
+      </a>
+    </div>
+    <a href="/" class="auth-btn" id="backToMarketplaceTop" style="color:#000000; font-weight:800; font-size:0.75rem;">
+      <i class="fas fa-arrow-left"></i> Back to Marketplace
+    </a>
+    <a href="/business-admin.html" class="auth-btn" id="backToBusinessAdmin" style="display:none;color:#2563eb;font-weight:800;font-size:0.75rem;">
+      <i class="fas fa-arrow-left"></i> Back to Business Admin
+    </a>
+
+  </div>
+</div>
+
+<!-- ===== BUSINESS PROFILE CONTENT ===== -->
+<div id="businessProfileContainer">
+
+  <!-- Loading -->
+  <div id="loadingState" style="text-align:center;padding:60px 20px;color:#94a3b8;">
+    <i class="fas fa-spinner fa-spin fa-2x"></i>
+    <p style="margin-top:12px;">Loading business profile...</p>
+  </div>
+
+  <!-- Main Content -->
+  <div id="businessContent" style="display:none;">
+
+    <!-- ===== HERO ===== -->
+    <div class="business-hero" id="heroSection">
+      <div class="hero-overlay">
+        <div class="hero-logo-wrapper">
+          <img id="heroLogo" src="" alt="Business Logo" class="hero-logo">
+        </div>
+        <div class="hero-content">
+          <h1 id="heroTitle">Welcome</h1>
+          <p id="heroLocation">📍 Nairobi, Kenya</p>
+          <p id="heroAddress"></p>
+          <div class="hero-meta" id="heroMeta">
+            <span><i class="fas fa-box"></i> <span id="productCount">0</span> products</span>
+            <span><i class="fas fa-star"></i> <span id="avgRating">0.0</span> rating</span>
+            <span><i class="fas fa-users"></i> <span id="followerCount">0</span> followers</span>
+          </div>
+          <div class="hero-actions">
+            <button class="btn btn-primary" onclick="document.getElementById('products').scrollIntoView({behavior:'smooth'})">
+              <i class="fas fa-shopping-bag"></i> Shop Now
+            </button>
+            <button class="btn btn-success" id="followBtn" onclick="toggleFollow()">
+              <i class="fas fa-heart"></i> <span id="followText">Follow</span>
+            </button>
+          </div>
+          <div class="verified-badge" id="verifiedBadge" style="display:none;">
+            <span class="badge">✅ Verified Business</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== ABOUT ===== -->
+    <div class="about-card">
+      <div class="about-grid">
+        <div class="about-item">
+          <i class="fas fa-bullseye" style="color:#ff6b6b;"></i>
+          <h3>Mission</h3>
+          <p id="businessMission">-</p>
+        </div>
+        <div class="about-item">
+          <i class="fas fa-eye" style="color:#7c3aed;"></i>
+          <h3>Vision</h3>
+          <p id="businessVision">-</p>
+        </div>
+      </div>
+      <div class="about-description" id="aboutDescription">
+        <p id="businessDescription">Loading description...</p>
+      </div>
+    </div>
+
+    <!-- ===== SLIDER ===== -->
+    <div class="slider-section">
+      <div class="slider-container">
+        <div class="slider-wrapper" id="sliderWrapper">
+          <div class="slide">✨ Loading...</div>
+        </div>
+        <button class="slider-btn prev" onclick="changeBusinessSlide(-1)">❮</button>
+        <button class="slider-btn next" onclick="changeBusinessSlide(1)">❯</button>
+      </div>
+    </div>
+
+    <!-- ===== PRODUCTS SECTION ===== -->
+    <div class="products-section" id="products">
+      <div class="section-header">
+        <h2>📦 Our Products</h2>
+        <div class="products-filters">
+          <input type="text" id="businessSearchInput" placeholder="Search products..." onkeyup="filterBusinessProducts()">
+          <select id="businessProductCategoryFilter" onchange="filterBusinessProducts()" aria-label="Filter products by category">
+            <option value="all">All product categories</option>
+          </select>
+        </div>
+      </div>
+      <div class="product-grid" id="productGrid"></div>
+    </div>
+
+    <!-- ===== CONTACT ===== -->
+    <div class="contact-section" id="businessProfileContacts" style="display:none;">
+      <h3>📞 Contact Us</h3>
+      <div class="contact-icons">
+        <a id="iconWhatsapp" href="#" target="_blank" style="font-size:1.6rem; color:#25D366;"><i class="fab fa-whatsapp"></i></a>
+        <a id="iconTiktok" href="#" target="_blank" style="font-size:1.6rem; color:#000;"><i class="fab fa-tiktok"></i></a>
+        <a id="iconInstagram" href="#" target="_blank" style="font-size:1.6rem; color:#E4405F;"><i class="fab fa-instagram"></i></a>
+        <a id="iconFacebook" href="#" target="_blank" style="font-size:1.6rem; color:#1877F2;"><i class="fab fa-facebook-messenger"></i></a>
+        <a id="iconPhone" href="#" style="font-size:1.6rem; color:#2563eb;"><i class="fas fa-phone"></i></a>
+      </div>
+    </div>
+
+    <!-- ===== REVIEWS ===== -->
+    <div class="reviews-section">
+      <h3>⭐ Customer Reviews</h3>
+      <div id="reviewsList"><p style="color:#94a3b8;">Loading reviews...</p></div>
+
+      <div class="write-review" id="writeReviewSection">
+        <h4>✍️ Write a Review</h4>
+        <div class="stars-row">
+          <span class="stars" id="reviewStars">
+            <span onclick="setRating(1)">⭐</span>
+            <span onclick="setRating(2)">⭐</span>
+            <span onclick="setRating(3)">⭐</span>
+            <span onclick="setRating(4)">⭐</span>
+            <span onclick="setRating(5)">⭐</span>
+          </span>
+          <span class="rating-hint">👆 Click a star to rate this business</span>
+        </div>
+        <textarea id="reviewText" placeholder="Share your experience with this business..." rows="2"></textarea>
+        <button class="btn-submit" onclick="submitBusinessReview()">Submit Review</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DETAIL MODAL ===== -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal-box">
+    <span class="close-modal" onclick="closeDetails()">&times;</span>
+    <div id="detailContent"></div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BOTTOM NAVIGATION - DYNAMIC -->
+<!-- ============================================================ -->
+<div class="bottom-nav business-nav" id="bottomNav">
+  <!-- HOME - Always visible, goes to business home -->
+  <a href="#" id="navHome" onclick="scrollToTop(); return false;" class="active">
+    <i class="fas fa-home"></i>
+    <span>Home</span>
+  </a>
+
+  <!-- CATEGORY - Hidden on business profile -->
+  <a href="/category.html" id="navCategory" style="display:none;">
+    <i class="fas fa-th-large"></i>
+    <span>Category</span>
+  </a>
+
+  <!-- MESSAGES - Logged in only -->
+  <a href="#" id="navMessages" style="display:none;" onclick="openChatTab(); return false;">
+    <i class="fas fa-comment"></i>
+    <span>Messages</span>
+  </a>
+
+  <!-- CART - Customer logged in -->
+  <a href="/?workspace=cart" id="navCart" style="display:none; position:relative;" onclick="goToMarketplaceCart(); return false;">
+    <i class="fas fa-shopping-cart"></i>
+    <span class="nav-badge" id="navCartBadgeBP">0</span>
+    <span>Cart</span>
+  </a>
+
+  <!-- CART GUEST - Guest only -->
+  <a href="#" id="navCartGuest" style="display:none;" onclick="openGuestCartPrompt(); return false;">
+    <i class="fas fa-shopping-cart"></i>
+    <span>Cart</span>
+  </a>
+
+  <!-- ORDERS - Logged in customers & business admins -->
+  <a href="/?workspace=orders" id="navOrders" style="display:none;">
+    <i class="fas fa-box"></i>
+    <span>Orders</span>
+  </a>
+
+  <!-- PUBLIC PREVIEW - Business admin only (own business) -->
+  <a href="#" id="navPublicPreview" style="display:none;" onclick="openBusinessPreview(); return false;">
+    <i class="fas fa-eye"></i>
+    <span>Preview</span>
+  </a>
+
+  <!-- ADMIN - Business admin only -->
+  <a href="/?workspace=dashboard" id="navAdmin" style="display:none;">
+    <i class="fas fa-cog"></i>
+    <span>Admin</span>
+  </a>
+
+  <a href="/?workspace=dashboard" id="navBackToDashboard" style="display:none;">
+    <i class="fas fa-arrow-left"></i>
+    <span>Dashboard</span>
+  </a>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- AUTH MODAL -->
+<!-- ============================================================ -->
+<div class="modal-overlay" id="authModal">
+  <div class="modal-box">
+    <span class="close-modal" onclick="closeAuthModal()">&times;</span>
+
+    <div id="authLoginContainer">
+      <h2 id="authLoginTitle">🔑 Login</h2>
+      <div style="display:flex; gap:10px; margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="selectLoginType('customer')" id="loginTypeCustomer" style="flex:1; padding:10px; font-size:0.85rem;">
+          <i class="fas fa-user"></i> Customer
+        </button>
+        <button class="btn btn-secondary" onclick="selectLoginType('business')" id="loginTypeBusiness" style="flex:1; padding:10px; font-size:0.85rem; background:#e2e8f0; color:#1e293b;">
+          <i class="fas fa-store"></i> Business
+        </button>
+      </div>
+      <div id="loginForm">
+        <div class="form-group">
+          <label>Username or Email</label>
+          <input type="text" id="loginUsername" placeholder="Enter your username or email">
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter your password">
+          <button class="toggle-pwd" onclick="togglePwd('loginPassword', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="handleLogin()">Login</button>
+        <div id="loginStatus" class="auth-status"></div>
+        <p style="margin-top:8px; text-align:center; font-size:0.8rem;">
+          <a href="/reset-password.html" style="color:#2563eb;">🔑 Forgot Password?</a>
+        </p>
+        <p style="margin-top:4px; text-align:center; font-size:0.8rem;">
+          Don't have an account? <a href="#" onclick="switchAuthTab('register')">Register</a>
+        </p>
+      </div>
+    </div>
+
+    <div id="authRegisterContainer" style="display:none;">
+      <h2 id="authRegisterTitle">📝 Create Account</h2>
+      <div style="display:flex; gap:10px; margin-bottom:16px;">
+        <button class="btn btn-success" onclick="selectRegisterType('customer')" id="registerTypeCustomer" style="flex:1; padding:10px; font-size:0.85rem;">
+          <i class="fas fa-user"></i> Customer
+        </button>
+        <button class="btn btn-secondary" onclick="selectRegisterType('business')" id="registerTypeBusiness" style="flex:1; padding:10px; font-size:0.85rem; background:#e2e8f0; color:#1e293b;">
+          <i class="fas fa-store"></i> Business
+        </button>
+      </div>
+
+      <div id="customerRegisterForm">
+        <div class="form-group">
+          <label>Username *</label>
+          <input type="text" id="regCustomerUsername" placeholder="Choose a unique username" oninput="checkUsernameAvailability(this.value, 'customer')">
+          <small id="customerUsernameStatus" style="font-size:0.55rem; color:#94a3b8;">Username must be at least 3 characters</small>
+          <div id="customerUsernameSuggestions" style="display:none; background:#f8fafc; border-radius:6px; padding:4px 8px; margin-top:4px; font-size:0.75rem; color:#64748b;"></div>
+        </div>
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" id="regCustomerName" placeholder="Your full name">
+        </div>
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" id="regCustomerEmail" placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+          <label>Phone Number *</label>
+          <input type="tel" id="regCustomerPhone" placeholder="0712345678">
+          <small>Enter a valid phone number (e.g., 0712345678)</small>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Password *</label>
+          <input type="password" id="regCustomerPassword" placeholder="Min 6 characters">
+          <button class="toggle-pwd" onclick="togglePwd('regCustomerPassword', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Confirm Password *</label>
+          <input type="password" id="regCustomerConfirm" placeholder="Re-enter password">
+          <button class="toggle-pwd" onclick="togglePwd('regCustomerConfirm', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <button class="btn btn-success" style="width:100%;" onclick="handleCustomerRegister()">Create Customer Account</button>
+        <div id="customerRegisterStatus" class="auth-status"></div>
+      </div>
+
+      <div id="businessRegisterForm" style="display:none;">
+        <div class="form-group">
+          <label>Business Username *</label>
+          <input type="text" id="regBusinessUsername" placeholder="Choose a unique business username" oninput="checkUsernameAvailability(this.value, 'business')">
+          <small id="businessUsernameStatus" style="font-size:0.55rem; color:#94a3b8;">Username must be at least 3 characters</small>
+          <div id="businessUsernameSuggestions" style="display:none; background:#f8fafc; border-radius:6px; padding:4px 8px; margin-top:4px; font-size:0.75rem; color:#64748b;"></div>
+        </div>
+        <div class="form-group">
+          <label>Business Name *</label>
+          <input type="text" id="regBusinessName" placeholder="Your business name">
+        </div>
+        <div class="form-group">
+          <label>Business Category *</label>
+          <select id="regBusinessCategory" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem;">
+            <option value="">Select a category...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" id="regBusinessEmail" placeholder="business@email.com">
+        </div>
+        <div class="form-group">
+          <label>Phone Number *</label>
+          <input type="tel" id="regBusinessPhone" placeholder="0712345678">
+        </div>
+        <div class="form-group">
+          <label>Location *</label>
+          <input type="text" id="regBusinessLocation" placeholder="Nairobi, Kenya">
+        </div>
+        <div class="form-group">
+          <label>Business Description</label>
+          <textarea id="regBusinessDescription" rows="2" placeholder="Tell customers about your business..." style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Password *</label>
+          <input type="password" id="regBusinessPassword" placeholder="Min 8 characters">
+          <button class="toggle-pwd" onclick="togglePwd('regBusinessPassword', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Confirm Password *</label>
+          <input type="password" id="regBusinessConfirm" placeholder="Re-enter password">
+          <button class="toggle-pwd" onclick="togglePwd('regBusinessConfirm', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="handleBusinessRegister()">Create Business Account</button>
+        <div id="businessRegisterStatus" class="auth-status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCRIPTS ===== -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/cart-store.js"></script>
+<script src="/js/navigation.js"></script>
+<script src="/js/business-profile.js"></script>
+<script src="/js/index.js"></script>
+
+<script>
+  if (new URLSearchParams(window.location.search).get('fromAdmin') === '1') {
+    document.getElementById('backToBusinessAdmin').style.display = 'inline-flex';
+  }
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function openBusinessPreview() {
+  const businessSlug = getBusinessSlugFromURL();
+  if (businessSlug) {
+    window.open(`/business/${businessSlug}`, '_blank');
+  } else {
+    alert('Business slug not found. Please refresh and try again.');
+  }
+}
+
+function getBusinessSlugFromURL() {
+  const path = window.location.pathname;
+  const parts = path.split('/');
+  if (parts.length >= 3 && parts[1] === 'business') {
+    return parts[2];
+  }
+  return null;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const businessSlug = getBusinessSlugFromURL();
+  if (businessSlug) {
+    fetch('/api/businesses/' + businessSlug)
+      .then(res => res.json())
+      .then(data => {
+        if (data.business) {
+          document.getElementById('businessNameHeader').textContent = data.business.business_name;
+        }
+      })
+      .catch(() => {});
+  }
+});
+</script>
+</body>
+</html>

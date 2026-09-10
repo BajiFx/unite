@@ -1,0 +1,372 @@
+/* ============================================================
+   REGISTER BUSINESS CSS
+   Location: public/css/register-business.css
+   ============================================================ */
+
+.register-business-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px 16px 80px;
+}
+
+.register-container {
+  background: white;
+  border-radius: 16px;
+  padding: 30px 32px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+  border: 1px solid #eef2f6;
+}
+
+.register-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.register-header h1 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.register-header p {
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+/* ===== STEPS INDICATOR ===== */
+.steps-indicator {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  position: relative;
+}
+
+.steps-indicator::before {
+  content: '';
+  position: absolute;
+  top: 20px;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: #e2e8f0;
+  z-index: 0;
+}
+
+.steps-indicator .step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1;
+  flex: 1;
+}
+
+.steps-indicator .step .number {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  transition: all 0.3s;
+}
+
+.steps-indicator .step .label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.steps-indicator .step.active .number {
+  background: #2563eb;
+  color: white;
+}
+
+.steps-indicator .step.active .label {
+  color: #2563eb;
+}
+
+.steps-indicator .step.completed .number {
+  background: #22c55e;
+  color: white;
+}
+
+.steps-indicator .step.completed .label {
+  color: #22c55e;
+}
+
+/* ===== STEP CONTENT ===== */
+.step-content {
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+.step-content.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== FORM STYLES ===== */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  border-color: #2563eb;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.form-group select[multiple] {
+  min-height: 100px;
+}
+
+.form-group small {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  display: block;
+  margin-top: 2px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* ===== PAYMENT SETTINGS ===== */
+.payment-setting {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.payment-setting .payment-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.payment-setting .payment-header:hover {
+  background: #f8fafc;
+}
+
+.payment-setting .payment-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.payment-setting .payment-info {
+  flex: 1;
+}
+
+.payment-setting .payment-info h4 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0;
+  color: #0f172a;
+}
+
+.payment-setting .payment-info p {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.payment-setting .payment-details {
+  padding: 12px 16px 16px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+/* ===== TOGGLE SWITCH ===== */
+.switch {
+  position: relative;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #cbd5e1;
+  transition: 0.3s;
+  border-radius: 26px;
+}
+
+.switch .slider::before {
+  content: '';
+  position: absolute;
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.switch input:checked + .slider {
+  background: #2563eb;
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(22px);
+}
+
+/* ===== BUTTONS ===== */
+.btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.btn-secondary {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.btn-secondary:hover {
+  background: #cbd5e1;
+}
+
+.btn-success {
+  background: #22c55e;
+  color: white;
+}
+
+.btn-success:hover {
+  background: #16a34a;
+}
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* ===== SUCCESS ===== */
+.success-icon {
+  font-size: 4rem;
+  margin-bottom: 12px;
+}
+
+.success-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .register-container {
+    padding: 20px 16px;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .steps-indicator .step .label {
+    font-size: 0.55rem;
+  }
+
+  .steps-indicator .step .number {
+    width: 32px;
+    height: 32px;
+    font-size: 0.75rem;
+  }
+
+  .register-header h1 {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .steps-indicator .step .label {
+    display: none;
+  }
+
+  .steps-indicator::before {
+    top: 16px;
+  }
+}

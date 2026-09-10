@@ -55,7 +55,7 @@ let allValid = true;
 
 for (const [key, check] of Object.entries(checks)) {
   const value = check.value;
-  
+
   if (!value) {
     check.status = '❌';
     check.message = 'NOT SET';
@@ -88,7 +88,7 @@ for (const [key, check] of Object.entries(checks)) {
     check.status = '✅';
     check.message = 'OK';
   }
-  
+
   console.log(`${check.status} ${key}: ${check.message}`);
 }
 
@@ -106,7 +106,7 @@ if (allValid) {
       console.log(`   ${check.status} ${key}: ${check.message}`);
     }
   }
-  
+
   console.log('\n📝 To fix:');
   console.log('  1. Run: node scripts/mpesa-credentials-helper.js');
   console.log('  2. Or manually update .env with your real credentials');

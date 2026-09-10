@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
   <title>Order Tracking</title>
-  
+
   <!-- Main Global Styles -->
   <link rel="stylesheet" href="/style.css">
-  
+
   <!-- External Libraries -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  
+
   <!-- Page-Specific Styles -->
   <link rel="stylesheet" href="/css/order-tracking.css">
 </head>
@@ -29,14 +29,14 @@
 <!-- ===== TRACKING PAGE ===== -->
 <div class="track-page" id="trackPage">
   <a href="/account.html" class="back-link"><i class="fas fa-arrow-left"></i> Back to Orders</a>
-  
+
   <div class="track-card" id="trackCard">
     <!-- Loading -->
     <div id="loadingState" class="loading-spinner">
       <i class="fas fa-spinner fa-spin fa-2x"></i>
       <p>Loading order details...</p>
     </div>
-    
+
     <!-- Order Content -->
     <div id="orderContent" style="display:none;">
       <!-- Header -->
@@ -109,7 +109,7 @@
     <h3>💳 Complete Payment</h3>
     <div id="paymentBody">
       <p>You need to pay an extra <strong id="paymentAmount">Ksh 0</strong></p>
-      
+
       <div class="payment-methods" id="paymentMethods">
         <div class="method" onclick="selectPaymentMethod('mpesa')">
           <i class="fas fa-mobile-alt" style="color:#4CAF50;"></i> M-Pesa
@@ -121,7 +121,7 @@
           <i class="fab fa-paypal" style="color:#0070BA;"></i> PayPal
         </div>
       </div>
-      
+
       <div id="paymentDetails" style="display:none;">
         <div id="phoneField" style="display:none;">
           <label>Phone Number:</label>
@@ -130,7 +130,7 @@
         <div id="paypalField" style="display:none;">
           <p style="font-size:0.8rem; color:#64748b;">You will be redirected to PayPal to complete payment.</p>
         </div>
-        
+
         <div id="paymentStatus" class="payment-status"></div>
         <button class="btn-pay" id="payNowBtn" onclick="processPayment()">Pay Now</button>
       </div>

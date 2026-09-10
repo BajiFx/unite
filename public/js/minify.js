@@ -5,7 +5,7 @@
 async function loadStats() {
     try {
         const response = await fetch('/api/admin/assets/stats', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            headers: { 'Authorization': `Bearer ${window.customerToken}` }
         });
         const data = await response.json();
         if (data.success) {
@@ -21,28 +21,28 @@ async function loadStats() {
 async function minifyAssets() {
     const btn = document.getElementById('minifyBtn');
     const output = document.getElementById('output');
-    
+
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Minifying...';
-    
+
     output.className = 'output show';
     output.innerHTML = `
         <div class="icon">⏳</div>
         <div class="title">Minifying assets...</div>
         <div class="details">Please wait, this may take a moment.</div>
     `;
-    
+
     try {
         const response = await fetch('/api/admin/minify', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${window.customerToken}`
             }
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             let filesHtml = data.files.map(f => `
                 <div class="file">
@@ -50,7 +50,7 @@ async function minifyAssets() {
                     <span style="color:#16a34a;">✅</span>
                 </div>
             `).join('');
-            
+
             output.className = 'output show success';
             output.innerHTML = `
                 <div class="icon">✅</div>
@@ -79,7 +79,7 @@ async function minifyAssets() {
             <div class="details">${err.message}</div>
         `;
     }
-    
+
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-compress"></i> Minify Assets';
 }

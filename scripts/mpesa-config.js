@@ -12,56 +12,56 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
 const MPESA_CONFIG = {
   environment: process.env.MPESA_ENVIRONMENT || 'sandbox',
-  
+
   consumerKey: process.env.MPESA_CONSUMER_KEY,
   consumerSecret: process.env.MPESA_CONSUMER_SECRET,
   passkey: process.env.MPESA_PASSKEY,
   shortcode: process.env.MPESA_SHORTCODE || '174379',
   email: process.env.SMTP_USER || 'georgebabji1220@gmail.com',
-  
+
   get callbackUrl() {
     return process.env.MPESA_CALLBACK_URL || `${BASE_URL}/api/payments/mpesa-callback`;
   },
-  
+
   get apiUrls() {
-    const baseUrl = this.environment === 'production' 
+    const baseUrl = this.environment === 'production'
       ? 'https://api.safaricom.co.ke'
       : 'https://sandbox.safaricom.co.ke';
-    
+
     return {
       auth: `${baseUrl}/oauth/v1/generate?grant_type=client_credentials`,
       stkPush: `${baseUrl}/mpesa/stkpush/v1/processrequest`,
       stkQuery: `${baseUrl}/mpesa/stkpushquery/v1/query`,
     };
   },
-  
+
   validate() {
     const errors = [];
     const warnings = [];
-    
+
     if (!this.consumerKey || this.consumerKey === 'YOUR_CONSUMER_KEY_HERE') {
       errors.push('❌ MPESA_CONSUMER_KEY is not set');
     }
-    
+
     if (!this.consumerSecret || this.consumerSecret === 'YOUR_CONSUMER_SECRET_HERE') {
       errors.push('❌ MPESA_CONSUMER_SECRET is not set');
     }
-    
+
     if (!this.passkey || this.passkey === 'YOUR_PASSKEY_HERE') {
       errors.push('❌ MPESA_PASSKEY is not set');
     }
-    
+
     if (!this.callbackUrl || this.callbackUrl.includes('your-ngrok-url')) {
       warnings.push('⚠️ Callback URL needs to be updated');
     }
-    
+
     return {
       valid: errors.length === 0,
       errors: errors,
       warnings: warnings
     };
   },
-  
+
   getMasked() {
     return {
       environment: this.environment,

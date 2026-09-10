@@ -1,4 +1,4 @@
-﻿// src/services/paypal.js
+// src/services/paypal.js
 const paypal = require('@paypal/checkout-server-sdk');
 const { v4: uuidv4 } = require('uuid');
 const { pool, logError } = require('../config/database');
@@ -8,9 +8,9 @@ const { sendEmail, orderConfirmationEmail } = require('./email'); // Fixed: './e
 let paypalClient = null;
 
 function initPaypalClient() {
-  if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET && 
+  if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET &&
       process.env.PAYPAL_CLIENT_ID !== 'your_paypal_client_id_here') {
-    const environment = process.env.PAYPAL_MODE === 'production' 
+    const environment = process.env.PAYPAL_MODE === 'production'
       ? new paypal.core.LiveEnvironment(process.env.PAYPAL_CLIENT_ID, process.env.PAYPAL_CLIENT_SECRET)
       : new paypal.core.SandboxEnvironment(process.env.PAYPAL_CLIENT_ID, process.env.PAYPAL_CLIENT_SECRET);
     paypalClient = new paypal.core.PayPalHttpClient(environment);

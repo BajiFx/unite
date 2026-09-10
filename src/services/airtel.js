@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 //  airtel.js - Airtel Money Integration with Simulation Mode
 //  Location: D:\my-business-website\src\services\airtel.js
 // ================================================================
@@ -30,8 +30,8 @@ async function getAirtelAccessToken() {
   const clientSecret = process.env.AIRTEL_CLIENT_SECRET;
 
   // Check if credentials are configured
-  if (!clientId || !clientSecret || 
-      clientId === 'your_airtel_client_id_here' || 
+  if (!clientId || !clientSecret ||
+      clientId === 'your_airtel_client_id_here' ||
       clientSecret === 'your_airtel_client_secret_here') {
     console.warn('⚠️ Airtel credentials not configured. Using simulation mode.');
     return null;
@@ -73,7 +73,7 @@ async function getAirtelAccessToken() {
 async function initiateAirtelPayment(phoneNumber, amount, accountReference, transactionDesc = 'Payment for order') {
   try {
     const accessToken = await retryOperation(() => getAirtelAccessToken());
-    
+
     if (!accessToken) {
       console.warn('⚠️ Using Airtel simulation mode');
       return {
@@ -130,7 +130,7 @@ async function initiateAirtelPayment(phoneNumber, amount, accountReference, tran
         },
         body: JSON.stringify(requestBody)
       });
-      
+
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`Airtel payment failed: ${res.status} - ${text}`);
@@ -175,7 +175,7 @@ async function initiateAirtelPayment(phoneNumber, amount, accountReference, tran
 async function queryAirtelStatus(transactionId) {
   try {
     const accessToken = await getAirtelAccessToken();
-    
+
     if (!accessToken) {
       return {
         success: false,
@@ -193,7 +193,7 @@ async function queryAirtelStatus(transactionId) {
     });
 
     const data = await response.json();
-    
+
     return {
       success: true,
       data: data
@@ -209,8 +209,8 @@ async function queryAirtelStatus(transactionId) {
 }
 
 // ---- Export ----
-module.exports = { 
-  getAirtelAccessToken, 
+module.exports = {
+  getAirtelAccessToken,
   initiateAirtelPayment,
   queryAirtelStatus
 };

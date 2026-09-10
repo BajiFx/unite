@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/css/admin.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body class="admin-body">
+  <header class="admin-header">
+    <h1><i class="fas fa-chart-pie"></i> Operations Dashboard</h1>
+    <nav>
+      <a href="/admin-orders.html">Orders</a>
+      <a href="/business-admin.html">Shop Management</a>
+      <a href="#" onclick="logoutAdmin(); return false;">Logout</a>
+    </nav>
+  </header>
+
+  <main class="admin-dashboard">
+    <div class="dashboard-heading">
+      <div>
+        <p class="eyebrow">Doreen Household Fabrics</p>
+        <h2>Live operations</h2>
+      </div>
+      <button class="btn btn-primary" onclick="loadAdminDashboard()"><i class="fas fa-sync"></i> Refresh</button>
+    </div>
+    <div id="dashboardStatus" class="status-message"></div>
+    <section class="admin-stats-grid" id="adminStatsGrid"></section>
+    <section class="admin-quick-links">
+      <a href="/admin-orders.html"><i class="fas fa-box"></i><span>Manage Orders</span><small>Confirm, ship, deliver, refund, export</small></a>
+      <a href="/business-admin.html"><i class="fas fa-store"></i><span>Shop Profile & Products</span><small>Settings, products, variants, delivery</small></a>
+      <a href="/seller-chat.html"><i class="fas fa-comments"></i><span>Seller Chat</span><small>Customer and support conversations</small></a>
+      <a href="/seller-track.html"><i class="fas fa-map-marked-alt"></i><span>Live Customer Map</span><small>Location-sharing customers</small></a>
+      <a href="/minify.html"><i class="fas fa-tools"></i><span>Platform Tools</span><small>Maintenance and activity tools</small></a>
+    </section>
+  </main>
+
+  <script src="/js/cookie-auth-client.js"></script>
+  <script src="/js/admin-dashboard.js"></script>
+</body>
+</html>

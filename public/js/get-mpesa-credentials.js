@@ -22,7 +22,7 @@ function updateEnvPreview() {
     const callbackUrl = document.getElementById('callbackUrl').value || 'https://your-ngrok-url.ngrok.io/api/payments/mpesa-callback';
     const environment = document.getElementById('environment').value || 'sandbox';
 
-    document.getElementById('envOutput').textContent = 
+    document.getElementById('envOutput').textContent =
 `# M-Pesa Configuration
 MPESA_CONSUMER_KEY=${consumerKey}
 MPESA_CONSUMER_SECRET=${consumerSecret}
@@ -65,7 +65,7 @@ async function saveCredentials() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${window.customerToken}`
             },
             body: JSON.stringify({
                 consumerKey,
@@ -82,11 +82,11 @@ async function saveCredentials() {
         if (data.success) {
             status.className = 'status success';
             status.textContent = '✅ Credentials saved successfully! You can now use M-Pesa.';
-            
+
             status.textContent += ' 🔍 Testing connection...';
             const testResponse = await fetch('/api/mpesa/test-connection', {
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    'Authorization': `Bearer ${window.customerToken}`
                 }
             });
             const testData = await testResponse.json();

@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 //  PAYMENT MODEL
 // ============================================================
 
@@ -30,8 +30,8 @@ class Payment {
    */
   static async findByOrder(orderId) {
     const result = await pool.query(`
-      SELECT * FROM payments 
-      WHERE order_id = $1 
+      SELECT * FROM payments
+      WHERE order_id = $1
       ORDER BY created_at DESC
     `, [orderId]);
     return result.rows;
@@ -68,7 +68,7 @@ class Payment {
 
     const result = await pool.query(`
       INSERT INTO payments (
-        customer_id, order_id, amount, method, status, 
+        customer_id, order_id, amount, method, status,
         transaction_id, payment_details
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -91,11 +91,11 @@ class Payment {
    */
   static async updateStatus(id, status, details = {}) {
     const result = await pool.query(`
-      UPDATE payments 
-      SET status = $1, 
+      UPDATE payments
+      SET status = $1,
           payment_details = payment_details || $2,
           updated_at = NOW()
-      WHERE id = $3 
+      WHERE id = $3
       RETURNING *
     `, [status, JSON.stringify(details), id]);
     return result.rows[0] || null;
@@ -107,8 +107,8 @@ class Payment {
   static async updateByTransactionId(transactionId, data) {
     const { status, details = {} } = data;
     const result = await pool.query(`
-      UPDATE payments 
-      SET status = $1, 
+      UPDATE payments
+      SET status = $1,
           payment_details = payment_details || $2,
           updated_at = NOW()
       WHERE transaction_id = $3 OR payment_details->>'checkoutRequestId' = $3
@@ -122,12 +122,12 @@ class Payment {
    */
   static async markSuccess(id, transactionId = null, details = {}) {
     const result = await pool.query(`
-      UPDATE payments 
-      SET status = 'success', 
+      UPDATE payments
+      SET status = 'success',
           transaction_id = COALESCE($1, transaction_id),
           payment_details = payment_details || $2,
           updated_at = NOW()
-      WHERE id = $3 
+      WHERE id = $3
       RETURNING *
     `, [transactionId, JSON.stringify(details), id]);
     return result.rows[0] || null;
@@ -138,11 +138,11 @@ class Payment {
    */
   static async markFailed(id, details = {}) {
     const result = await pool.query(`
-      UPDATE payments 
-      SET status = 'failed', 
+      UPDATE payments
+      SET status = 'failed',
           payment_details = payment_details || $1,
           updated_at = NOW()
-      WHERE id = $2 
+      WHERE id = $2
       RETURNING *
     `, [JSON.stringify(details), id]);
     return result.rows[0] || null;
@@ -153,7 +153,7 @@ class Payment {
    */
   static async getStats() {
     const result = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
@@ -173,7 +173,7 @@ class Payment {
    */
   static async findByCheckoutRequestId(checkoutRequestId) {
     const result = await pool.query(
-      `SELECT * FROM payments 
+      `SELECT * FROM payments
        WHERE transaction_id = $1 OR (payment_details->>'checkoutRequestId' = $1)`,
       [checkoutRequestId]
     );
@@ -185,7 +185,7 @@ class Payment {
    */
   static async findByDateRange(startDate, endDate, limit = 100) {
     const result = await pool.query(`
-      SELECT * FROM payments 
+      SELECT * FROM payments
       WHERE created_at >= $1 AND created_at <= $2
       ORDER BY created_at DESC
       LIMIT $3
@@ -213,7 +213,7 @@ class Payment {
    */
   static async getTotalsByMethod() {
     const result = await pool.query(`
-      SELECT 
+      SELECT
         method,
         COUNT(*) as count,
         SUM(amount) as total_amount,

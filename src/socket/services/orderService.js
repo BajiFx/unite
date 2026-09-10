@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 //  ORDER SERVICE - Business Logic for Orders
 // ================================================================
 
@@ -13,13 +13,13 @@ async function appendOrderStatus(orderId, status, note = '') {
     const result = await pool.query('SELECT status_history FROM orders WHERE id = $1', [orderId]);
     let history = result.rows[0]?.status_history || [];
     if (typeof history === 'string') history = JSON.parse(history);
-    
+
     history.push({
       status,
       timestamp: new Date().toISOString(),
       note
     });
-    
+
     await pool.query('UPDATE orders SET status_history = $1 WHERE id = $2', [JSON.stringify(history), orderId]);
     return { success: true };
   } catch (err) {
@@ -36,7 +36,7 @@ async function decrementStockAtomic(productId, quantity, variantId = null) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     if (variantId) {
       // Check variant stock
       const stockResult = await client.query(
@@ -72,7 +72,7 @@ async function decrementStockAtomic(productId, quantity, variantId = null) {
         [quantity, productId]
       );
     }
-    
+
     await client.query('COMMIT');
     return { success: true };
   } catch (err) {
@@ -92,12 +92,12 @@ async function restockOrder(orderId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     const items = await client.query(
       'SELECT product_id, quantity, variant_id FROM order_items WHERE order_id = $1',
       [orderId]
     );
-    
+
     for (const item of items.rows) {
       if (item.variant_id) {
         await client.query(
@@ -111,7 +111,7 @@ async function restockOrder(orderId) {
         );
       }
     }
-    
+
     await client.query('COMMIT');
     return { success: true };
   } catch (err) {
@@ -176,11 +176,11 @@ function generateOrderReference() {
  */
 async function validateStock(items) {
   const errors = [];
-  
+
   for (const item of items) {
     try {
       const priceNum = parseFloat(item.price.replace(/[^0-9.]/g, '')) || 0;
-      
+
       if (item.variant_id) {
         const stockResult = await pool.query(
           'SELECT stock FROM product_variants WHERE id = $1',
@@ -206,7 +206,7 @@ async function validateStock(items) {
       errors.push(`Error checking stock for ${item.name}: ${err.message}`);
     }
   }
-  
+
   return {
     valid: errors.length === 0,
     errors
@@ -218,16 +218,16 @@ async function validateStock(items) {
  */
 function calculateOrderTotals(items, shippingTier = 'standard', promoCode = null, promoDiscount = 0) {
   let subtotal = 0;
-  
+
   items.forEach(item => {
     const priceNum = parseFloat(item.price.replace(/[^0-9.]/g, '')) || 0;
     subtotal += priceNum * item.quantity;
   });
-  
+
   const shippingCost = calculateShippingCost(subtotal, shippingTier);
   const discount = promoDiscount || 0;
   const total = subtotal + shippingCost - discount;
-  
+
   return {
     subtotal,
     shippingCost,
@@ -266,7 +266,7 @@ function canCancelOrder(order) {
  */
 function canRefundOrder(order) {
   const refundableStatuses = ['cancelled', 'delivered', 'received'];
-  return refundableStatuses.includes(order.status) && 
+  return refundableStatuses.includes(order.status) &&
          (order.refund_status === 'none' || order.refund_status === 'rejected');
 }
 
@@ -284,7 +284,7 @@ function canReturnOrder(order) {
 function canReplaceOrder(order) {
   const nonReplaceableStatuses = ['cancelled', 'received', 'completed'];
   const replacementStatuses = ['pending', 'approved', 'rejected'];
-  return !nonReplaceableStatuses.includes(order.status) && 
+  return !nonReplaceableStatuses.includes(order.status) &&
          !replacementStatuses.includes(order.replacement_status);
 }
 
@@ -295,37 +295,37 @@ async function getOrderStats() {
   try {
     const statuses = ['pending', 'confirmed', 'shipped', 'delivered', 'received', 'cancelled', 'pending_payment', 'completed'];
     const stats = {};
-    
+
     for (const status of statuses) {
       const result = await pool.query('SELECT COUNT(*) FROM orders WHERE status = $1', [status]);
       stats[status] = parseInt(result.rows[0].count);
     }
-    
+
     // Additional stats
     const replacementsPending = await pool.query(
       `SELECT COUNT(*) FROM orders WHERE replacement_status IN ('pending', 'pending_payment', 'pending_refund')`
     );
     stats.replacements_pending = parseInt(replacementsPending.rows[0].count);
-    
+
     const refundsPending = await pool.query(`SELECT COUNT(*) FROM orders WHERE refund_status = 'pending'`);
     stats.refunds_pending = parseInt(refundsPending.rows[0].count);
-    
+
     const urgent = await pool.query(
       `SELECT COUNT(*) FROM orders WHERE urgent_delivery = true AND status NOT IN ('received', 'cancelled', 'completed')`
     );
     stats.urgent = parseInt(urgent.rows[0].count);
-    
+
     const total = await pool.query('SELECT COUNT(*) FROM orders');
     stats.total_orders = parseInt(total.rows[0].count);
-    
+
     const revenue = await pool.query(
       `SELECT SUM(total) FROM orders WHERE status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')`
     );
     stats.total_revenue = parseFloat(revenue.rows[0].sum) || 0;
-    
+
     const returnsPending = await pool.query(`SELECT COUNT(*) FROM returns WHERE status = 'pending'`);
     stats.returns_pending = parseInt(returnsPending.rows[0].count);
-    
+
     return stats;
   } catch (err) {
     console.error('Error getting order stats:', err);
@@ -384,16 +384,16 @@ async function getOrderWithItems(orderId) {
       JOIN customers c ON o.customer_id = c.id
       WHERE o.id = $1
     `, [orderId]);
-    
+
     if (orderResult.rows.length === 0) return null;
-    
+
     const order = orderResult.rows[0];
     const itemsResult = await pool.query(
       'SELECT * FROM order_items WHERE order_id = $1 ORDER BY id',
       [orderId]
     );
     order.items = itemsResult.rows;
-    
+
     return order;
   } catch (err) {
     console.error('Error getting order with items:', err);

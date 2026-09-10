@@ -10,9 +10,9 @@ let isConnected = false;
 
 function getRedisClient() {
   if (client && isConnected) return client;
-  
+
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-  
+
   try {
     client = redis.createClient({
       url: redisUrl,
@@ -23,26 +23,26 @@ function getRedisClient() {
         }
       }
     });
-    
+
     client.on('error', (err) => {
       console.error('❌ Redis error:', err.message);
       isConnected = false;
     });
-    
+
     client.on('connect', () => {
       console.log('✅ Redis connected');
       isConnected = true;
     });
-    
+
     client.on('reconnecting', () => {
       console.log('🔄 Redis reconnecting...');
     });
-    
+
     client.on('end', () => {
       console.log('🔌 Redis disconnected');
       isConnected = false;
     });
-    
+
     // Connect async
     client.connect().catch(err => {
       console.warn('⚠️ Redis connection failed:', err.message);
@@ -50,7 +50,7 @@ function getRedisClient() {
       client = null;
       isConnected = false;
     });
-    
+
     return client;
   } catch (err) {
     console.warn('⚠️ Redis initialization failed:', err.message);
@@ -114,14 +114,14 @@ function cacheMiddleware(ttl = 300) {
     if (!client || !isConnected || req.method !== 'GET') {
       return next();
     }
-    
+
     // Skip admin routes
     if (req.path.includes('/admin')) {
       return next();
     }
-    
+
     const cacheKey = `cache:${req.originalUrl}`;
-    
+
     try {
       const cached = await client.get(cacheKey);
       if (cached) {
@@ -131,7 +131,7 @@ function cacheMiddleware(ttl = 300) {
     } catch (err) {
       // Redis error, proceed without cache
     }
-    
+
     // Store original json method
     const originalJson = res.json.bind(res);
     res.json = function(data) {
@@ -145,16 +145,16 @@ function cacheMiddleware(ttl = 300) {
       }
       return originalJson(data);
     };
-    
+
     next();
   };
 }
 
-module.exports = { 
-  getRedisClient, 
-  getCache, 
-  setCache, 
-  deleteCache, 
-  clearCache, 
-  cacheMiddleware 
+module.exports = {
+  getRedisClient,
+  getCache,
+  setCache,
+  deleteCache,
+  clearCache,
+  cacheMiddleware
 };

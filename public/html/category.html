@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>Categories</title>
-  
+  <title>Business Categories - Shop Kenya</title>
+
   <!-- Main Global Styles -->
   <link rel="stylesheet" href="/style.css">
-  
+
   <!-- External Libraries -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  
+
   <!-- Page-Specific Styles -->
   <link rel="stylesheet" href="/css/category.css">
 </head>
@@ -18,62 +18,72 @@
 
 <!-- ===== HEADER ===== -->
 <div class="header">
-  <h1>🛍️ <span id="shopNameHeader">Our Business</span></h1>
+  <h1>🛍️ <span id="shopNameHeader">Shop Kenya</span></h1>
   <div class="header-right">
     <a href="/">Home</a>
-    <a href="/account.html">Account</a>
-    <a href="/cart.html" style="position:relative;">
-      <i class="fas fa-shopping-cart" style="font-size:1.2rem;"></i>
-      <span id="cartBadge" style="position:absolute; top:-6px; right:-8px; background:#ef4444; color:white; border-radius:50%; padding:0 5px; font-size:0.55rem; min-width:16px; text-align:center; font-weight:700; display:none;">0</span>
-    </a>
+    <a href="#" onclick="openAuthModal('login'); return false;" class="auth-btn">Login</a>
   </div>
 </div>
 
 <!-- ===== CATEGORY PAGE ===== -->
 <div class="category-page">
-  <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back to Shop</a>
-  <h1>📂 Categories</h1>
-  <p class="sub">Browse products by category</p>
+  <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back to Marketplace</a>
+  <h1>📂 Business Categories</h1>
+  <p class="sub">Browse businesses by category</p>
 
-  <!-- Category Grid -->
+  <!-- Category Grid - Shows Business Categories Only -->
   <div class="category-grid" id="categoryGrid">
-    <p class="no-categories-msg" style="grid-column:1/-1; color:#94a3b8; text-align:center; padding:20px;">Loading categories...</p>
+    <p class="no-categories-msg" style="grid-column:1/-1; color:#94a3b8; text-align:center; padding:20px;">Loading business categories...</p>
   </div>
 
-  <!-- Filter Bar -->
-  <div class="filter-bar">
-    <div class="search-wrapper">
-      <input type="text" id="searchInput" placeholder="Search products..." onkeyup="window.handleSearch()">
-      <button class="search-btn" id="searchBtn" onclick="window.handleSearchWithFeedback()">
-        <i class="fas fa-search"></i> Search
-      </button>
-    </div>
-    <select id="categoryFilter" onchange="window.handleSearch()">
-      <option value="all">All Categories</option>
-    </select>
-  </div>
-
-  <h2 style="font-size:1rem; font-weight:700; margin:12px 0 6px;">Products</h2>
-  <div id="productsContainer">
-    <div class="product-grid" id="productGrid">
-      <p style="text-align:center;padding:40px;color:#94a3b8;">Loading products...</p>
-    </div>
+  <div style="margin-top:20px; text-align:center; color:#94a3b8; font-size:0.8rem;">
+    <i class="fas fa-info-circle"></i> Click a category to see all businesses in that category
   </div>
 </div>
 
-<!-- ===== BOTTOM NAV - FIXED ===== -->
-<div class="bottom-nav">
+<!-- ===== BOTTOM NAV - MARKETPLACE ONLY ===== -->
+<div class="bottom-nav marketplace-nav">
   <a href="/"><i class="fas fa-home"></i><span>Home</span></a>
-  <a href="/category.html"><i class="fas fa-th-large"></i><span>Category</span></a>
-  <!-- FIXED: Messages tab now opens chat instead of account -->
-  <a href="#" onclick="openChatTab(); return false;"><i class="fas fa-envelope"></i><span>Messages</span></a>
-  <a href="/cart.html" style="position:relative;">
-    <i class="fas fa-shopping-cart"></i>
-    <span class="nav-badge" id="navCartBadge">0</span>
-    <span>Cart</span>
-  </a>
-  <a href="/account.html"><i class="fas fa-user"></i><span>Account</span></a>
+  <a href="/category.html" class="active"><i class="fas fa-th-large"></i><span>Categories</span></a>
 </div>
+
+<!-- ===== AUTH MODAL ===== -->
+<div class="modal-overlay" id="authModal">
+  <div class="modal-box">
+    <span class="close-modal" onclick="closeAuthModal()">&times;</span>
+    <h2 id="authModalTitle">🔑 Login</h2>
+    <div id="authLoginForm">
+      <div class="form-group"><label>Email</label><input type="email" id="authLoginEmail" placeholder="your@email.com"></div>
+      <div class="form-group" style="position:relative;">
+        <label>Password</label>
+        <input type="password" id="authLoginPassword" placeholder="Enter password">
+        <button class="toggle-pwd" onclick="toggleAuthPwd('authLoginPassword', this)"><i class="fas fa-eye"></i></button>
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="handleAuthLogin()">Login</button>
+      <div id="authLoginStatus" class="auth-status"></div>
+      <p style="margin-top:8px; text-align:center; font-size:0.8rem;">Don't have an account? <a href="#" onclick="switchAuthTab('register')">Register</a></p>
+    </div>
+    <div id="authRegisterForm" style="display:none;">
+      <div class="form-group"><label>Full Name</label><input type="text" id="authRegName" placeholder="Your full name"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="authRegEmail" placeholder="your@email.com"></div>
+      <div class="form-group"><label>Phone</label><input type="tel" id="authRegPhone" placeholder="0712345678"></div>
+      <div class="form-group" style="position:relative;">
+        <label>Password</label>
+        <input type="password" id="authRegPassword" placeholder="Min 6 characters">
+        <button class="toggle-pwd" onclick="toggleAuthPwd('authRegPassword', this)"><i class="fas fa-eye"></i></button>
+      </div>
+      <div class="form-group" style="position:relative;">
+        <label>Confirm Password</label>
+        <input type="password" id="authRegConfirm" placeholder="Re-enter password">
+        <button class="toggle-pwd" onclick="toggleAuthPwd('authRegConfirm', this)"><i class="fas fa-eye"></i></button>
+      </div>
+      <button class="btn btn-success" style="width:100%;" onclick="handleAuthRegister()">Create Account</button>
+      <div id="authRegisterStatus" class="auth-status"></div>
+      <p style="margin-top:8px; text-align:center; font-size:0.8rem;">Already have an account? <a href="#" onclick="switchAuthTab('login')">Login</a></p>
+    </div>
+  </div>
+</div>
+
 <!-- ===== SCRIPTS ===== -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/js/app.js"></script>

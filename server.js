@@ -1,6 +1,6 @@
 // ============================================================
-//  SERVER.JS - Complete Working Version WITH REDIS FALLBACK
-//  Location: D:\my-business-website\server.js
+//  SERVER.JS - COMPLETE MULTI-VENDOR VERSION (FIXED)
+//  Location: server.js
 // ============================================================
 
 require('dotenv').config();
@@ -13,6 +13,7 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const cron = require('node-cron');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // ============================================================
 //  IMPORT CONFIGURATIONS
@@ -53,6 +54,14 @@ const chatRoutes = require('./src/routes/chat');
 const locationRoutes = require('./src/routes/location');
 const analyticsRoutes = require('./src/routes/analytics');
 const addressRoutes = require('./src/routes/addresses');
+const returnsRoutes = require('./src/routes/returns');
+
+// ============================================================
+//  MULTI-VENDOR ROUTES
+// ============================================================
+
+const businessesRoutes = require('./src/routes/businesses');
+const businessAdminRoutes = require('./src/routes/business-admin');
 
 // ============================================================
 //  INITIALIZE APP
@@ -62,7 +71,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || '*',
+    origin: process.env.CLIENT_URL || `http://localhost:${process.env.PORT || 3000}`,
     methods: ['GET', 'POST'],
     credentials: true
   },
@@ -93,27 +102,96 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net", "https://localhost:3000"],
+      scriptSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "'unsafe-eval'",
+        "https://unpkg.com",
+        "https://cdnjs.cloudflare.com",
+        "https://cdn.jsdelivr.net",
+        "https://localhost:3000"
+      ],
       scriptSrcAttr: ["'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com"],
-      styleSrcElem: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com", "https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net"],
-      fontSrc: ["'self'", "https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net", "https://fonts.gstatic.com", "data:"],
-      imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://*.tile.openstreetmap.org", "https://*.openstreetmap.org", "https://unpkg.com"],
-      connectSrc: ["'self'", "ws://localhost:3000", "wss://*.onrender.com", "https://unpkg.com", "https://nominatim.openstreetmap.org"],
+      styleSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "https://unpkg.com",
+        "https://cdnjs.cloudflare.com",
+        "https://cdn.jsdelivr.net",
+        "https://fonts.googleapis.com"
+      ],
+      styleSrcElem: [
+        "'self'",
+        "'unsafe-inline'",
+        "https://fonts.googleapis.com",
+        "https://unpkg.com",
+        "https://cdnjs.cloudflare.com",
+        "https://cdn.jsdelivr.net"
+      ],
+      fontSrc: [
+        "'self'",
+        "https://cdnjs.cloudflare.com",
+        "https://cdn.jsdelivr.net",
+        "https://fonts.gstatic.com",
+        "data:"
+      ],
+      imgSrc: [
+        "'self'",
+        "data:",
+        "https://res.cloudinary.com",
+        "https://*.tile.openstreetmap.org",
+        "https://*.openstreetmap.org",
+        "https://unpkg.com"
+      ],
+      connectSrc: [
+        "'self'",
+        "ws://localhost:3000",
+        "wss://*.onrender.com",
+        "https://unpkg.com",
+        "https://nominatim.openstreetmap.org",
+        "http://localhost:3000",
+        "https://localhost:3000",
+        "http://localhost:*",
+        "https://localhost:*"
+      ],
       objectSrc: ["'none'"],
+      frameSrc: ["'self'"],
+      workerSrc: ["'self'", "blob:"],
+      manifestSrc: ["'self'"],
     },
   },
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
-app.use(cors({ 
-  origin: process.env.CLIENT_URL || '*',
-  credentials: true 
+app.use(cors({
+  origin: process.env.CLIENT_URL || `http://localhost:${process.env.PORT || 3000}`,
+  credentials: true
 }));
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
+
+// Double-submit CSRF protection for browser requests.
+function csrfProtection(req, res, next) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) ||
+      req.path === '/csrf-token' ||
+      req.path === '/payments/mpesa-callback' ||
+      req.path === '/payments/airtel-callback') {
+    return next();
+  }
+
+  const cookieToken = req.cookies.csrfToken;
+  const headerToken = req.get('X-CSRF-Token');
+  if (!cookieToken || !headerToken || cookieToken.length !== headerToken.length ||
+      !crypto.timingSafeEqual(Buffer.from(cookieToken), Buffer.from(headerToken))) {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  next();
+}
+
+app.use('/api', csrfProtection);
 
 // ============================================================
 //  REQUEST LOGGING MIDDLEWARE
@@ -125,22 +203,13 @@ app.use((req, res, next) => {
 });
 
 // ============================================================
-//  SERVE STATIC FILES - FIXED ORDER
+//  SERVE STATIC FILES
 // ============================================================
 
-// 1. Serve HTML files from public/html (so /category.html works)
 app.use(express.static(path.join(__dirname, 'public/html')));
-
-// 2. Serve CSS files
 app.use('/css', express.static(path.join(__dirname, 'public/css')));
-
-// 3. Serve JS files
 app.use('/js', express.static(path.join(__dirname, 'public/js')));
-
-// 4. Serve root static files (style.css, etc.)
 app.use(express.static('public'));
-
-// 5. Uploads
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // ============================================================
@@ -149,6 +218,14 @@ app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/html/index.html'));
+});
+
+app.get('/business/:slug', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/html/business-profile.html'));
+});
+
+app.get('/business/:slug/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/html/business-profile.html'));
 });
 
 app.get('/:page.html', (req, res) => {
@@ -169,9 +246,9 @@ app.get('/api/health', async (req, res) => {
   try {
     const dbResult = await pool.query('SELECT NOW()');
     const dbStatus = dbResult.rows.length > 0 ? 'connected' : 'disconnected';
-    
-    res.json({ 
-      status: 'healthy', 
+
+    res.json({
+      status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       environment: process.env.NODE_ENV || 'development',
@@ -179,8 +256,8 @@ app.get('/api/health', async (req, res) => {
       port: PORT
     });
   } catch (err) {
-    res.status(500).json({ 
-      status: 'unhealthy', 
+    res.status(500).json({
+      status: 'unhealthy',
       error: err.message,
       timestamp: new Date().toISOString()
     });
@@ -194,6 +271,7 @@ app.get('/api/health', async (req, res) => {
 app.use('/api', generalLimiter);
 app.use('/api/auth/login', sensitiveLimiter);
 app.use('/api/auth/customer/login', sensitiveLimiter);
+app.use('/api/auth/business/login', sensitiveLimiter);
 app.use('/api/orders', sensitiveLimiter);
 app.use('/api/payments', sensitiveLimiter);
 
@@ -212,6 +290,16 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/addresses', addressRoutes);
+app.use('/api/returns', returnsRoutes);
+// Compatibility alias for older checkout clients.
+app.use('/api/promo', analyticsRoutes);
+
+// ============================================================
+//  MULTI-VENDOR ROUTES
+// ============================================================
+
+app.use('/api/businesses', businessesRoutes);
+app.use('/api/business-admin', businessAdminRoutes);
 
 // ============================================================
 //  CSRF TOKEN ENDPOINT
@@ -219,8 +307,12 @@ app.use('/api/addresses', addressRoutes);
 
 app.get('/api/csrf-token', (req, res) => {
   try {
-    const crypto = require('crypto');
     const token = crypto.randomBytes(32).toString('hex');
+    res.cookie('csrfToken', token, {
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
+    });
     res.json({ csrfToken: token });
   } catch (err) {
     logError(err, 'CSRF token');
@@ -243,35 +335,35 @@ cron.schedule('0 * * * *', async () => {
   console.log('🔄 Running auto-cancel job for unpaid orders...');
   try {
     const result = await pool.query(
-      `SELECT id, order_ref, customer_id 
-       FROM orders 
-       WHERE status = 'pending_payment' 
+      `SELECT id, order_ref, customer_id
+       FROM orders
+       WHERE status = 'pending_payment'
        AND created_at < NOW() - INTERVAL '24 hours'`
     );
-    
+
     for (const order of result.rows) {
       await pool.query(
-        `UPDATE orders SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'system' 
+        `UPDATE orders SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'system'
          WHERE id = $1`,
         [order.id]
       );
-      
+
       await appendOrderStatus(order.id, 'cancelled', 'Auto-cancelled: Payment not completed within 24 hours');
       await restockOrder(order.id);
-      
+
       await pool.query(
-        `INSERT INTO order_chat_messages (order_id, from_user, message) 
+        `INSERT INTO order_chat_messages (order_id, from_user, message)
          VALUES ($1, 'System', $2)`,
         [order.id, `⏰ Order ${order.order_ref} auto-cancelled: Payment was not completed within 24 hours.`]
       );
-      
+
       io.to(`order_${order.id}`).emit('new-order-chat-message', {
         order_id: order.id,
         from_user: 'System',
         message: `⏰ Order ${order.order_ref} auto-cancelled: Payment was not completed within 24 hours.`,
         timestamp: new Date()
       });
-      
+
       console.log(`✅ Auto-cancelled order ${order.order_ref}`);
     }
   } catch (err) {
@@ -292,13 +384,13 @@ cron.schedule('0 0 * * *', async () => {
         [order.id]
       );
       await appendOrderStatus(order.id, 'completed', 'Auto-completed: 7 days after receipt');
-      
+
       await pool.query(
-        `INSERT INTO order_chat_messages (order_id, from_user, message) 
+        `INSERT INTO order_chat_messages (order_id, from_user, message)
          VALUES ($1, 'System', $2)`,
         [order.id, `✅ Order ${order.order_ref || order.id} auto-completed after 7 days of receipt.`]
       );
-      
+
       console.log(`✅ Order ${order.id} auto-completed after 7 days`);
     }
   } catch (err) {
@@ -329,44 +421,107 @@ cron.schedule('0 * * * *', async () => {
 app.use(globalErrorHandler);
 
 // ============================================================
-//  DATABASE INITIALIZATION
+//  DATABASE INITIALIZATION - MULTI-VENDOR ONLY (NO SHOP)
 // ============================================================
 
 async function initDatabase() {
   try {
+    console.log('🔄 Initializing database...');
+
     // Create password_resets table if not exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS password_resets (
         email VARCHAR(255) PRIMARY KEY,
         token VARCHAR(255) NOT NULL,
         expires_at TIMESTAMP NOT NULL,
+        user_type VARCHAR(20) DEFAULT 'customer',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Password resets table ready');
-    
+
     // Create logs directory
     const logDir = path.join(__dirname, 'logs');
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
       console.log('✅ Logs directory created');
     }
-    
-    // Check if shop exists, if not create default
-    const shopResult = await pool.query('SELECT COUNT(*) FROM shop');
-    if (parseInt(shopResult.rows[0].count) === 0) {
-      await pool.query(`
-        INSERT INTO shop (name, location) 
-        VALUES ('My Shop', 'Nairobi, Kenya')
-      `);
-      console.log('✅ Default shop created');
+
+    // ============================================================
+    //  MULTI-VENDOR DATABASE INITIALIZATION (NO SHOP)
+    // ============================================================
+
+    // 1. Check if businesses table exists and has data
+    const businessTableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_name = 'businesses'
+      )
+    `);
+
+    const businessesExist = businessTableCheck.rows[0].exists;
+
+    if (!businessesExist) {
+      console.log('⚠️ Businesses table does not exist. Please run migrations.');
+      console.log('📌 Run: npm run migrate');
+    } else {
+      // Check if any businesses exist
+      const businessCount = await pool.query('SELECT COUNT(*) FROM businesses');
+      const count = parseInt(businessCount.rows[0].count);
+
+      if (count === 0) {
+        console.log('🔄 No businesses found. Creating a default business...');
+
+        // Create a default super admin if none exists
+        const adminResult = await pool.query(
+          "SELECT id FROM admin_users WHERE role = 'super_admin' LIMIT 1"
+        );
+
+        let adminId = null;
+        if (adminResult.rows.length === 0) {
+          throw new Error('No super admin exists. Create one through secure provisioning before starting the marketplace.');
+          const bcrypt = require('bcrypt');
+          const hashedPassword = await bcrypt.hash('admin123', 10);
+          const insertAdmin = await pool.query(
+            `INSERT INTO admin_users (username, email, password, role)
+             VALUES ($1, $2, $3, 'super_admin')
+             RETURNING id`,
+            ['admin', 'admin@example.com', hashedPassword]
+          );
+          adminId = insertAdmin.rows[0].id;
+          console.log('✅ Default super admin created: admin@example.com / admin123');
+        } else {
+          adminId = adminResult.rows[0].id;
+        }
+
+        // Create default business
+        await pool.query(`
+          INSERT INTO businesses (
+            business_name, slug, owner_id, location, is_active, is_verified
+          )
+          VALUES ($1, $2, $3, $4, true, true)
+        `, ['My Store', 'my-store', adminId, 'Nairobi, Kenya']);
+
+        console.log('✅ Default business created: My Store');
+
+        // Create business stats
+        const businessIdResult = await pool.query('SELECT id FROM businesses WHERE slug = $1', ['my-store']);
+        if (businessIdResult.rows.length > 0) {
+          await pool.query(
+            'INSERT INTO business_stats (business_id) VALUES ($1)',
+            [businessIdResult.rows[0].id]
+          );
+        }
+      } else {
+        console.log(`✅ ${count} businesses found in database`);
+      }
     }
-    
-    // Check if system_settings exists
+
+    // 2. Check if system_settings exists
     const settingsResult = await pool.query('SELECT COUNT(*) FROM system_settings');
     if (parseInt(settingsResult.rows[0].count) === 0) {
       await pool.query(`
-        INSERT INTO system_settings (key, value) VALUES 
+        INSERT INTO system_settings (key, value) VALUES
           ('replacement_hours', '6'),
           ('auto_cancel_hours', '24'),
           ('auto_complete_days', '7'),
@@ -374,20 +529,36 @@ async function initDatabase() {
       `);
       console.log('✅ Default system settings created');
     }
-    
-    // Add missing columns
-    await pool.query(`ALTER TABLE shop ADD COLUMN IF NOT EXISTS base_url VARCHAR(255)`);
-    console.log('✅ Shop table verified with base_url');
-    
+
+    // 3. Add missing columns (safe for multi-vendor)
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`);
     console.log('✅ Orders table verified with completed_at');
-    
+
     await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP`);
     console.log('✅ Customers table verified with last_login_at');
-    
+
     await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT false`);
     console.log('✅ Products table verified with is_featured');
-    
+
+    // 4. Add business_id columns if missing (safe)
+    await pool.query(`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS username VARCHAR(100)`);
+    await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS username VARCHAR(100)`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_users_username_unique ON admin_users(username) WHERE username IS NOT NULL`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_username_unique ON customers(username) WHERE username IS NOT NULL`);
+    console.log('✅ User username columns verified');
+
+    await pool.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS business_id INTEGER REFERENCES businesses(id)`);
+    console.log('✅ Order items table verified with business_id');
+
+    await pool.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS business_id INTEGER REFERENCES businesses(id)`);
+    console.log('✅ Payments table verified with business_id');
+
+    await pool.query(`ALTER TABLE returns ADD COLUMN IF NOT EXISTS business_id INTEGER REFERENCES businesses(id)`);
+    console.log('✅ Returns table verified with business_id');
+
+    await pool.query(`ALTER TABLE product_reviews ADD COLUMN IF NOT EXISTS business_id INTEGER REFERENCES businesses(id)`);
+    console.log('✅ Product reviews table verified with business_id');
+
     console.log('✅ Database initialization complete');
   } catch (err) {
     console.error('❌ Database initialization error:', err);
@@ -402,7 +573,7 @@ async function initDatabase() {
 function validateEnv() {
   console.log('\n📋 Environment Validation:');
   console.log('========================================');
-  
+
   const required = [
     'DATABASE_URL',
     'JWT_SECRET',
@@ -410,7 +581,7 @@ function validateEnv() {
     'CLOUDINARY_API_KEY',
     'CLOUDINARY_API_SECRET'
   ];
-  
+
   let allRequired = true;
   for (const key of required) {
     if (!process.env[key]) {
@@ -421,35 +592,35 @@ function validateEnv() {
       console.log(`✅ ${key}: ${display}`);
     }
   }
-  
+
   console.log('========================================\n');
-  
+
   // Check payment configs
   if (!process.env.MPESA_CONSUMER_KEY || process.env.MPESA_CONSUMER_KEY === 'YOUR_CONSUMER_KEY_HERE') {
     console.log('⚠️  M-Pesa: Not configured - STK Push will use simulation mode');
   } else {
     console.log('✅ M-Pesa: Configured');
   }
-  
+
   if (!process.env.AIRTEL_CLIENT_ID || process.env.AIRTEL_CLIENT_ID === 'your_airtel_client_id_here') {
     console.log('⚠️  Airtel Money: Not configured - will use simulation mode');
   } else {
     console.log('✅ Airtel Money: Configured');
   }
-  
+
   if (!process.env.PAYPAL_CLIENT_ID || process.env.PAYPAL_CLIENT_ID === 'your_paypal_client_id_here') {
     console.log('⚠️  PayPal: Not configured - will use simulation mode');
   } else {
     console.log('✅ PayPal: Configured');
   }
-  
+
   console.log('========================================\n');
-  
+
   if (!allRequired) {
     console.error('❌ Missing required environment variables. Please check your .env file.');
     console.log('💡 Required: DATABASE_URL, JWT_SECRET, CLOUDINARY_* variables');
   }
-  
+
   return allRequired;
 }
 
@@ -462,10 +633,11 @@ async function startServer() {
     await initDatabase();
     validateEnv();
     initPaypalClient();
-    
+
     server.listen(PORT, () => {
       console.log('\n🚀 ========================================');
       console.log(`🚀  SERVER RUNNING AT http://localhost:${PORT}`);
+      console.log('🚀  MULTI-VENDOR MARKETPLACE');
       console.log('🚀 ========================================\n');
       console.log(`📦 PostgreSQL: Connected`);
       console.log(`☁️ Cloudinary: Ready`);
@@ -477,11 +649,13 @@ async function startServer() {
       console.log(`🔒 Security: ${helmet ? '✅ Enabled' : '⚠️ Disabled'}`);
       console.log(`⏰ Cron Jobs: ${cron ? '✅ Enabled' : '⚠️ Disabled'}`);
       console.log(`🌐 Base URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
-      console.log('\n📋 Admin Panel: http://localhost:' + PORT + '/admin.html');
-      console.log('📋 Shop: http://localhost:' + PORT + '/');
+      console.log(`\n📋 Admin Panel: http://localhost:${PORT}/admin.html`);
+      console.log(`📋 Business Admin: http://localhost:${PORT}/business-admin.html`);
+      console.log(`📋 Marketplace: http://localhost:${PORT}/`);
+      console.log(`📋 Business Profile: http://localhost:${PORT}/business/:slug`);
       console.log('\n✅ Server started successfully!\n');
     });
-    
+
   } catch (err) {
     console.error('❌ Failed to start server:', err);
     process.exit(1);

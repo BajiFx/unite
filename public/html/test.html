@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shop Kenya - Centered Header</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #252526;
+            --border-color: #3e3e42;
+            --text-color: #cccccc;
+            --accent-green: #4caf50;
+            --accent-yellow: #ffc107;
+            --active-bg: #333;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            border: 2px dashed var(--border-color);
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-x: auto;
+        }
+
+        /* --- TOP NAVIGATION (Centered Name & Phone, Right Logout) --- */
+        .top-nav {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center; /* Centers the user info */
+            white-space: nowrap;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            min-height: 40px;
+        }
+
+        /* The Brand and User Info */
+        .brand-center {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 1.1rem;
+        }
+
+        .brand { font-weight: bold; }
+        .user-name { font-size: 0.95rem; }
+        .user-phone { font-size: 0.85rem; color: #999; }
+
+        /* The Logout pinned to the right */
+        .logout-container {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .notification-bell { color: var(--accent-yellow); cursor: pointer; }
+        .logout { cursor: pointer; text-decoration: underline; }
+
+        /* --- DASHBOARD/ORDERS TAB SECTION (Strictly One Line) --- */
+        .tab-section {
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .tabs {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            white-space: nowrap;
+            overflow-x: auto;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95rem;
+            cursor: pointer;
+            padding: 5px 10px;
+        }
+
+        .tab-item.active {
+            background-color: var(--active-bg);
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        .status-label {
+            font-size: 0.8rem;
+            color: #888;
+            display: block;
+            margin-top: 5px;
+        }
+
+        .status-label.active { color: var(--accent-green); }
+
+        /* --- Content Panels --- */
+        .panel {
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+            padding: 15px;
+        }
+
+        .panel-header {
+            background-color: var(--accent-green);
+            color: white;
+            padding: 5px 10px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            letter-spacing: 2px;
+            text-align: center;
+        }
+
+        .content-list {
+            list-style: none;
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        .content-list li { margin-bottom: 10px; position: relative; }
+        .content-list li::before {
+            content: "-";
+            position: absolute;
+            left: -15px;
+        }
+
+        .divider {
+            text-align: center;
+            color: var(--border-color);
+            margin: 20px 0;
+            font-weight: bold;
+            letter-spacing: 2px;
+            border-top: 1px solid var(--border-color);
+            position: relative;
+            top: 10px;
+        }
+        .divider span { background: var(--bg-color); padding: 0 10px; position: relative; top: -10px;}
+
+        /* --- Marketplace Section --- */
+        .marketplace-section {
+            border: 1px solid var(--border-color);
+            padding: 20px;
+        }
+
+        .mp-title {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mp-intro { margin-bottom: 20px; }
+        .mp-intro h3 { margin: 10px 0; display: flex; align-items: center; gap: 8px; }
+        .mp-intro p { margin: 0; color: #999; }
+
+        /* Filters in one line */
+        .mp-filters {
+            display: flex;
+            gap: 15px;
+            white-space: nowrap;
+            overflow-x: auto;
+            margin-bottom: 30px;
+        }
+
+        .mp-filters input, .mp-filters select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            background: #111;
+            color: white;
+            border-radius: 4px;
+            min-width: 200px;
+        }
+
+        .mp-businesses h4 { display: flex; align-items: center; gap: 8px; }
+
+        /* Business Grid stays responsive */
+        .business-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .business-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .business-card:hover { border-color: var(--accent-green); }
+
+        /* Responsive adjustments */
+        @media (max-width: 1200px) {
+            .tabs, .mp-filters {
+                scrollbar-width: thin;
+                scrollbar-color: #555 #222;
+            }
+            .tabs::-webkit-scrollbar, .mp-filters::-webkit-scrollbar {
+                height: 6px;
+            }
+            .tabs::-webkit-scrollbar-thumb, .mp-filters::-webkit-scrollbar-thumb {
+                background: #555;
+                border-radius: 10px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .business-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+
+        <!-- TOP NAVIGATION -->
+        <div class="top-nav">
+            <!-- Center: Brand, Name, Phone -->
+            <div class="brand-center">
+                <div class="brand"><i class="fas fa-store"></i> Shop Kenya</div>
+                <div class="user-name">George Onyango Ochieng</div>
+                <div class="user-phone">+254 712 345 678</div>
+            </div>
+
+            <!-- Right: Logout (Pinned) -->
+            <div class="logout-container">
+                <div class="notification-bell"><i class="fas fa-bell"></i></div>
+                <div class="logout">Logout</div>
+            </div>
+        </div>
+
+        <!-- DASHBOARD / ORDERS TAB SECTION (Strictly One Line) -->
+        <div class="tab-section">
+            <!-- Tabs -->
+            <div class="tabs">
+                <div class="tab-item active">
+                    <i class="fas fa-th-large"></i> Dashboard
+                    <span class="status-label active">[active]</span>
+                </div>
+                <div class="tab-item">
+                    <i class="fas fa-user"></i> My Profile
+                    <span class="status-label">[inactive]</span>
+                </div>
+                <div class="tab-item">
+                    <i class="fas fa-box"></i> My Orders
+                    <span class="status-label">[inactive]</span>
+                </div>
+                <div class="tab-item">
+                    <i class="fas fa-map-marker-alt"></i> Addresses
+                    <span class="status-label">[inactive]</span>
+                </div>
+                <div class="tab-item">
+                    <i class="fas fa-credit-card"></i> Payments
+                    <span class="status-label">[inactive]</span>
+                </div>
+                <div class="tab-item">
+                    <i class="fas fa-shopping-cart"></i> Cart
+                    <span class="status-label">[inactive]</span>
+                </div>
+                <div class="tab-item">
+                    <i class="fas fa-comment-dots"></i> Messages
+                    <span class="status-label">[inactive]</span>
+                </div>
+            </div>
+
+            <!-- DASHBOARD CONTENT PANEL -->
+            <div class="panel">
+                <div class="panel-header">GREEN/COLORED PANEL</div>
+                <div class="content-panel-body">
+                    <h3><i class="fas fa-th-large"></i> DASHBOARD CONTENT (when Dashboard is clicked)</h3>
+                    <ul class="content-list">
+                        <li>Your stats</li>
+                        <li>Recent orders</li>
+                        <li>Quick actions</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- DIVIDER -->
+            <div class="divider"><span>OR</span></div>
+
+            <!-- ORDERS CONTENT PANEL -->
+            <div class="panel">
+                <div class="content-panel-body">
+                    <h3><i class="fas fa-box"></i> MY ORDERS CONTENT (when Orders is clicked)</h3>
+                    <ul class="content-list">
+                        <li>Order list</li>
+                        <li>Status filters</li>
+                        <li>Order details</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- DIVIDER -->
+            <div class="divider"><span>OR</span></div>
+        </div>
+
+        <!-- HORIZONTAL DIVIDER LINE -->
+        <div class="divider"><span>HORIZONTAL DIVIDER LINE</span></div>
+
+        <!-- MARKETPLACE SECTION -->
+        <div class="marketplace-section">
+            <div class="mp-title">
+                <i class="fas fa-store"></i> MARKETPLACE (ALWAYS VISIBLE BELOW)
+            </div>
+
+            <div class="mp-intro">
+                <h3><i class="fas fa-sun"></i> Discover Amazing Businesses</h3>
+                <p>Find the best products from trusted businesses across Kenya</p>
+            </div>
+
+            <div class="mp-filters">
+                <input type="text" placeholder="[Search businesses...]">
+                <select><option>[All Business Categories]</option></select>
+                <select><option>[Newest]</option></select>
+            </div>
+
+            <div class="mp-businesses">
+                <h4><i class="fas fa-star"></i> Featured Businesses</h4>
+                <div class="business-grid">
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                </div>
+            </div>
+
+            <div class="mp-businesses" style="margin-top: 20px;">
+                <h4><i class="fas fa-th"></i> All Businesses</h4>
+                <div class="business-grid">
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                    <div class="business-card">Business</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

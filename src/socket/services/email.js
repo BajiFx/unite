@@ -21,7 +21,7 @@ class EmailQueue {
   async process() {
     if (this.processing || this.queue.length === 0) return;
     this.processing = true;
-    
+
     while (this.queue.length > 0) {
       const email = this.queue.shift();
       try {
@@ -30,7 +30,7 @@ class EmailQueue {
         console.error('❌ Email failed:', err.message);
       }
     }
-    
+
     this.processing = false;
   }
 }
@@ -65,7 +65,7 @@ function validateEmailConfig() {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     errors.push('SMTP not configured');
   }
-  if (!process.env.SENDGRID_API_KEY || 
+  if (!process.env.SENDGRID_API_KEY ||
       process.env.SENDGRID_API_KEY === 'your_sendgrid_api_key_here') {
     errors.push('SendGrid not configured');
   }
@@ -102,7 +102,7 @@ async function sendEmail({ to, subject, html, text }) {
       return sendEmailFallback({ to, subject, html, text });
     }
   }
-  
+
   return sendEmailFallback({ to, subject, html, text });
 }
 

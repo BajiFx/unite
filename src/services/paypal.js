@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 //  paypal.js - PayPal Integration with Simulation Mode
 //  Location: D:\my-business-website\src\services\paypal.js
 // ================================================================
@@ -16,15 +16,15 @@ function initPaypalClient() {
   const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
 
   // Check if PayPal credentials are configured
-  if (clientId && clientSecret && 
+  if (clientId && clientSecret &&
       clientId !== 'your_paypal_client_id_here' &&
       clientId !== 'YOUR_PAYPAL_CLIENT_ID_HERE') {
-    
+
     try {
-      const environment = process.env.PAYPAL_MODE === 'production' 
+      const environment = process.env.PAYPAL_MODE === 'production'
         ? new paypal.core.LiveEnvironment(clientId, clientSecret)
         : new paypal.core.SandboxEnvironment(clientId, clientSecret);
-      
+
       paypalClient = new paypal.core.PayPalHttpClient(environment);
       console.log('✅ PayPal configured successfully');
       return true;
@@ -52,7 +52,7 @@ function getPaypalClient() {
  */
 async function createPaypalOrder(amount, orderId, currency = 'KES') {
   const client = getPaypalClient();
-  
+
   // If PayPal not configured, use simulation mode
   if (!client) {
     console.log('⚠️ Using PayPal simulation mode');
@@ -113,7 +113,7 @@ async function createPaypalOrder(amount, orderId, currency = 'KES') {
  */
 async function capturePaypalOrder(paypalOrderId) {
   const client = getPaypalClient();
-  
+
   // If PayPal not configured, use simulation mode
   if (!client) {
     console.log('⚠️ Using PayPal simulation mode for capture');
@@ -129,7 +129,7 @@ async function capturePaypalOrder(paypalOrderId) {
     request.requestBody({});
 
     const response = await client.execute(request);
-    
+
     if (response.result.status === 'COMPLETED') {
       return {
         success: true,
@@ -154,8 +154,8 @@ async function capturePaypalOrder(paypalOrderId) {
   }
 }
 
-module.exports = { 
-  initPaypalClient, 
+module.exports = {
+  initPaypalClient,
   getPaypalClient,
   createPaypalOrder,
   capturePaypalOrder

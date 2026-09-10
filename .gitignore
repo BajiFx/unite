@@ -1,8 +1,9 @@
-# Node dependencies
+﻿# Node dependencies
 node_modules/
 
 # Environment variables (sensitive!)
 .env
+.env.backup
 
 # Uploaded files (local storage)
 public/uploads/
@@ -14,6 +15,7 @@ public/uploads/
 # Logs
 *.log
 npm-debug.log*
+logs/
 
 # OS files
 .DS_Store
@@ -22,3 +24,11 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Build artifacts
+dist/
+build/
+
+# Temporary files
+*.tmp
+temp/

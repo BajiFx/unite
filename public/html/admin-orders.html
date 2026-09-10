@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
   <title>Admin – Orders</title>
-  
+
   <!-- Main Global Styles -->
   <link rel="stylesheet" href="/style.css">
-  
+
   <!-- External Libraries -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  
+
   <!-- Page-Specific Styles -->
   <link rel="stylesheet" href="/css/admin-orders.css">
-  
+
   <!-- Socket.IO -->
   <script src="/socket.io/socket.io.js"></script>
 </head>
@@ -64,12 +64,28 @@
     <button onclick="resetFilters()" style="background:#64748b;">Reset</button>
   </div>
 
+  <div class="bulk-actions" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:12px 0;">
+    <label><input type="checkbox" id="selectAllOrders" onchange="toggleAllOrders(this.checked)"> Select all visible</label>
+    <select id="bulkStatus">
+      <option value="">Bulk status...</option>
+      <option value="confirmed">Confirmed</option>
+      <option value="shipped">Shipped</option>
+      <option value="delivered">Delivered</option>
+      <option value="received">Received</option>
+      <option value="cancelled">Cancelled</option>
+    </select>
+    <button class="btn btn-primary btn-sm" onclick="applyBulkStatus()"><i class="fas fa-layer-group"></i> Apply</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteSelectedOrders()"><i class="fas fa-trash"></i> Delete Closed</button>
+    <a class="btn btn-secondary btn-sm" href="/api/admin/orders/export"><i class="fas fa-file-csv"></i> Export CSV</a>
+  </div>
+
   <div id="ordersContainer">
     <p style="text-align:center; padding:20px; color:#94a3b8;">Loading orders...</p>
   </div>
 </div>
 
 <!-- ===== SCRIPTS ===== -->
+<script src="/js/cookie-auth-client.js"></script>
 <script src="/js/admin-orders.js"></script>
 </body>
 </html>

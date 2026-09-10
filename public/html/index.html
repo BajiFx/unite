@@ -3,215 +3,350 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>Our Shop</title>
-  
+  <title>Shop Kenya - Marketplace</title>
+
   <!-- Main Global Styles -->
   <link rel="stylesheet" href="/style.css">
-  
+
   <!-- External Libraries -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  
+
   <!-- Page-Specific Styles -->
   <link rel="stylesheet" href="/css/index.css">
+  <link rel="stylesheet" href="/css/marketplace.css">
 </head>
 <body class="index-body">
 
-<!-- ===== ANNOUNCEMENT BAR ===== -->
-<div class="announcement-bar">
-  <marquee behavior="scroll" direction="left" scrollamount="3">
-    🎉 Welcome! Free delivery on orders over Ksh 5,000 &nbsp;•&nbsp; New arrivals every week
-  </marquee>
-</div>
+<!-- ============================================================ -->
+<!-- APP CONTAINER -->
+<!-- ============================================================ -->
 
-<!-- ===== TINY ADMIN DOT ===== -->
-<a href="/admin.html" class="admin-dot" title="Admin Panel">•</a>
+<div class="app-container">
 
-<!-- ===== HEADER ===== -->
-<div class="header">
-  <h1>🛍️ <span id="shopNameHeader">Our Business</span></h1>
-  <div class="header-right">
-    <a href="#" onclick="openAuthModal()" id="authLinks">Login</a>
-    <a href="/account.html" style="display:none;" id="userMenu">Account</a>
-    <a href="/cart.html" style="position:relative;">
-      <i class="fas fa-shopping-cart" style="font-size:1.2rem;"></i>
-      <span id="cartBadge" style="position:absolute; top:-6px; right:-8px; background:#ef4444; color:white; border-radius:50%; padding:0 5px; font-size:0.55rem; min-width:16px; text-align:center; font-weight:700; display:none;">0</span>
-    </a>
-  </div>
-</div>
+  <!-- ============================================================ -->
+  <!-- LEFT SIDEBAR (hidden when not logged in) -->
+  <!-- ============================================================ -->
 
-<!-- ===== HERO ===== -->
-<div class="hero-section" id="heroSection">
-  <div class="hero-overlay">
-    <div class="hero-content">
-      <img id="heroLogo" src="" alt="Shop Logo" class="hero-logo">
-      <h1 id="heroTitle">Welcome</h1>
-      <p id="heroLocation">📍 Nairobi, Kenya</p>
-      <p id="heroAddress"></p>
+  <aside class="sidebar-dashboard" id="appSidebar">
+    <div class="sidebar-header">
+      <h2>🛍️ <span id="sidebarTitle">My Account</span></h2>
+      <div class="user-name" id="sidebarUserName">Guest</div>
     </div>
-  </div>
-</div>
+    <nav class="sidebar-menu" id="sidebarMenu">
+      <!-- Menu items populated by JavaScript -->
+    </nav>
+  </aside>
 
-<!-- ===== SAVE MORE BANNER ===== -->
-<div class="save-more-banner">💰 Save more – Best prices, quality guaranteed!</div>
+  <!-- ============================================================ -->
+  <!-- SIDEBAR OVERLAY (mobile) -->
+  <!-- ============================================================ -->
 
-<!-- ===== ABOUT ===== -->
-<div class="about-card">
-  <div class="about-grid">
-    <div class="about-item">
-      <i class="fas fa-bullseye" style="color:#ff6b6b;"></i>
-      <h3>Mission</h3>
-      <p id="heroMission">-</p>
+  <div class="sidebar-overlay-dash" id="sidebarOverlayDash" onclick="closeMobileSidebar()"></div>
+
+  <!-- ============================================================ -->
+  <!-- MAIN CONTENT -->
+  <!-- ============================================================ -->
+
+  <div class="main-content">
+
+    <!-- ============================================================ -->
+    <!-- TOP BAR -->
+    <!-- ============================================================ -->
+
+    <header class="top-bar" id="topBar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="hamburger" id="hamburgerBtn" aria-label="Toggle sidebar">
+          <i class="fas fa-bars"></i>
+        </button>
+        <div class="brand">🛍️ <span id="shopNameTop">Shop Kenya</span></div>
+      </div>
+      <div class="top-bar-right" id="topBarRight">
+        <!-- PUBLIC NAV (Guest) -->
+        <div id="publicNavTop" style="display:flex;gap:8px;align-items:center;">
+          <a href="#" onclick="openAuthModal('login'); return false;" class="auth-btn" style="color:#2563eb;font-weight:700;font-size:0.75rem;">
+            <i class="fas fa-sign-in-alt"></i> Login
+          </a>
+          <a href="#" onclick="openAuthModal('register'); return false;" class="auth-btn" style="background:#2563eb;color:white;padding:6px 14px;border-radius:20px;font-weight:700;font-size:0.75rem;text-decoration:none;">
+            <i class="fas fa-user-plus"></i> Register
+          </a>
+        </div>
+        <!-- LOGGED IN NAV -->
+        <div id="loggedInNavTop" style="display:none;gap:8px;align-items:center;">
+          <span class="user-badge" id="userBadge">👤 User</span>
+          <button class="logout-btn" onclick="handleLogout()">
+            <i class="fas fa-sign-out-alt"></i> Logout
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Signed-in controls stay inside the marketplace instead of navigating away. -->
+    <section class="integrated-workspace" id="integratedWorkspace" hidden aria-label="Account workspace">
+      <div class="workspace-heading">
+        <div>
+          <p class="workspace-kicker" id="workspaceKicker">Your Shop Kenya space</p>
+          <h2 id="workspaceTitle">Dashboard</h2>
+        </div>
+        <button class="workspace-menu-toggle" id="workspaceMenuToggle" type="button" aria-expanded="false" aria-controls="workspaceTabs">
+          <i class="fas fa-bars"></i> Sections
+        </button>
+        <button class="workspace-close" id="workspaceClose" type="button" onclick="closeDashboardPanel()" hidden>
+          <i class="fas fa-times"></i> Close panel
+        </button>
+      </div>
+      <nav class="workspace-tabs" id="workspaceTabs" aria-label="Workspace sections"></nav>
+      <div class="workspace-subtabs" id="workspaceSubtabs" hidden aria-label="Settings sections"></div>
+      <div class="workspace-content">
+        <iframe id="workspaceFrame" title="Shop Kenya workspace" loading="eager"></iframe>
+      </div>
+    </section>
+
+    <nav class="marketplace-bottom-nav" id="marketplaceBottomNav" hidden aria-label="Quick workspace navigation"></nav>
+
+    <div class="marketplace-divider" id="marketplaceDivider" aria-hidden="true">
+      <span>Marketplace</span>
     </div>
-    <div class="about-item">
-      <i class="fas fa-eye" style="color:#7c3aed;"></i>
-      <h3>Vision</h3>
-      <p id="heroVision">-</p>
+
+    <!-- ============================================================ -->
+    <!-- MARKETPLACE CONTENT (always visible below the workspace) -->
+    <!-- ============================================================ -->
+
+    <div class="marketplace-container">
+
+      <!-- Announcement Bar -->
+      <div class="announcement-bar">
+        <marquee behavior="scroll" direction="left" scrollamount="3">
+          🎉 Welcome to Shop Kenya Marketplace! Discover amazing businesses &nbsp;•&nbsp; Register your business today
+        </marquee>
+      </div>
+
+      <!-- Admin Dot -->
+      <a href="/admin.html" class="admin-dot" title="Super Admin Panel">•</a>
+
+      <!-- Hero Banner -->
+      <div class="hero-banner">
+        <div class="hero-content">
+          <h1>🌟 Discover Amazing Businesses</h1>
+          <p>Find the best products from trusted businesses across Kenya</p>
+          <div class="hero-stats">
+            <div class="stat"><span class="number" id="totalBusinesses">0</span><span class="label">Businesses</span></div>
+            <div class="stat"><span class="number" id="totalProducts">0</span><span class="label">Products</span></div>
+            <div class="stat"><span class="number" id="totalCustomers">0</span><span class="label">Customers</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search & Filter Bar -->
+      <div class="search-filter-bar">
+        <div class="search-wrapper">
+          <input type="search" id="businessSearch" name="business-search" placeholder="Search businesses..." autocomplete="off" data-lpignore="true" onkeyup="searchBusinesses()">
+          <button onclick="searchBusinesses()"><i class="fas fa-search"></i> Search</button>
+        </div>
+        <select id="businessCategoryFilter" onchange="filterBusinesses()">
+          <option value="all">All Business Categories</option>
+        </select>
+        <select id="sortFilter" onchange="filterBusinesses()">
+          <option value="newest">Newest</option>
+          <option value="popular">Most Popular</option>
+          <option value="rating">Highest Rated</option>
+        </select>
+      </div>
+
+      <!-- Featured Businesses -->
+      <div class="featured-section">
+        <h2>⭐ Featured Businesses</h2>
+        <div class="business-grid" id="featuredGrid">
+          <p style="text-align:center;padding:40px;color:#94a3b8;grid-column:1/-1;">Loading featured businesses...</p>
+        </div>
+      </div>
+
+      <!-- All Businesses -->
+      <div class="businesses-section">
+        <h2>📋 All Businesses</h2>
+        <div class="business-grid" id="businessGrid">
+          <p style="text-align:center;padding:40px;color:#94a3b8;grid-column:1/-1;">Loading businesses...</p>
+        </div>
+        <div id="loadMoreContainer" style="text-align:center;margin:20px 0;">
+          <button class="btn btn-primary" id="loadMoreBtn" onclick="loadMoreBusinesses()" style="display:none;">
+            Load More <i class="fas fa-arrow-down"></i>
+          </button>
+        </div>
+      </div>
+
     </div>
+
   </div>
 </div>
 
-<!-- ===== SLIDER ===== -->
-<div class="slider-container">
-  <div class="slider-wrapper" id="sliderWrapper">
-    <div class="slide">✨ Loading...</div>
-  </div>
-  <button class="slider-btn prev" onclick="changeSlide(-1)">❮</button>
-  <button class="slider-btn next" onclick="changeSlide(1)">❯</button>
-</div>
+<!-- ============================================================ -->
+<!-- DASHBOARD PANEL (slides from right) -->
+<!-- ============================================================ -->
 
-<!-- ===== PRODUCTS ===== -->
-<div class="container">
-  <div class="section-header">
-    <h2>📦 Our Products</h2>
+<div class="dashboard-panel" id="dashboardPanel">
+  <div class="panel-header">
+    <h3 id="panelTitle">📊 Dashboard</h3>
+    <button class="close-panel" onclick="closeDashboardPanel()">✕</button>
   </div>
-  <div class="products-grid" id="productGrid"></div>
-
-  <!-- LOCATION REQUEST -->
-  <div style="text-align:center; margin:20px 0;">
-    <button id="requestLocationBtn" class="btn btn-primary" style="font-size:0.85rem; padding:8px 20px;">📍 Request Location</button>
-    <p id="locationRequestStatus" style="font-size:0.7rem; color:#64748b; margin-top:4px;"></p>
-  </div>
-
-  <!-- MAPS -->
-  <div id="staticMapSection" style="display:none; margin:16px 0;">
-    <h3 style="font-size:0.95rem;">📍 Find Our Shop</h3>
-    <div id="shopMap" style="height:250px; border-radius:12px; overflow:hidden;"></div>
-    <p id="mapAddress" style="font-size:0.75rem; color:#475569; margin-top:4px;"></p>
-  </div>
-  <div id="liveLocationSection" style="display:none; margin:16px 0;">
-    <h3 style="font-size:0.95rem;">📍 Seller's Live Location</h3>
-    <div id="liveMap" style="height:250px; border-radius:12px; overflow:hidden;"></div>
-    <p id="liveDistance" style="font-size:0.75rem; color:#2563eb; margin-top:4px;"></p>
-  </div>
-
-  <!-- CONTACT -->
-  <div style="text-align:center; margin:24px 0;">
-    <h3 style="font-size:0.95rem;">📞 Contact Us</h3>
-    <div style="display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-top:8px;">
-      <a id="iconWhatsapp" href="#" target="_blank" style="font-size:1.6rem; color:#25D366;"><i class="fab fa-whatsapp"></i></a>
-      <a id="iconTiktok" href="#" target="_blank" style="font-size:1.6rem; color:#000;"><i class="fab fa-tiktok"></i></a>
-      <a id="iconInstagram" href="#" target="_blank" style="font-size:1.6rem; color:#E4405F;"><i class="fab fa-instagram"></i></a>
-      <a id="iconFacebook" href="#" target="_blank" style="font-size:1.6rem; color:#1877F2;"><i class="fab fa-facebook-messenger"></i></a>
-      <a id="iconPhone" href="#" style="font-size:1.6rem; color:#2563eb;"><i class="fas fa-phone"></i></a>
-    </div>
+  <div class="panel-body">
+    <iframe id="dashboardFrame" src=""></iframe>
   </div>
 </div>
 
-<!-- ===== DETAIL MODAL ===== -->
-<div class="modal-overlay" id="detailModal">
-  <div class="modal-box">
-    <span class="close-modal" onclick="closeDetails()">&times;</span>
-    <div id="detailContent"></div>
-  </div>
-</div>
+<!-- ============================================================ -->
+<!-- AUTH MODAL -->
+<!-- ============================================================ -->
 
-<!-- ===== AUTH MODAL ===== -->
 <div class="modal-overlay" id="authModal">
   <div class="modal-box">
     <span class="close-modal" onclick="closeAuthModal()">&times;</span>
-    <h2 id="authModalTitle">🔑 Login</h2>
-    
-    <div id="authLoginForm">
-      <div class="form-group"><label>Email</label><input type="email" id="authLoginEmail" placeholder="your@email.com"></div>
-      <div class="form-group" style="position:relative;">
-        <label>Password</label>
-        <input type="password" id="authLoginPassword" placeholder="Enter password">
-        <button class="toggle-pwd" onclick="toggleAuthPwd('authLoginPassword', this)"><i class="fas fa-eye"></i></button>
+
+    <!-- ===== LOGIN TAB ===== -->
+    <div id="authLoginContainer">
+      <h2 id="authLoginTitle">🔑 Login</h2>
+      <div style="display:flex; gap:10px; margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="selectLoginType('customer')" id="loginTypeCustomer" style="flex:1; padding:10px; font-size:0.85rem;">
+          <i class="fas fa-user"></i> Customer
+        </button>
+        <button class="btn btn-secondary" onclick="selectLoginType('business')" id="loginTypeBusiness" style="flex:1; padding:10px; font-size:0.85rem; background:#e2e8f0; color:#1e293b;">
+          <i class="fas fa-store"></i> Business
+        </button>
       </div>
-      <button class="btn btn-primary" style="width:100%;" onclick="handleAuthLogin()">Login</button>
-      <div id="authLoginStatus" class="auth-status"></div>
-      <p style="margin-top:8px; text-align:center; font-size:0.8rem;">
-        <a href="/reset-password.html" style="color:#2563eb;">🔑 Forgot Password?</a>
-      </p>
-      <p style="margin-top:4px; text-align:center; font-size:0.8rem;">Don't have an account? <a href="#" onclick="switchAuthTab('register')">Register</a></p>
+      <div id="loginForm">
+        <div class="form-group">
+          <label>Username or Email</label>
+          <input type="text" id="loginUsername" placeholder="Enter your username or email">
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter your password">
+          <button class="toggle-pwd" onclick="togglePwd('loginPassword', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="handleLogin()">Login</button>
+        <div id="loginStatus" class="auth-status"></div>
+        <p style="margin-top:8px; text-align:center; font-size:0.8rem;">
+          <a href="/reset-password.html" style="color:#2563eb;">🔑 Forgot Password?</a>
+        </p>
+        <p style="margin-top:4px; text-align:center; font-size:0.8rem;">
+          Don't have an account? <a href="#" onclick="switchAuthTab('register')">Register</a>
+        </p>
+      </div>
     </div>
-    
-    <div id="authRegisterForm" style="display:none;">
-      <div class="form-group"><label>Full Name *</label><input type="text" id="authRegName" placeholder="Your full name" required></div>
-      <div class="form-group"><label>Email *</label><input type="email" id="authRegEmail" placeholder="your@email.com" required></div>
-      <div class="form-group">
-        <label>Phone Number *</label>
-        <input type="tel" id="authRegPhone" placeholder="0712345678" required>
-        <small>Enter a valid phone number (e.g., 0712345678)</small>
+
+    <!-- ===== REGISTER TAB ===== -->
+    <div id="authRegisterContainer" style="display:none;">
+      <h2 id="authRegisterTitle">📝 Create Account</h2>
+      <div style="display:flex; gap:10px; margin-bottom:16px;">
+        <button class="btn btn-success" onclick="selectRegisterType('customer')" id="registerTypeCustomer" style="flex:1; padding:10px; font-size:0.85rem;">
+          <i class="fas fa-user"></i> Customer
+        </button>
+        <button class="btn btn-secondary" onclick="selectRegisterType('business')" id="registerTypeBusiness" style="flex:1; padding:10px; font-size:0.85rem; background:#e2e8f0; color:#1e293b;">
+          <i class="fas fa-store"></i> Business
+        </button>
       </div>
-      <div class="form-group" style="position:relative;">
-        <label>Password *</label>
-        <input type="password" id="authRegPassword" placeholder="Min 6 characters" required>
-        <button class="toggle-pwd" onclick="toggleAuthPwd('authRegPassword', this)"><i class="fas fa-eye"></i></button>
+
+      <!-- Customer Registration -->
+      <div id="customerRegisterForm">
+        <div class="form-group">
+          <label>Username *</label>
+          <input type="text" id="regCustomerUsername" placeholder="Choose a unique username" oninput="checkUsernameAvailability(this.value, 'customer')">
+          <small id="customerUsernameStatus" style="font-size:0.55rem; color:#94a3b8;">Username must be at least 3 characters</small>
+          <div id="customerUsernameSuggestions" style="display:none; background:#f8fafc; border-radius:6px; padding:4px 8px; margin-top:4px; font-size:0.75rem; color:#64748b;"></div>
+        </div>
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" id="regCustomerName" placeholder="Your full name">
+        </div>
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" id="regCustomerEmail" placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+          <label>Phone Number *</label>
+          <input type="tel" id="regCustomerPhone" placeholder="0712345678">
+          <small>Enter a valid phone number (e.g., 0712345678)</small>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Password *</label>
+          <input type="password" id="regCustomerPassword" placeholder="Min 6 characters">
+          <button class="toggle-pwd" onclick="togglePwd('regCustomerPassword', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Confirm Password *</label>
+          <input type="password" id="regCustomerConfirm" placeholder="Re-enter password">
+          <button class="toggle-pwd" onclick="togglePwd('regCustomerConfirm', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <button class="btn btn-success" style="width:100%;" onclick="handleCustomerRegister()">Create Customer Account</button>
+        <div id="customerRegisterStatus" class="auth-status"></div>
       </div>
-      <div class="form-group" style="position:relative;">
-        <label>Confirm Password *</label>
-        <input type="password" id="authRegConfirm" placeholder="Re-enter password" required>
-        <button class="toggle-pwd" onclick="toggleAuthPwd('authRegConfirm', this)"><i class="fas fa-eye"></i></button>
+
+      <!-- Business Registration -->
+      <div id="businessRegisterForm" style="display:none;">
+        <div class="form-group">
+          <label>Business Username *</label>
+          <input type="text" id="regBusinessUsername" placeholder="Choose a unique business username" oninput="checkUsernameAvailability(this.value, 'business')">
+          <small id="businessUsernameStatus" style="font-size:0.55rem; color:#94a3b8;">Username must be at least 3 characters</small>
+          <div id="businessUsernameSuggestions" style="display:none; background:#f8fafc; border-radius:6px; padding:4px 8px; margin-top:4px; font-size:0.75rem; color:#64748b;"></div>
+        </div>
+        <div class="form-group">
+          <label>Business Name *</label>
+          <input type="text" id="regBusinessName" placeholder="Your business name">
+        </div>
+        <div class="form-group">
+          <label>Business Category *</label>
+          <select id="regBusinessCategory" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem;">
+            <option value="">Select a category...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" id="regBusinessEmail" placeholder="business@email.com">
+        </div>
+        <div class="form-group">
+          <label>Phone Number *</label>
+          <input type="tel" id="regBusinessPhone" placeholder="0712345678">
+        </div>
+        <div class="form-group">
+          <label>Location *</label>
+          <input type="text" id="regBusinessLocation" placeholder="Nairobi, Kenya">
+        </div>
+        <div class="form-group">
+          <label>Business Description</label>
+          <textarea id="regBusinessDescription" rows="2" placeholder="Tell customers about your business..." style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Password *</label>
+          <input type="password" id="regBusinessPassword" placeholder="Min 8 characters">
+          <button class="toggle-pwd" onclick="togglePwd('regBusinessPassword', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label>Confirm Password *</label>
+          <input type="password" id="regBusinessConfirm" placeholder="Re-enter password">
+          <button class="toggle-pwd" onclick="togglePwd('regBusinessConfirm', this)"><i class="fas fa-eye"></i></button>
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="handleBusinessRegister()">Create Business Account</button>
+        <div id="businessRegisterStatus" class="auth-status"></div>
       </div>
-      <button class="btn btn-success" style="width:100%;" onclick="handleAuthRegister()">Create Account</button>
-      <div id="authRegisterStatus" class="auth-status"></div>
-      <p style="margin-top:8px; text-align:center; font-size:0.8rem;">Already have an account? <a href="#" onclick="switchAuthTab('login')">Login</a></p>
     </div>
   </div>
 </div>
 
-<!-- ===== FLOATING WIDGETS ===== -->
-<div id="floatingWidgets" style="display:none;">
-  <a href="/cart.html" id="cartFloatingBtn" style="position:relative;">
-    🛒<span id="cartBadgeFloat" style="display:none;">0</span>
-  </a>
-  <button id="chatToggle" onclick="toggleChat()"><i class="fas fa-comment"></i></button>
-</div>
+<!-- ============================================================ -->
+<!-- TOAST CONTAINER -->
+<!-- ============================================================ -->
 
-<!-- ===== CHAT BOX ===== -->
-<div id="chatBox">
-  <div class="chat-header"><span>💬 Live Chat</span><span onclick="toggleChat()">&times;</span></div>
-  <div id="chatMessages"><p style="color:#94a3b8; text-align:center; font-size:0.8rem;">Loading...</p></div>
-  <div id="chatInputArea" style="display:none;">
-    <input id="chatInput" type="text" placeholder="Type a message...">
-    <button onclick="sendChatMessage()"><i class="fas fa-paper-plane"></i></button>
-  </div>
-  <div id="chatLoginPrompt">
-    <p style="font-size:0.8rem;">Please login to chat</p>
-    <button class="btn btn-primary" onclick="openAuthModal()" style="font-size:0.8rem;">Login</button>
-  </div>
-</div>
+<div id="toastContainer" style="position:fixed;top:20px;right:20px;z-index:99999;max-width:400px;width:100%;"></div>
 
-<!-- ===== BOTTOM NAV - FIXED ===== -->
-<div class="bottom-nav">
-  <a href="/" class="active"><i class="fas fa-home"></i><span>Home</span></a>
-  <a href="/category.html"><i class="fas fa-th-large"></i><span>Category</span></a>
-  <!-- FIXED: Messages tab now opens chat -->
-  <a href="#" onclick="openChatTab(); return false;"><i class="fas fa-envelope"></i><span>Messages</span></a>
-  <a href="/cart.html" style="position:relative;">
-    <i class="fas fa-shopping-cart"></i>
-    <span class="nav-badge" id="navCartBadge">0</span>
-    <span>Cart</span>
-  </a>
-  <a href="/account.html"><i class="fas fa-user"></i><span>Account</span></a>
-</div>
+<!-- ============================================================ -->
+<!-- SCRIPTS -->
+<!-- ============================================================ -->
 
-<!-- ===== SCRIPTS ===== -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/js/app.js"></script>
+<script src="/js/cart-store.js"></script>
+<script src="/js/cookie-auth-client.js"></script>
+<script src="/js/navigation.js"></script>
 <script src="/js/index.js"></script>
+
 </body>
 </html>

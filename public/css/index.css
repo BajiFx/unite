@@ -936,3 +936,61 @@
 .detail-modal-info .btn-add-large.in-cart {
   background: #22c55e;
 }
+
+.integrated-workspace {
+  position: fixed;
+  z-index: 1800;
+  top: 70px;
+  right: 24px;
+  bottom: 78px;
+  left: auto;
+  display: flex;
+  width: min(920px, calc(100vw - 310px));
+  max-width: none;
+  margin: 0 auto;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, .26);
+  pointer-events: none;
+}
+
+.integrated-workspace[hidden] { display: none; }
+
+/* A workspace is a focused view.  Keeping the marketplace in the document
+   behind it caused the duplicate/overlapping marketplace seen from Cart. */
+body.workspace-active .marketplace-container,
+body.workspace-active #marketplaceDivider { display: none; }
+.marketplace-dashboard-sidebar {
+  width: 255px;
+  flex: 0 0 255px;
+  color: #e2e8f0;
+  background: #0f172a;
+  pointer-events: auto;
+  overflow-y: auto;
+}
+.marketplace-dashboard-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 66px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  color: #fff;
+}
+.workspace-close { border: 0; background: transparent; color: #cbd5e1; font-size: 28px; line-height: 1; cursor: pointer; }
+.workspace-close:hover { color: #fff; }
+.marketplace-dashboard-sidebar__nav { padding: 12px 10px 20px; }
+.workspace-nav-item {
+  display: flex; align-items: center; gap: 11px; width: 100%; margin: 2px 0; padding: 11px 12px;
+  border: 0; border-radius: 9px; background: transparent; color: #cbd5e1; font: inherit; text-align: left; cursor: pointer;
+}
+.workspace-nav-item:hover, .workspace-nav-item.active { background: #1e3a5f; color: #fff; }
+.workspace-nav-item.logout { color: #fca5a5; margin-top: 15px; }
+.marketplace-dashboard-panel { flex: 1; min-width: 0; background: #f8fafc; pointer-events: auto; }
+#integratedWorkspaceFrame { display: block; width: 100%; height: 100%; border: 0; background: #f8fafc; }
+
+@media (max-width: 640px) {
+  .integrated-workspace { inset: 58px 8px 66px; width: auto; border-radius: 13px; }
+  .marketplace-dashboard-sidebar { width: 205px; flex-basis: 205px; }
+  .workspace-nav-item { padding: 10px 8px; font-size: .82rem; }
+}

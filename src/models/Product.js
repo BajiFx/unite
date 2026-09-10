@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 //  PRODUCT MODEL
 // ============================================================
 
@@ -34,9 +34,9 @@ class Product {
     `, [id]);
 
     const related = await pool.query(`
-      SELECT * FROM products 
-      WHERE id != $1 
-      ORDER BY created_at DESC 
+      SELECT * FROM products
+      WHERE id != $1
+      ORDER BY created_at DESC
       LIMIT 6
     `, [id]);
 
@@ -90,24 +90,24 @@ class Product {
    */
   static async findAllWithVariants({ search, category, limit = 50, offset = 0 }) {
     const products = await this.findAll({ search, category, limit, offset });
-    
+
     const result = [];
     for (const product of products) {
       const variants = await pool.query(
         'SELECT * FROM product_variants WHERE product_id = $1 ORDER BY id',
         [product.id]
       );
-      
+
       let totalStock = 0;
       variants.rows.forEach(v => { totalStock += v.stock || 0; });
-      
+
       result.push({
         ...product,
         variants: variants.rows,
         stock: totalStock || product.stock || 0
       });
     }
-    
+
     return result;
   }
 
@@ -174,9 +174,9 @@ class Product {
 
     params.push(id);
     const query = `
-      UPDATE products 
-      SET ${fields.join(', ')} 
-      WHERE id = $${paramIndex} 
+      UPDATE products
+      SET ${fields.join(', ')}
+      WHERE id = $${paramIndex}
       RETURNING *
     `;
 
@@ -191,16 +191,16 @@ class Product {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      
+
       // Delete variants first
       await client.query('DELETE FROM product_variants WHERE product_id = $1', [id]);
-      
+
       // Delete product
       const result = await client.query(
         'DELETE FROM products WHERE id = $1 RETURNING id',
         [id]
       );
-      
+
       await client.query('COMMIT');
       return result.rows[0] || null;
     } catch (err) {
@@ -246,9 +246,9 @@ class Product {
 
     params.push(variantId);
     const query = `
-      UPDATE product_variants 
-      SET ${fields.join(', ')} 
-      WHERE id = $${paramIndex} 
+      UPDATE product_variants
+      SET ${fields.join(', ')}
+      WHERE id = $${paramIndex}
       RETURNING *
     `;
 
@@ -310,7 +310,7 @@ class Product {
    */
   static async getRating(productId) {
     const result = await pool.query(`
-      SELECT 
+      SELECT
         AVG(rating) as average,
         COUNT(*) as count
       FROM product_reviews
@@ -398,9 +398,9 @@ class Product {
    */
   static async getLowStock(threshold = 10, limit = 20) {
     const result = await pool.query(`
-      SELECT id, name, stock FROM products 
-      WHERE stock < $1 
-      ORDER BY stock ASC 
+      SELECT id, name, stock FROM products
+      WHERE stock < $1
+      ORDER BY stock ASC
       LIMIT $2
     `, [threshold, limit]);
     return result.rows;
