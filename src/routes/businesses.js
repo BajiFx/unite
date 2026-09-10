@@ -19,6 +19,34 @@ function productFallbackImage(name) {
 const LOCATION_FIELDS = ['continent', 'country', 'county', 'sub_county', 'ward', 'town', 'specific_area', 'postal_code'];
 const locationSql = LOCATION_FIELDS.map(field => `COALESCE(b.${field}, '')`).join(", ' ', ");
 
+// ============================================================
+//  GET ALL BUSINESS CATEGORIES (Public — used by the
+//  registration form, marketplace filter, and admin panels)
+//  This is the single source of truth for business categories.
+// ============================================================
+router.get('/categories/all', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                c.id,
+                c.name,
+                c.slug,
+                c.icon,
+                c.description,
+                (SELECT COUNT(*)::int FROM business_category_assignments bca
+                   JOIN businesses b ON b.id = bca.business_id
+                   WHERE bca.category_id = c.id AND b.is_active = true) AS business_count
+            FROM business_categories c
+            ORDER BY c.name ASC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('❌ Get categories error:', err);
+        logError(err, 'Get categories');
+        res.status(500).json({ error: 'Unable to load categories' });
+    }
+});
+
 // These routes intentionally precede /:slug so words such as "nearby" are not
 // treated as business slugs.
 router.get('/locations/distinct', async (req, res) => {
@@ -285,7 +313,7 @@ router.get('/:slug', async (req, res) => {
 });
 
 // ============================================================
-//  GET BUSINESS ORDER SETTINGS (Public) - FIX: ADDED ENDPOINT
+//  GET BUSINESS ORDER SETTINGS (Public)
 // ============================================================
 
 router.get('/:slug/order-settings', async (req, res) => {
@@ -414,7 +442,7 @@ router.get('/:slug/status', async (req, res) => {
         const { slug } = req.params;
 
         const result = await pool.query(
-            `SELECT online_orders_enabled, is_active
+            `SELECT online_orders_enabled, is_active, show_cart_when_disabled, order_disabled_message
              FROM businesses
              WHERE slug = $1`,
             [slug]
@@ -758,23 +786,6 @@ router.get('/:slug/stats', async (req, res) => {
     } catch (err) {
         console.error('❌ Get business stats error:', err);
         logError(err, 'Get business stats');
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ============================================================
-//  GET ALL CATEGORIES (Public)
-// ============================================================
-
-router.get('/categories/all', async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT * FROM business_categories ORDER BY name
-        `);
-        res.json(result.rows);
-    } catch (err) {
-        console.error('❌ Get categories error:', err);
-        logError(err, 'Get categories');
         res.status(500).json({ error: err.message });
     }
 });

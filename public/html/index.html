@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>Shop Kenya - Marketplace</title>
+  <title>BidhaaLink - Kenya's Multi-Vendor Marketplace</title>
+  <meta name="description" content="BidhaaLink connects Kenyan businesses with customers. Buy and sell products from trusted vendors across Kenya.">
 
   <!-- Main Global Styles -->
   <link rel="stylesheet" href="/style.css">
@@ -59,7 +60,7 @@
         <button class="hamburger" id="hamburgerBtn" aria-label="Toggle sidebar">
           <i class="fas fa-bars"></i>
         </button>
-        <div class="brand">🛍️ <span id="shopNameTop">Shop Kenya</span></div>
+        <div class="brand">🛍️ <span id="shopNameTop" style="color:#16a34a;font-weight:800;">BidhaaLink</span></div>
       </div>
       <div class="top-bar-right" id="topBarRight">
         <!-- PUBLIC NAV (Guest) -->
@@ -85,7 +86,7 @@
     <section class="integrated-workspace" id="integratedWorkspace" hidden aria-label="Account workspace">
       <div class="workspace-heading">
         <div>
-          <p class="workspace-kicker" id="workspaceKicker">Your Shop Kenya space</p>
+          <p class="workspace-kicker" id="workspaceKicker">Your BidhaaLink space</p>
           <h2 id="workspaceTitle">Dashboard</h2>
         </div>
         <button class="workspace-menu-toggle" id="workspaceMenuToggle" type="button" aria-expanded="false" aria-controls="workspaceTabs">
@@ -98,14 +99,14 @@
       <nav class="workspace-tabs" id="workspaceTabs" aria-label="Workspace sections"></nav>
       <div class="workspace-subtabs" id="workspaceSubtabs" hidden aria-label="Settings sections"></div>
       <div class="workspace-content">
-        <iframe id="workspaceFrame" title="Shop Kenya workspace" loading="eager"></iframe>
+        <iframe id="workspaceFrame" title="BidhaaLink workspace" loading="eager"></iframe>
       </div>
     </section>
 
     <nav class="marketplace-bottom-nav" id="marketplaceBottomNav" hidden aria-label="Quick workspace navigation"></nav>
 
     <div class="marketplace-divider" id="marketplaceDivider" aria-hidden="true">
-      <span>Marketplace</span>
+      <span class="marketplace-label">MARKETPLACE</span>
     </div>
 
     <!-- ============================================================ -->
@@ -117,7 +118,7 @@
       <!-- Announcement Bar -->
       <div class="announcement-bar">
         <marquee behavior="scroll" direction="left" scrollamount="3">
-          🎉 Welcome to Shop Kenya Marketplace! Discover amazing businesses &nbsp;•&nbsp; Register your business today
+          🎉 Welcome to BidhaaLink Marketplace! Discover amazing businesses across Kenya &nbsp;•&nbsp; Register your business today
         </marquee>
       </div>
 
@@ -127,8 +128,20 @@
       <!-- Hero Banner -->
       <div class="hero-banner">
         <div class="hero-content">
-          <h1>🌟 Discover Amazing Businesses</h1>
-          <p>Find the best products from trusted businesses across Kenya</p>
+          <h1 class="brand-title">BidhaaLink</h1>
+          <p class="brand-tagline">Connecting the world's Businesses with Customers and Customers to Businesses, One Order at a Time</p>
+
+          <div class="brand-mission-vision">
+            <div class="mv-item">
+              <span class="mv-label">🎯 Mission</span>
+              <p>To empower every business — large or small — with a powerful digital storefront that connects them directly to customers, builds trust, and grows their reach across the world.</p>
+            </div>
+            <div class="mv-item">
+              <span class="mv-label">🌍 Vision</span>
+              <p>To become the most trusted and unified marketplace platform in the world, where every business has equal opportunity to thrive online and every customer finds exactly what they need — from anywhere, at any time.</p>
+            </div>
+          </div>
+
           <div class="hero-stats">
             <div class="stat"><span class="number" id="totalBusinesses">0</span><span class="label">Businesses</span></div>
             <div class="stat"><span class="number" id="totalProducts">0</span><span class="label">Products</span></div>
@@ -292,12 +305,46 @@
           <label>Business Name *</label>
           <input type="text" id="regBusinessName" placeholder="Your business name">
         </div>
+
+        <!-- ============================================================ -->
+        <!-- BUSINESS CATEGORIES — MULTI-SELECT WITH PRIMARY -->
+        <!-- ============================================================ -->
         <div class="form-group">
-          <label>Business Category *</label>
-          <select id="regBusinessCategory" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem;">
-            <option value="">Select a category...</option>
+          <label>Business Categories * <span style="font-weight:400; color:#64748b; font-size:0.75rem;">(select one or more)</span></label>
+
+          <!-- Primary category (always required) -->
+          <select id="regBusinessPrimaryCategory"
+                  aria-label="Primary business category"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem; background:white; cursor:pointer; margin-bottom:6px;">
+            <option value="">⏳ Loading categories...</option>
           </select>
+          <small style="font-size:0.6rem; color:#64748b; display:block; margin-bottom:8px;">
+            <strong>Primary category</strong> — the main type of business you run.
+          </small>
+
+          <!-- Additional categories -->
+          <div id="regBusinessAdditionalCategoriesWrap"
+               style="display:none; border:1px dashed #cbd5e1; border-radius:6px; padding:8px 10px; background:#f8fafc;">
+            <div style="font-size:0.75rem; font-weight:600; color:#334155; margin-bottom:4px;">
+              Additional categories <span style="font-weight:400; color:#64748b;">(optional)</span>
+            </div>
+            <div id="regBusinessAdditionalCategories"
+                 style="display:flex; flex-direction:column; gap:4px; max-height:140px; overflow-y:auto;">
+              <!-- Checkboxes populated by JavaScript -->
+            </div>
+          </div>
+
+          <small id="regBusinessCategoryHelp" style="font-size:0.55rem; color:#94a3b8; display:block; margin-top:6px;">
+            Choose the category (or categories) that best describe what your business sells.
+          </small>
+
+          <div id="businessCategoryError"
+               style="display:none; font-size:0.7rem; color:#ef4444; margin-top:4px;">
+            ❌ Please select at least one business category.
+          </div>
         </div>
+        <!-- ============================================================ -->
+
         <div class="form-group">
           <label>Email *</label>
           <input type="email" id="regBusinessEmail" placeholder="business@email.com">

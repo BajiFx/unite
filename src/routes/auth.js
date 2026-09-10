@@ -316,7 +316,10 @@ router.post('/customer/login', loginLimiter, [
 });
 
 // ============================================================
-//  BUSINESS REGISTRATION - WITH USERNAME
+//  BUSINESS REGISTRATION - WITH USERNAME AND MULTIPLE CATEGORIES
+//  A.4 — Validate category
+//  A.5 — Save selected category with the business record
+//  A.6 — Support primary + additional categories
 // ============================================================
 
 router.post('/business/register', upload.fields([
@@ -329,12 +332,20 @@ router.post('/business/register', upload.fields([
   body('location').notEmpty().withMessage('Location required'),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('username').notEmpty().withMessage('Username required'),
-  body('username').isLength({ min: 3 }).withMessage('Username must be at least 3 characters')
+  body('username').isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
+  body('category').notEmpty().withMessage('Business category required')
 ], async (req, res) => {
   try {
     console.log('📝 Business registration request received');
     console.log('📝 Email:', req.body.email);
     console.log('📝 Username:', req.body.username);
+    console.log('📝 Category:', req.body.category);
+    console.log('📝 Additional categories:', req.body.additional_categories);
+
+    const validationErrors = validationResult(req);
+    if (!validationErrors.isEmpty()) {
+      return res.status(400).json({ errors: validationErrors.array() });
+    }
 
     const {
       business_name, email, phone, location, password,
@@ -346,8 +357,11 @@ router.post('/business/register', upload.fields([
       paypal_enabled, paypal_email,
       shipping_policy, return_policy, terms_policy, privacy_policy,
       delivery_enabled, online_orders_enabled,
-      username
+      username,
+      category
     } = req.body;
+
+    const additional_categories = req.body.additional_categories;
 
     const cleanPhone = phone.replace(/[^0-9]/g, '');
 
@@ -369,6 +383,51 @@ router.post('/business/register', upload.fields([
     }
     if (!username || username.length < 3) {
       return res.status(400).json({ error: 'Username must be at least 3 characters' });
+    }
+    if (!category) {
+      return res.status(400).json({ error: 'Business category is required' });
+    }
+
+    // ------------------------------------------------------------
+    //  A.4 / A.5 — Resolve the primary category ID
+    // ------------------------------------------------------------
+    const primaryCategoryId = parseInt(category, 10);
+    if (Number.isNaN(primaryCategoryId)) {
+      return res.status(400).json({ error: 'Invalid business category' });
+    }
+
+    // ------------------------------------------------------------
+    //  A.6 — Resolve and validate every additional category
+    //  Deduplicate, drop the primary from the additional list, and
+    //  cast every entry to an integer.
+    // ------------------------------------------------------------
+    const additionalCategoryIds = [
+      ...new Set(
+        String(additional_categories || '')
+          .split(',')
+          .map(value => parseInt(value.trim(), 10))
+          .filter(value => Number.isInteger(value))
+      )
+    ].filter(id => id !== primaryCategoryId);
+
+    // ------------------------------------------------------------
+    //  A.5 — Verify every chosen category exists in the live
+    //  business_categories table BEFORE opening the transaction.
+    // ------------------------------------------------------------
+    const allCategoryIds = [primaryCategoryId, ...additionalCategoryIds];
+    const categoryCheck = await pool.query(
+      'SELECT id FROM business_categories WHERE id = ANY($1::int[])',
+      [allCategoryIds]
+    );
+
+    if (categoryCheck.rows.length !== allCategoryIds.length) {
+      const foundIds = categoryCheck.rows.map(row => row.id);
+      const missingIds = allCategoryIds.filter(id => !foundIds.includes(id));
+      console.warn('❌ Missing business categories:', missingIds);
+      return res.status(400).json({
+        error: 'One or more selected business categories do not exist',
+        missing_category_ids: missingIds
+      });
     }
 
     // Check if username already exists (in both customers and admin_users)
@@ -467,10 +526,21 @@ router.post('/business/register', upload.fields([
     const businessId = businessResult.rows[0].id;
     console.log('✅ Business created:', businessId);
 
-    // 3. Update admin with business_id
+    // 3. A.5 + A.6 — Save the primary category AND every additional category.
+    //    Use a single insert with UNNEST so duplicates are handled by the
+    //    ON CONFLICT clause of the primary key (business_id, category_id).
+    await pool.query(
+      `INSERT INTO business_category_assignments (business_id, category_id)
+       SELECT $1, UNNEST($2::int[])
+       ON CONFLICT (business_id, category_id) DO NOTHING`,
+      [businessId, allCategoryIds]
+    );
+    console.log('✅ Business categories assigned:', allCategoryIds.join(', '));
+
+    // 4. Update admin with business_id
     await pool.query('UPDATE admin_users SET business_id = $1 WHERE id = $2', [businessId, adminId]);
 
-    // 4. Create business stats
+    // 5. Create business stats
     await pool.query('INSERT INTO business_stats (business_id) VALUES ($1)', [businessId]);
 
     await pool.query('COMMIT');
@@ -483,6 +553,7 @@ router.post('/business/register', upload.fields([
     console.log('✅ Email:', email);
     console.log('✅ Username:', username);
     console.log('✅ Business ID:', businessId);
+    console.log('✅ Category IDs saved:', allCategoryIds.join(', '));
 
     res.status(201).json({
       success: true,
@@ -490,6 +561,9 @@ router.post('/business/register', upload.fields([
       business_id: businessId,
       business: businessData.rows[0],
       slug: slug,
+      category_ids: allCategoryIds,
+      primary_category_id: primaryCategoryId,
+      additional_category_ids: additionalCategoryIds,
       message: 'Business registered successfully!'
     });
 

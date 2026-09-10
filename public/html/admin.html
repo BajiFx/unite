@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Super Admin Panel</title>
+    <title>Super Admin - BidhaaLink</title>
+    <meta name="description" content="BidhaaLink Super Admin Panel — Platform administrators only.">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -25,6 +26,24 @@
             text-align: center;
             box-shadow: 0 8px 30px rgba(0,0,0,0.06);
             border: 1px solid #eef2f6;
+        }
+        .login-box .brand {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: #16a34a;
+            letter-spacing: 0.03em;
+        }
+        .login-box .brand span {
+            color: #0f172a;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
         .login-box .icon { font-size: 3rem; margin-bottom: 12px; }
         .login-box h1 { font-size: 1.4rem; font-weight: 800; color: #0f172a; }
@@ -110,8 +129,18 @@
             transition: all 0.2s;
         }
         .login-box .business-links a:hover {
-            border-color: #2563eb;
-            color: #2563eb;
+            border-color: #16a34a;
+            color: #16a34a;
+        }
+        .login-box .footer-note {
+            margin-top: 16px;
+            font-size: 0.7rem;
+            color: #94a3b8;
+            text-align: center;
+        }
+        .login-box .footer-note strong {
+            color: #16a34a;
+            font-weight: 800;
         }
         .spinner {
             display: inline-block;
@@ -131,8 +160,13 @@
 <body>
 
 <div class="login-box" id="loginBox">
+    <!-- BidhaaLink brand -->
+    <div class="brand">
+        🛍️ BidhaaLink <span>Super Admin</span>
+    </div>
+
     <div class="icon">🔐</div>
-    <h1>Super Admin</h1>
+    <h1>Super Admin Login</h1>
     <p class="sub">Platform administrators only</p>
 
     <div id="loginForm">
@@ -157,6 +191,10 @@
 
     <div class="note">
         Business owners should use the <a href="/business-login.html">Business Admin Panel</a>
+    </div>
+
+    <div class="footer-note">
+        Powered by <strong>BidhaaLink</strong> — Kenya's Multi-Vendor Marketplace
     </div>
 </div>
 

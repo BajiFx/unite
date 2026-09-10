@@ -126,9 +126,20 @@ router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
             [req.businessId]
         );
 
+        // Also return the business's current category assignments so the form can
+        // preselect them (needed for the "edit categories" flow).
+        const categories = await pool.query(`
+            SELECT c.id, c.name, c.slug, c.icon
+            FROM business_categories c
+            JOIN business_category_assignments bca ON bca.category_id = c.id
+            WHERE bca.business_id = $1
+            ORDER BY c.name
+        `, [req.businessId]);
+
         res.json({
             business: result.rows[0],
-            stats: stats.rows[0] || {}
+            stats: stats.rows[0] || {},
+            categories: categories.rows
         });
     } catch (err) {
         console.error('❌ Get business profile error:', err);
@@ -269,17 +280,37 @@ router.get('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToke
     }
 });
 
-// Categories are exposed here so product management can use the same approved list
-// as business registration and the public marketplace.
+// ============================================================
+//  GET BUSINESS ADMIN CATEGORIES
+//  Returns the exact same shape as /api/businesses/categories/all
+//  so the admin UI and the registration form share one source of truth.
+// ============================================================
+
 router.get('/categories', authMiddleware, businessAdminOnly, async (req, res) => {
     try {
-        const result = await pool.query('SELECT id, name, slug FROM business_categories ORDER BY name');
+        const result = await pool.query(`
+            SELECT
+                c.id,
+                c.name,
+                c.slug,
+                c.icon,
+                c.description,
+                (SELECT COUNT(*)::int FROM business_category_assignments bca
+                   JOIN businesses b ON b.id = bca.business_id
+                   WHERE bca.category_id = c.id AND b.is_active = true) AS business_count
+            FROM business_categories c
+            ORDER BY c.name ASC
+        `);
         res.json(result.rows);
     } catch (err) {
         logError(err, 'Get business admin categories');
         res.status(500).json({ error: 'Unable to load categories' });
     }
 });
+
+// ============================================================
+//  SET / REPLACE BUSINESS CATEGORIES (assignment table)
+// ============================================================
 
 router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
     const categoryIds = [...new Set((Array.isArray(req.body.category_ids) ? req.body.category_ids : [])

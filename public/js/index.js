@@ -22,6 +22,10 @@ let currentLoginType = 'customer';
 let currentRegisterType = 'customer';
 let marketplaceSearchWasTyped = false;
 
+// Cache of business categories loaded once from the API.
+// Set to null after a successful registration so the next visit refetches.
+let businessCategoriesCache = null;
+
 function getMarketplaceSearchQuery() {
   const input = document.getElementById('businessSearch');
   const value = input?.value?.trim() || '';
@@ -31,42 +35,6 @@ function getMarketplaceSearchQuery() {
   }
   return value;
 }
-
-// ============================================================
-//  SIDEBAR MENU CONFIGURATION
-// ============================================================
-
-const SIDEBAR_MENUS = {
-  customer: {
-    title: '👤 My Account',
-    items: [
-      { id: 'dashboard', icon: 'fa-chart-pie', label: 'Dashboard' },
-      { id: 'orders', icon: 'fa-box', label: 'My Orders' },
-      { id: 'profile', icon: 'fa-user', label: 'My Profile' },
-      { id: 'addresses', icon: 'fa-map-marker-alt', label: 'My Addresses' },
-      { id: 'payments', icon: 'fa-credit-card', label: 'Payment History' },
-      { separator: true },
-      { id: 'cart', icon: 'fa-shopping-cart', label: 'View Cart' },
-      { id: 'logout', icon: 'fa-sign-out-alt', label: 'Logout', className: 'logout' }
-    ]
-  },
-  business: {
-    title: '🏪 Business Admin',
-    items: [
-      { id: 'dashboard', icon: 'fa-chart-pie', label: 'Dashboard' },
-      { id: 'orders', icon: 'fa-box', label: 'Orders' },
-      { id: 'products', icon: 'fa-tag', label: 'Products' },
-      { id: 'customers', icon: 'fa-users', label: 'Customers' },
-      { id: 'messages', icon: 'fa-comment', label: 'Messages' },
-      { id: 'profile', icon: 'fa-store', label: 'Business Profile' },
-      { id: 'delivery', icon: 'fa-truck', label: 'Delivery Settings' },
-      { id: 'payments', icon: 'fa-credit-card', label: 'Payment Settings' },
-      { separator: true },
-      { id: 'preview', icon: 'fa-eye', label: 'Public Preview' },
-      { id: 'logout', icon: 'fa-sign-out-alt', label: 'Logout', className: 'logout' }
-    ]
-  }
-};
 
 // ============================================================
 //  INIT
@@ -102,265 +70,16 @@ document.addEventListener('DOMContentLoaded', function() {
     openAuthModal(requestedAuth);
   }
 
-  // Setup hamburger menu
+  // Setup hamburger menu (workspace-aware)
   const hamburger = document.getElementById('hamburgerBtn');
   if (hamburger) {
     hamburger.addEventListener('click', toggleMobileSidebar);
   }
 
-  // Load categories for registration
+  // A.1 — Load categories for the registration form on page load.
+  // The function is a no-op if the registration form is not in the DOM.
   loadBusinessCategoriesForRegistration();
 });
-
-// ============================================================
-//  AUTH STATE CHECK
-// ============================================================
-
-function checkAuthState() {
-  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const hasToken = !!window.customerToken;
-
-  if (hasToken && user && user.email) {
-    isLoggedIn = true;
-    currentUser = user;
-    showLoggedInState(user);
-  } else {
-    isLoggedIn = false;
-    showGuestState();
-  }
-}
-
-// ============================================================
-//  SHOW LOGGED IN STATE
-// ============================================================
-
-function showLoggedInState(user) {
-  const isBusiness = user.role === 'business_admin' || user.business_id;
-
-  // Update top bar
-  const publicNav = document.getElementById('publicNavTop');
-  const loggedInNav = document.getElementById('loggedInNavTop');
-  const userBadge = document.getElementById('userBadge');
-
-  if (publicNav) publicNav.style.display = 'none';
-  if (loggedInNav) loggedInNav.style.display = 'flex';
-  if (userBadge) {
-    const name = user.name || user.businessName || user.business_name || 'User';
-    userBadge.textContent = isBusiness ? `🏪 ${name}` : `👤 ${name}`;
-  }
-
-  // Show sidebar
-  const sidebar = document.getElementById('appSidebar');
-  if (sidebar) sidebar.classList.add('visible');
-
-  // Build sidebar menu
-  buildSidebarMenu(isBusiness ? 'business' : 'customer', user);
-
-  // Update shop name
-  const shopName = document.getElementById('shopNameTop');
-  if (shopName) shopName.textContent = 'Shop Kenya';
-
-  // Update cart badge
-  updateCartBadge();
-}
-
-// ============================================================
-//  SHOW GUEST STATE
-// ============================================================
-
-function showGuestState() {
-  const publicNav = document.getElementById('publicNavTop');
-  const loggedInNav = document.getElementById('loggedInNavTop');
-  const sidebar = document.getElementById('appSidebar');
-
-  if (publicNav) publicNav.style.display = 'flex';
-  if (loggedInNav) loggedInNav.style.display = 'none';
-  if (sidebar) sidebar.classList.remove('visible');
-}
-
-// ============================================================
-//  BUILD SIDEBAR MENU
-// ============================================================
-
-function buildSidebarMenu(type, user) {
-  const container = document.getElementById('sidebarMenu');
-  if (!container) return;
-
-  const menu = SIDEBAR_MENUS[type];
-  if (!menu) return;
-
-  // Update title
-  document.getElementById('sidebarTitle').textContent = menu.title;
-  document.getElementById('sidebarUserName').textContent = user.name || user.businessName || user.business_name || 'User';
-
-  let html = '';
-
-  menu.items.forEach((item, index) => {
-    if (item.separator) {
-      html += `<div class="menu-label">Account</div>`;
-      return;
-    }
-
-    const active = index === 0 ? 'active' : '';
-    const className = item.className || '';
-
-    // Handle special items
-    if (item.id === 'logout') {
-      html += `
-        <button class="menu-item ${className}" onclick="handleLogout()">
-          <i class="fas ${item.icon}"></i> ${item.label}
-        </button>
-      `;
-    } else if (item.id === 'cart') {
-      html += `
-        <button class="menu-item ${className}" onclick="openDashboardPanel('cart')">
-          <i class="fas ${item.icon}"></i> ${item.label}
-          <span class="badge" id="sidebarCartBadge">0</span>
-        </button>
-      `;
-    } else if (item.id === 'preview') {
-      html += `
-        <button class="menu-item ${className}" onclick="openBusinessPreview()">
-          <i class="fas ${item.icon}"></i> ${item.label}
-        </button>
-      `;
-    } else {
-      html += `
-        <button class="menu-item ${active} ${className}" onclick="openDashboardPanel('${item.id}')">
-          <i class="fas ${item.icon}"></i> ${item.label}
-        </button>
-      `;
-    }
-  });
-
-  container.innerHTML = html;
-}
-
-// ============================================================
-//  OPEN DASHBOARD PANEL (slides from right)
-// ============================================================
-
-function openDashboardPanel(section) {
-  const panel = document.getElementById('dashboardPanel');
-  const frame = document.getElementById('dashboardFrame');
-  const title = document.getElementById('panelTitle');
-
-  if (!panel || !frame) return;
-
-  const user = currentUser || JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const isBusiness = user.role === 'business_admin' || user.business_id;
-
-  // Map sections to URLs
-  const sectionMap = {
-    // Customer sections
-    dashboard: isBusiness ? '/business-admin.html?embedded=1' : '/account.html?embedded=1&section=dashboard',
-    orders: isBusiness ? '/business-admin.html?embedded=1&section=orders' : '/account.html?embedded=1&section=orders',
-    profile: isBusiness ? '/business-admin.html?embedded=1&section=profile' : '/account.html?embedded=1&section=profile',
-    addresses: '/account.html?embedded=1&section=addresses',
-    payments: isBusiness ? '/business-admin.html?embedded=1&section=payments' : '/account.html?embedded=1&section=payments',
-    // Business sections
-    products: '/business-admin.html?embedded=1&section=products',
-    customers: '/business-admin.html?embedded=1&section=customers',
-    messages: '/seller-chat.html?embedded=1',
-    delivery: '/business-admin.html?embedded=1&section=delivery',
-    // Cart
-    cart: '/cart.html?embedded=1',
-  };
-
-  const titleMap = {
-    dashboard: '📊 Dashboard',
-    orders: '📦 Orders',
-    profile: '👤 Profile',
-    addresses: '📍 Addresses',
-    payments: '💳 Payments',
-    products: '📦 Products',
-    customers: '👥 Customers',
-    messages: '💬 Messages',
-    delivery: '🚚 Delivery',
-    cart: '🛒 Cart'
-  };
-
-  let url = sectionMap[section] || sectionMap.dashboard;
-  let panelTitle = titleMap[section] || 'Dashboard';
-
-  // Set iframe source
-  frame.src = url;
-  title.textContent = panelTitle;
-
-  // Open panel
-  panel.classList.add('open');
-  currentPanel = section;
-}
-
-// ============================================================
-//  CLOSE DASHBOARD PANEL
-// ============================================================
-
-function closeDashboardPanel() {
-  const panel = document.getElementById('dashboardPanel');
-  if (panel) panel.classList.remove('open');
-  currentPanel = null;
-}
-
-// ============================================================
-//  TOGGLE MOBILE SIDEBAR
-// ============================================================
-
-function toggleMobileSidebar() {
-  const sidebar = document.getElementById('appSidebar');
-  const overlay = document.getElementById('sidebarOverlayDash');
-
-  if (!sidebar) return;
-
-  const isOpen = sidebar.classList.contains('mobile-open');
-
-  if (isOpen) {
-    closeMobileSidebar();
-  } else {
-    sidebar.classList.add('mobile-open');
-    if (overlay) overlay.classList.add('active');
-  }
-}
-
-function closeMobileSidebar() {
-  const sidebar = document.getElementById('appSidebar');
-  const overlay = document.getElementById('sidebarOverlayDash');
-
-  if (sidebar) sidebar.classList.remove('mobile-open');
-  if (overlay) overlay.classList.remove('active');
-}
-
-// ============================================================
-//  OPEN BUSINESS PREVIEW
-// ============================================================
-
-function openBusinessPreview() {
-  const user = currentUser || JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const businessSlug = localStorage.getItem('businessSlug');
-  const businessId = user.business_id || localStorage.getItem('businessId');
-
-  if (businessSlug) {
-    window.open('/business/' + businessSlug, '_blank');
-    return;
-  }
-
-  if (businessId) {
-    fetch('/api/businesses/' + businessId)
-      .then(res => res.json())
-      .then(data => {
-        if (data.business && data.business.slug) {
-          window.open('/business/' + data.business.slug, '_blank');
-        } else {
-          showToast('Business not found. Please refresh and try again.', 'error');
-        }
-      })
-      .catch(() => {
-        showToast('Error loading business. Please try again.', 'error');
-      });
-  } else {
-    showToast('No business associated with this account.', 'warning');
-  }
-}
 
 // ============================================================
 //  LOAD MARKETPLACE
@@ -381,7 +100,7 @@ async function loadMarketplace() {
 }
 
 // ============================================================
-//  LOAD CATEGORIES
+//  LOAD CATEGORIES (for marketplace filter)
 // ============================================================
 
 async function loadCategories() {
@@ -406,28 +125,142 @@ async function loadCategories() {
 }
 
 // ============================================================
-//  LOAD BUSINESS CATEGORIES FOR REGISTRATION
+//  A.1–A.3  LOAD BUSINESS CATEGORIES FOR REGISTRATION
+//  Uses a cached list. Populates the register dropdown with
+//  proper loading, success, and error states.
+//  Pass forceReload = true to bypass the cache (A.7).
 // ============================================================
 
-async function loadBusinessCategoriesForRegistration() {
+async function loadBusinessCategoriesForRegistration(forceReload = false) {
+  const primarySelect = document.getElementById('regBusinessPrimaryCategory');
+  if (!primarySelect) return;
+
+  // If we already have a cached list and don't need to reload, use it
+  if (businessCategoriesCache && !forceReload) {
+    populateRegisterCategorySelect(businessCategoriesCache);
+    return;
+  }
+
+  // A.1 — Show loading state before the options are loaded
+  primarySelect.innerHTML = '<option value="">⏳ Loading categories...</option>';
+  primarySelect.disabled = true;
+  const helpText = document.getElementById('regBusinessCategoryHelp');
+  if (helpText) {
+    helpText.style.display = 'block';
+    helpText.style.color = '#94a3b8';
+    helpText.textContent = 'Loading categories...';
+  }
+  const errEl = document.getElementById('businessCategoryError');
+  if (errEl) errEl.style.display = 'none';
+
   try {
-    const res = await fetch('/api/businesses/categories/all');
-    if (!res.ok) throw new Error('Failed to load categories');
+    const res = await fetch('/api/businesses/categories/all', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Failed to load categories (${res.status})`);
     const categories = await res.json();
 
-    const select = document.getElementById('regBusinessCategory');
-    if (select && categories.length > 0) {
-      select.innerHTML = '<option value="">Select a category...</option>';
-      categories.forEach(cat => {
-        const option = document.createElement('option');
-        option.value = cat.id;
-        option.textContent = `${cat.icon || '📦'} ${cat.name}`;
-        select.appendChild(option);
-      });
+    if (!Array.isArray(categories) || categories.length === 0) {
+      throw new Error('No categories returned');
     }
+
+    businessCategoriesCache = categories;
+    populateRegisterCategorySelect(categories);
   } catch (err) {
     console.error('Error loading business categories:', err);
+    // A.2 — Handle load failure gracefully
+    primarySelect.innerHTML = '<option value="">❌ Categories could not be loaded</option>';
+    primarySelect.disabled = true;
+    if (helpText) {
+      helpText.textContent = 'Categories could not be loaded. Please refresh the page and try again.';
+      helpText.style.color = '#ef4444';
+    }
+    const additionalWrap = document.getElementById('regBusinessAdditionalCategoriesWrap');
+    if (additionalWrap) additionalWrap.style.display = 'none';
   }
+}
+
+// ============================================================
+//  POPULATE THE REGISTER CATEGORY DROPDOWN + ADDITIONAL LIST
+//  A.3 — User can select. A.6 — Primary + additional categories.
+// ============================================================
+
+function populateRegisterCategorySelect(categories) {
+  const primarySelect = document.getElementById('regBusinessPrimaryCategory');
+  const additionalWrap = document.getElementById('regBusinessAdditionalCategoriesWrap');
+  const additionalList = document.getElementById('regBusinessAdditionalCategories');
+  if (!primarySelect) return;
+
+  // Build the options for the primary select — first option is a placeholder
+  let html = '<option value="">Select a primary category...</option>';
+  categories.forEach(cat => {
+    const label = `${cat.icon || '📦'} ${cat.name}`;
+    html += `<option value="${cat.id}">${label}</option>`;
+  });
+  primarySelect.innerHTML = html;
+  primarySelect.disabled = false;
+
+  // Build the additional categories checkbox list
+  if (additionalList && additionalWrap) {
+    additionalList.innerHTML = categories.map(cat => {
+      const label = `${cat.icon || '📦'} ${cat.name}`;
+      return `
+        <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#334155; cursor:pointer;">
+          <input type="checkbox" class="reg-additional-category" value="${cat.id}" onchange="handleAdditionalCategoryChange()">
+          <span>${label}</span>
+        </label>
+      `;
+    }).join('');
+    additionalWrap.style.display = 'block';
+  }
+
+  // Restore help text
+  const helpText = document.getElementById('regBusinessCategoryHelp');
+  if (helpText) {
+    helpText.textContent = 'Choose the category (or categories) that best describe what your business sells.';
+    helpText.style.color = '#94a3b8';
+  }
+
+  // Clear any previous selection error as soon as the user picks something
+  primarySelect.onchange = () => {
+    const errEl = document.getElementById('businessCategoryError');
+    if (errEl) errEl.style.display = 'none';
+    primarySelect.style.borderColor = '#d1d5db';
+    syncAdditionalCategoryOptions();
+    handleAdditionalCategoryChange();
+  };
+}
+
+// ============================================================
+//  SYNC ADDITIONAL CATEGORY OPTIONS
+//  Disable whichever category is chosen as the primary one
+//  so the same category is not selected twice.
+// ============================================================
+
+function syncAdditionalCategoryOptions() {
+  const primarySelect = document.getElementById('regBusinessPrimaryCategory');
+  const primaryId = primarySelect ? primarySelect.value : '';
+  document.querySelectorAll('.reg-additional-category').forEach(cb => {
+    const matchesPrimary = cb.value === primaryId;
+    if (matchesPrimary) {
+      cb.checked = false;
+      cb.disabled = true;
+      cb.parentElement.style.opacity = '0.5';
+    } else {
+      cb.disabled = false;
+      cb.parentElement.style.opacity = '1';
+    }
+  });
+}
+
+// ============================================================
+//  HANDLE ADDITIONAL CATEGORY CHANGES
+//  Clears the category error as soon as any category is picked.
+// ============================================================
+
+function handleAdditionalCategoryChange() {
+  const errEl = document.getElementById('businessCategoryError');
+  if (errEl) errEl.style.display = 'none';
+  const primarySelect = document.getElementById('regBusinessPrimaryCategory');
+  if (primarySelect) primarySelect.style.borderColor = '#d1d5db';
 }
 
 // ============================================================
@@ -668,12 +501,13 @@ function updateCartBadge() {
 }
 
 // ============================================================
-//  AUTH FUNCTIONS
+//  AUTH MODAL
 // ============================================================
 
 function openAuthModal(tab) {
   const modal = document.getElementById('authModal');
   if (!modal) return;
+
   // Restore the normal role selector after a customer-only guest-cart prompt.
   const loginBusiness = document.getElementById('loginTypeBusiness');
   const registerBusiness = document.getElementById('registerTypeBusiness');
@@ -766,6 +600,9 @@ function selectRegisterType(type) {
     customerBtn.style.color = '#1e293b';
     document.getElementById('customerRegisterForm').style.display = 'none';
     document.getElementById('businessRegisterForm').style.display = 'block';
+
+    // A.1 — Make sure categories are loaded when the business form is shown
+    loadBusinessCategoriesForRegistration();
   }
 }
 
@@ -1038,12 +875,17 @@ async function handleCustomerRegister() {
 
 // ============================================================
 //  HANDLE BUSINESS REGISTER
+//  A.4 — Validates at least one category
+//  A.5 — Sends primary + additional categories to the backend
+//  A.6 — Supports primary + additional categories
+//  A.7 — Invalidates the cached category list on success
 // ============================================================
 
 async function handleBusinessRegister() {
   const username = document.getElementById('regBusinessUsername').value.trim();
   const businessName = document.getElementById('regBusinessName').value.trim();
-  const category = document.getElementById('regBusinessCategory').value;
+  const primarySelect = document.getElementById('regBusinessPrimaryCategory');
+  const primaryCategory = primarySelect ? primarySelect.value : '';
   const email = document.getElementById('regBusinessEmail').value.trim();
   const phone = document.getElementById('regBusinessPhone').value.trim();
   const location = document.getElementById('regBusinessLocation').value.trim();
@@ -1051,11 +893,51 @@ async function handleBusinessRegister() {
   const password = document.getElementById('regBusinessPassword').value;
   const confirm = document.getElementById('regBusinessConfirm').value;
   const status = document.getElementById('businessRegisterStatus');
+  const categoryError = document.getElementById('businessCategoryError');
+
   if (!status) return;
   status.textContent = '';
   status.className = 'auth-status';
 
-  if (!username || !businessName || !category || !email || !phone || !location || !password || !confirm) {
+  // Clear previous category error
+  if (categoryError) categoryError.style.display = 'none';
+  if (primarySelect) primarySelect.style.borderColor = '#d1d5db';
+
+  // Collect additional categories (anything checked that isn't the primary)
+  const additionalCategories = [];
+  document.querySelectorAll('.reg-additional-category:checked').forEach(cb => {
+    if (cb.value !== primaryCategory) additionalCategories.push(cb.value);
+  });
+
+  // A.4 — Category validation FIRST.
+  // At least one category must be selected — either primary OR an additional one.
+  const hasAnyCategory = Boolean(primaryCategory) || additionalCategories.length > 0;
+  if (!hasAnyCategory) {
+    if (categoryError) categoryError.style.display = 'block';
+    if (primarySelect) {
+      primarySelect.style.borderColor = '#ef4444';
+      primarySelect.focus();
+    }
+    status.textContent = '❌ Please select a business category.';
+    status.className = 'auth-status error';
+    return;
+  }
+
+  // If the user only checked additional categories but did not pick a primary,
+  // promote the first checked one to primary so the backend always gets one.
+  let finalPrimary = primaryCategory;
+  if (!finalPrimary && additionalCategories.length > 0) {
+    finalPrimary = additionalCategories.shift();
+  }
+
+  // Check that the dropdown is actually usable (not still loading / errored)
+  if (primarySelect && primarySelect.disabled && !finalPrimary) {
+    status.textContent = '❌ Categories are still loading. Please wait a moment and try again.';
+    status.className = 'auth-status error';
+    return;
+  }
+
+  if (!username || !businessName || !email || !phone || !location || !password || !confirm) {
     status.textContent = '❌ All fields are required.';
     status.className = 'auth-status error';
     return;
@@ -1105,7 +987,13 @@ async function handleBusinessRegister() {
   formData.append('description', description || '');
   formData.append('password', password);
   formData.append('username', username);
-  formData.append('category', category);
+
+  // A.5 — Send the primary category and additional categories
+  formData.append('category', finalPrimary);
+  if (additionalCategories.length > 0) {
+    formData.append('additional_categories', additionalCategories.join(','));
+  }
+
   formData.append('mpesa_enabled', 'false');
   formData.append('airtel_enabled', 'false');
   formData.append('bank_enabled', 'true');
@@ -1133,6 +1021,18 @@ async function handleBusinessRegister() {
         business_id: data.business_id
       }));
 
+      // A.7 — Invalidate the cached category list so the next time the form is
+      // opened we refetch from the server instead of using a stale cache.
+      businessCategoriesCache = null;
+
+      // Reset the dropdowns so the next visit shows a fresh loading state.
+      if (primarySelect) {
+        primarySelect.value = '';
+        primarySelect.style.borderColor = '#d1d5db';
+      }
+      document.querySelectorAll('.reg-additional-category:checked').forEach(cb => { cb.checked = false; });
+      if (categoryError) categoryError.style.display = 'none';
+
       closeAuthModal();
       showToast('✅ Welcome, ' + businessName + '! Business created.', 'success');
       checkAuthState();
@@ -1145,34 +1045,6 @@ async function handleBusinessRegister() {
     status.className = 'auth-status error';
     console.error('Business register error:', err);
   }
-}
-
-// ============================================================
-//  HANDLE LOGOUT
-// ============================================================
-
-async function handleLogout() {
-  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-  localStorage.removeItem('token');
-  localStorage.removeItem('customerToken');
-  localStorage.removeItem('businessId');
-  localStorage.removeItem('businessName');
-  localStorage.removeItem('businessSlug');
-  localStorage.removeItem('currentUser');
-  currentUser = null;
-  isLoggedIn = false;
-
-  // Close dashboard panel
-  closeDashboardPanel();
-
-  // Reset UI
-  showGuestState();
-  showToast('👋 Logged out successfully', 'info');
-
-  // Reload page to reset state
-  setTimeout(() => {
-    window.location.reload();
-  }, 500);
 }
 
 // ============================================================
@@ -1277,18 +1149,13 @@ window.togglePwd = togglePwd;
 window.handleLogin = handleLogin;
 window.handleCustomerRegister = handleCustomerRegister;
 window.handleBusinessRegister = handleBusinessRegister;
-window.handleLogout = handleLogout;
 window.checkUsernameAvailability = checkUsernameAvailability;
 window.generateUsernameSuggestions = generateUsernameSuggestions;
 window.fillUsername = fillUsername;
 window.showToast = showToast;
-window.checkAuthState = checkAuthState;
-window.openDashboardPanel = openDashboardPanel;
-window.closeDashboardPanel = closeDashboardPanel;
-window.toggleMobileSidebar = toggleMobileSidebar;
-window.closeMobileSidebar = closeMobileSidebar;
-window.openBusinessPreview = openBusinessPreview;
-window.updateCartBadge = updateCartBadge;
+window.loadBusinessCategoriesForRegistration = loadBusinessCategoriesForRegistration;
+window.syncAdditionalCategoryOptions = syncAdditionalCategoryOptions;
+window.handleAdditionalCategoryChange = handleAdditionalCategoryChange;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
@@ -1297,7 +1164,7 @@ window.updateCartBadge = updateCartBadge;
 
 const MARKETPLACE_WORKSPACE = Object.freeze({
   customer: {
-    kicker: 'Your Shop Kenya space',
+    kicker: 'Your BidhaaLink space',
     tabs: [
       { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-pie' },
       { id: 'profile', label: 'My Profile', icon: 'fa-user' },
@@ -1658,6 +1525,7 @@ async function handleLogout() {
   isLoggedIn = false;
   workspaceSection = 'dashboard';
   workspaceSubsection = null;
+  businessCategoriesCache = null;
   showGuestState();
 
   const url = new URL(window.location.href);
@@ -1673,5 +1541,6 @@ window.toggleMobileSidebar = toggleMobileSidebar;
 window.closeMobileSidebar = closeMobileSidebar;
 window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
+window.updateCartBadge = updateCartBadge;
 
 console.log('✅ Index.js loaded successfully');

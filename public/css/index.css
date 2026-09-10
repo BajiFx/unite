@@ -9,21 +9,25 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Announcement Bar */
+/* ============================================================
+   ANNOUNCEMENT BAR - BIGGER FONT + BEAUTIFUL COLOR
+   ============================================================ */
+
 .announcement-bar {
-  background: linear-gradient(90deg, #ff6b6b, #feca57, #48dbfb);
+  background: linear-gradient(90deg, #16a34a, #4ade80, #facc15, #4ade80, #16a34a);
   background-size: 300% 100%;
-  animation: gradientMove 4s ease infinite;
-  color: #fff;
-  padding: 4px 0;
-  font-size: 0.7rem;
-  font-weight: 700;
+  animation: gradientMove 6s ease infinite;
+  color: #052e16;
+  padding: 10px 0;
+  font-size: 1rem;
+  font-weight: 800;
   overflow: hidden;
   white-space: nowrap;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
   position: sticky;
   top: 0;
   z-index: 100;
+  letter-spacing: 0.02em;
 }
 
 @keyframes gradientMove {
@@ -32,7 +36,10 @@
   100% { background-position: 0% 50%; }
 }
 
-.announcement-bar marquee { display: block; }
+.announcement-bar marquee {
+  display: block;
+  color: #052e16;
+}
 
 /* Admin Dot */
 .admin-dot {
@@ -993,4 +1000,178 @@ body.workspace-active #marketplaceDivider { display: none; }
   .integrated-workspace { inset: 58px 8px 66px; width: auto; border-radius: 13px; }
   .marketplace-dashboard-sidebar { width: 205px; flex-basis: 205px; }
   .workspace-nav-item { padding: 10px 8px; font-size: .82rem; }
+}
+
+/* ============================================================
+   BIDHAALINK BRANDING - ENHANCED VISUALS
+   ============================================================ */
+
+/* Bigger, more beautiful BidhaaLink title with animated gradient */
+.brand-title {
+    font-size: 3.2rem;
+    font-weight: 900;
+    text-align: center;
+    letter-spacing: 0.05em;
+    margin: 0 0 12px 0;
+    background: linear-gradient(90deg, #16a34a, #4ade80, #86efac, #4ade80, #16a34a);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: brandGradientMove 8s ease infinite;
+    filter: drop-shadow(0 4px 12px rgba(22, 163, 74, 0.5));
+}
+
+@keyframes brandGradientMove {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Bigger, more beautiful tagline with a warm gold-to-emerald gradient */
+.brand-tagline {
+    font-size: 1.35rem;
+    text-align: center;
+    font-weight: 700;
+    margin: 0 0 28px 0;
+    letter-spacing: 0.02em;
+    line-height: 1.55;
+    background: linear-gradient(90deg, #facc15, #fde68a, #86efac, #4ade80, #86efac, #fde68a, #facc15);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: brandGradientMove 10s ease infinite;
+    filter: drop-shadow(0 2px 8px rgba(250, 204, 21, 0.35));
+}
+
+/* Mission & Vision block - bigger fonts and more vibrant colors */
+.brand-mission-vision {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin: 24px auto 28px;
+    max-width: 1000px;
+    padding: 0 10px;
+}
+
+.brand-mission-vision .mv-item {
+    flex: 1 1 420px;
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.22), rgba(74, 222, 128, 0.10));
+    border: 1px solid rgba(74, 222, 128, 0.55);
+    border-left: 5px solid #4ade80;
+    border-radius: 14px;
+    padding: 18px 22px;
+    text-align: left;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 24px rgba(22, 163, 74, 0.20);
+}
+
+.brand-mission-vision .mv-label {
+    display: block;
+    color: #fde68a;
+    font-size: 1.05rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 8px;
+    text-shadow: 0 2px 8px rgba(253, 230, 138, 0.5);
+}
+
+.brand-mission-vision .mv-item p {
+    color: #f0fdf4;
+    font-size: 1rem;
+    line-height: 1.65;
+    margin: 0;
+}
+
+/* Bigger stats numbers */
+.hero-banner .hero-stats .stat .number {
+    font-size: 2.2rem;
+    font-weight: 900;
+    background: linear-gradient(135deg, #facc15, #86efac);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.hero-banner .hero-stats .stat .label {
+    font-size: 0.9rem;
+    color: #d1fae5;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+/* Ensure the hero banner centers everything */
+.hero-banner .hero-content {
+    text-align: center;
+}
+
+/* ============================================================
+   MARKETPLACE LABEL - BIG, SLOWLY BLINKING
+   ============================================================ */
+
+.marketplace-label {
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, #16a34a, #4ade80, #facc15, #4ade80, #16a34a);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: marketplaceBlink 6s ease-in-out infinite, brandGradientMove 12s ease infinite;
+    filter: drop-shadow(0 2px 10px rgba(74, 222, 128, 0.45));
+    display: inline-block;
+}
+
+@keyframes marketplaceBlink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+}
+
+/* Give the marketplace divider enough breathing room */
+.marketplace-divider {
+    padding: 14px 20px;
+    text-align: center;
+}
+
+/* ============================================================
+   MOBILE ADJUSTMENTS FOR BRANDING
+   ============================================================ */
+
+@media (max-width: 640px) {
+    .brand-title {
+        font-size: 2.4rem;
+        letter-spacing: 0.03em;
+    }
+    .brand-tagline {
+        font-size: 1.05rem;
+    }
+    .brand-mission-vision .mv-item {
+        flex: 1 1 100%;
+        padding: 14px 16px;
+    }
+    .brand-mission-vision .mv-item p {
+        font-size: 0.92rem;
+    }
+    .brand-mission-vision .mv-label {
+        font-size: 0.92rem;
+    }
+    .hero-banner .hero-stats .stat .number {
+        font-size: 1.7rem;
+    }
+    .hero-banner .hero-stats .stat .label {
+        font-size: 0.78rem;
+    }
+    .marketplace-label {
+        font-size: 1.15rem;
+        letter-spacing: 0.22em;
+    }
+    .announcement-bar {
+        font-size: 0.85rem;
+        padding: 8px 0;
+    }
 }
