@@ -1,6 +1,10 @@
 // ============================================================
 //  BUSINESSES ROUTES - Public Marketplace COMPLETE
 //  Location: src/routes/businesses.js
+//
+//  B.7 — Product category returned on the business profile product
+//        list, plus a product_category_id filter so the frontend can
+//        filter products within a business by category.
 // ============================================================
 
 const express = require('express');
@@ -496,12 +500,15 @@ router.post('/:slug/calculate-delivery', async (req, res) => {
 
 // ============================================================
 //  GET BUSINESS PRODUCTS (Public)
+//  B.7 — joined product category name/slug/icon, plus a filter
+//        by product_category_id so a business profile can show
+//        products within a single product category.
 // ============================================================
 
 router.get('/:slug/products', async (req, res) => {
     try {
         const { slug } = req.params;
-        const { search, category } = req.query;
+        const { search, category, product_category_id } = req.query;
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 100);
         const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
         const offset = (page - 1) * limit;
@@ -519,8 +526,12 @@ router.get('/:slug/products', async (req, res) => {
         const onlineOrdersEnabled = businessResult.rows[0].online_orders_enabled !== false;
 
         let query = `
-            SELECT p.*
+            SELECT p.*,
+                   pc.name AS product_category_name,
+                   pc.slug AS product_category_slug,
+                   pc.icon AS product_category_icon
             FROM products p
+            LEFT JOIN product_categories pc ON pc.id = p.product_category_id
             WHERE p.business_id = $1 AND p.is_active = true
         `;
         const params = [businessId];
@@ -535,6 +546,12 @@ router.get('/:slug/products', async (req, res) => {
         if (category && category !== 'all') {
             query += ` AND p.category = $${paramIndex}`;
             params.push(category);
+            paramIndex++;
+        }
+
+        if (product_category_id) {
+            query += ` AND p.product_category_id = $${paramIndex}`;
+            params.push(parseInt(product_category_id, 10));
             paramIndex++;
         }
 

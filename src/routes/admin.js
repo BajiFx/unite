@@ -1,6 +1,9 @@
 // ============================================================
 //  ADMIN ROUTES - SUPER ADMIN COMPLETE VERSION
 //  Location: src/routes/admin.js
+//
+//  B.6 — Platform admin can list, create, approve, reject, update,
+//        and delete product categories.
 // ============================================================
 
 const express = require('express');
@@ -19,7 +22,6 @@ router.get('/dashboard', authMiddleware, adminOnly, async (req, res) => {
   try {
     console.log('📊 Fetching super admin dashboard stats...');
 
-    // Platform-wide stats
     const statuses = ['pending', 'confirmed', 'shipped', 'delivered', 'received', 'cancelled', 'pending_payment', 'completed'];
     const stats = {};
 
@@ -52,7 +54,6 @@ router.get('/dashboard', authMiddleware, adminOnly, async (req, res) => {
     const returnsPending = await pool.query(`SELECT COUNT(*) FROM returns WHERE status = 'pending'`);
     stats.returns_pending = parseInt(returnsPending.rows[0].count);
 
-    // Business stats
     const totalBusinesses = await pool.query('SELECT COUNT(*) FROM businesses WHERE is_active = true');
     stats.total_businesses = parseInt(totalBusinesses.rows[0].count);
 
@@ -61,6 +62,12 @@ router.get('/dashboard', authMiddleware, adminOnly, async (req, res) => {
 
     const totalProducts = await pool.query('SELECT COUNT(*) FROM products WHERE is_active = true');
     stats.total_products = parseInt(totalProducts.rows[0].count);
+
+    // B.6 — surface pending product-category requests on the dashboard
+    const pendingProductCategories = await pool.query(
+      `SELECT COUNT(*) FROM product_categories WHERE is_requested = true AND is_active = false`
+    );
+    stats.pending_product_categories = parseInt(pendingProductCategories.rows[0].count);
 
     console.log('✅ Super admin dashboard stats fetched successfully');
     res.json(stats);
@@ -183,6 +190,267 @@ router.put('/businesses/:id/status', authMiddleware, adminOnly, async (req, res)
   } catch (err) {
     console.error('❌ Update business status error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  PRODUCT CATEGORIES — list for super admin
+//  B.6 — filterable by is_active / is_requested so pending
+//        requests can be surfaced at the top of the admin UI.
+// ============================================================
+
+router.get('/product-categories', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { is_active, is_requested, business_category_id } = req.query;
+
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (is_active !== undefined) {
+      conditions.push(`pc.is_active = $${paramIndex}`);
+      params.push(String(is_active) === 'true');
+      paramIndex++;
+    }
+    if (is_requested !== undefined) {
+      conditions.push(`pc.is_requested = $${paramIndex}`);
+      params.push(String(is_requested) === 'true');
+      paramIndex++;
+    }
+    if (business_category_id) {
+      conditions.push(`pc.business_category_id = $${paramIndex}`);
+      params.push(parseInt(business_category_id, 10));
+      paramIndex++;
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await pool.query(`
+      SELECT
+        pc.*,
+        bc.name AS business_category_name,
+        bc.slug AS business_category_slug,
+        b.business_name AS requested_by_business_name,
+        b.slug AS requested_by_business_slug,
+        (SELECT COUNT(*)::int FROM products WHERE product_category_id = pc.id) AS product_count
+      FROM product_categories pc
+      LEFT JOIN business_categories bc ON bc.id = pc.business_category_id
+      LEFT JOIN businesses b ON b.id = pc.requested_by_business_id
+      ${where}
+      ORDER BY pc.is_requested DESC, pc.is_active ASC, bc.name NULLS FIRST, pc.name ASC
+    `, params);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('❌ Get product categories error:', err);
+    res.status(500).json({ error: 'Unable to load product categories' });
+  }
+});
+
+// ============================================================
+//  PRODUCT CATEGORIES — create as platform admin
+//  B.6 — platform admin can add a category that is immediately
+//        active (no request workflow needed).
+// ============================================================
+
+router.post('/product-categories', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { name, icon, description, business_category_id } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Product category name is required' });
+    }
+
+    const trimmedName = String(name).trim();
+    const slugBase = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const slug = slugBase || `product-category-${Date.now()}`;
+
+    const existing = await pool.query(
+      'SELECT id FROM product_categories WHERE LOWER(name) = LOWER($1)',
+      [trimmedName]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'That product category already exists.' });
+    }
+
+    if (business_category_id) {
+      const bc = await pool.query('SELECT id FROM business_categories WHERE id = $1', [business_category_id]);
+      if (bc.rows.length === 0) {
+        return res.status(400).json({ error: 'Selected business category does not exist' });
+      }
+    }
+
+    const result = await pool.query(`
+      INSERT INTO product_categories
+        (name, slug, icon, description, business_category_id, is_active, is_requested)
+      VALUES ($1, $2, $3, $4, $5, true, false)
+      RETURNING *
+    `, [trimmedName, slug, icon || null, description || null, business_category_id || null]);
+
+    await logAdminActivity(req.userId, 'CREATE_PRODUCT_CATEGORY', {
+      productCategoryId: result.rows[0].id,
+      name: trimmedName
+    });
+
+    res.status(201).json({ success: true, product_category: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Create product category error:', err);
+    res.status(500).json({ error: 'Unable to create product category' });
+  }
+});
+
+// ============================================================
+//  PRODUCT CATEGORIES — update as platform admin
+// ============================================================
+
+router.put('/product-categories/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product category ID' });
+
+    const permitted = ['name', 'icon', 'description', 'business_category_id', 'is_active'];
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const field of permitted) {
+      if (req.body[field] !== undefined) {
+        updates.push(`${field} = $${paramIndex}`);
+        values.push(req.body[field]);
+        paramIndex++;
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(id);
+    const result = await pool.query(
+      `UPDATE product_categories SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product category not found' });
+    }
+
+    await logAdminActivity(req.userId, 'UPDATE_PRODUCT_CATEGORY', { productCategoryId: id });
+    res.json({ success: true, product_category: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Update product category error:', err);
+    res.status(500).json({ error: 'Unable to update product category' });
+  }
+});
+
+// ============================================================
+//  PRODUCT CATEGORIES — approve a business admin request
+//  B.6 — flips is_active=true and clears is_requested.
+// ============================================================
+
+router.post('/product-categories/:id/approve', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product category ID' });
+
+    const result = await pool.query(`
+      UPDATE product_categories
+      SET is_active = true, is_requested = false, updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product category not found' });
+    }
+
+    await logAdminActivity(req.userId, 'APPROVE_PRODUCT_CATEGORY', { productCategoryId: id });
+    res.json({ success: true, product_category: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Approve product category error:', err);
+    res.status(500).json({ error: 'Unable to approve product category' });
+  }
+});
+
+// ============================================================
+//  PRODUCT CATEGORIES — reject a business admin request
+//  B.6 — deletes the requested row if no product is using it.
+// ============================================================
+
+router.post('/product-categories/:id/reject', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product category ID' });
+
+    const inUse = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM products WHERE product_category_id = $1',
+      [id]
+    );
+    if (inUse.rows[0].count > 0) {
+      // Cannot delete — deactivate instead and leave a note.
+      const result = await pool.query(`
+        UPDATE product_categories
+        SET is_active = false, is_requested = false, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Product category not found' });
+      }
+      await logAdminActivity(req.userId, 'REJECT_PRODUCT_CATEGORY_DEACTIVATED', { productCategoryId: id });
+      return res.json({ success: true, deactivated: true, product_category: result.rows[0] });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM product_categories WHERE id = $1 RETURNING *',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product category not found' });
+    }
+
+    await logAdminActivity(req.userId, 'REJECT_PRODUCT_CATEGORY', { productCategoryId: id });
+    res.json({ success: true, deleted: true });
+  } catch (err) {
+    console.error('❌ Reject product category error:', err);
+    res.status(500).json({ error: 'Unable to reject product category' });
+  }
+});
+
+// ============================================================
+//  PRODUCT CATEGORIES — delete
+//  Guards against deleting a category that is still attached
+//  to at least one product.
+// ============================================================
+
+router.delete('/product-categories/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product category ID' });
+
+    const inUse = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM products WHERE product_category_id = $1',
+      [id]
+    );
+    if (inUse.rows[0].count > 0) {
+      return res.status(400).json({
+        error: `Cannot delete: ${inUse.rows[0].count} product(s) are still using this category.`
+      });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM product_categories WHERE id = $1 RETURNING id',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product category not found' });
+    }
+
+    await logAdminActivity(req.userId, 'DELETE_PRODUCT_CATEGORY', { productCategoryId: id });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Delete product category error:', err);
+    res.status(500).json({ error: 'Unable to delete product category' });
   }
 });
 

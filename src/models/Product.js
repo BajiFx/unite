@@ -1,5 +1,10 @@
 // ============================================================
 //  PRODUCT MODEL
+//  Location: src/models/Product.js
+//
+//  B.1 — product_category_id is stored and validated
+//  B.5 — create/update require a product category
+//  B.8 — joined category name/slug/icon returned everywhere
 // ============================================================
 
 const { pool } = require('../config/database');
@@ -7,14 +12,24 @@ const { pool } = require('../config/database');
 class Product {
   /**
    * Find product by ID
+   * B.8 — joined product category fields
    */
   static async findById(id) {
-    const result = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
+    const result = await pool.query(`
+      SELECT p.*,
+             pc.name AS product_category_name,
+             pc.slug AS product_category_slug,
+             pc.icon AS product_category_icon
+      FROM products p
+      LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+      WHERE p.id = $1
+    `, [id]);
     return result.rows[0] || null;
   }
 
   /**
    * Find product with variants and reviews
+   * B.8 — joined product category fields on product and related
    */
   static async findDetail(id) {
     const product = await this.findById(id);
@@ -34,9 +49,14 @@ class Product {
     `, [id]);
 
     const related = await pool.query(`
-      SELECT * FROM products
-      WHERE id != $1
-      ORDER BY created_at DESC
+      SELECT p.*,
+             pc.name AS product_category_name,
+             pc.slug AS product_category_slug,
+             pc.icon AS product_category_icon
+      FROM products p
+      LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+      WHERE p.id != $1
+      ORDER BY p.created_at DESC
       LIMIT 6
     `, [id]);
 
@@ -49,35 +69,49 @@ class Product {
   }
 
   /**
-   * Get all products with variants
+   * Get all products
+   * B.8 — accepts product_category_id filter and returns joined fields
    */
-  static async findAll({ search, category, limit = 50, offset = 0, featured = false }) {
-    let query = 'SELECT * FROM products';
+  static async findAll({ search, category, product_category_id, limit = 50, offset = 0, featured = false }) {
+    let query = `
+      SELECT p.*,
+             pc.name AS product_category_name,
+             pc.slug AS product_category_slug,
+             pc.icon AS product_category_icon
+      FROM products p
+      LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+    `;
     const params = [];
     const conditions = [];
     let paramIndex = 1;
 
     if (search) {
-      conditions.push(`name ILIKE $${paramIndex}`);
+      conditions.push(`p.name ILIKE $${paramIndex}`);
       params.push(`%${search}%`);
       paramIndex++;
     }
 
     if (category && category !== 'all') {
-      conditions.push(`category = $${paramIndex}`);
+      conditions.push(`p.category = $${paramIndex}`);
       params.push(category);
       paramIndex++;
     }
 
+    if (product_category_id) {
+      conditions.push(`p.product_category_id = $${paramIndex}`);
+      params.push(parseInt(product_category_id, 10));
+      paramIndex++;
+    }
+
     if (featured) {
-      conditions.push(`is_featured = true`);
+      conditions.push(`p.is_featured = true`);
     }
 
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ');
     }
 
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY p.created_at DESC';
     query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(limit, offset);
 
@@ -87,9 +121,10 @@ class Product {
 
   /**
    * Get products with variants and stock info
+   * B.8 — passes through the product_category_id filter
    */
-  static async findAllWithVariants({ search, category, limit = 50, offset = 0 }) {
-    const products = await this.findAll({ search, category, limit, offset });
+  static async findAllWithVariants({ search, category, product_category_id, limit = 50, offset = 0 }) {
+    const products = await this.findAll({ search, category, product_category_id, limit, offset });
 
     const result = [];
     for (const product of products) {
@@ -113,41 +148,56 @@ class Product {
 
   /**
    * Create product
+   * B.1 — product_category_id is persisted
+   * B.5 — caller must pass a validated product_category_id
+   * B.8 — returns the joined category name
    */
   static async create(data) {
     const {
-      name, price, old_price, discount_percent, category, contact, rating,
+      name, price, old_price, discount_percent, category, product_category_id,
+      contact, rating,
       badge1, badge2, shipping, isFlashSale, isNewArrival, image, description,
       shipping_fee, free_shipping_eligible, return_enabled, return_window_days,
       restocking_fee_percent, return_shipping_paid_by, return_condition,
-      stock = 0, is_featured = false
+      stock = 0, is_featured = false, business_id
     } = data;
+
+    if (product_category_id === undefined || product_category_id === null || product_category_id === '') {
+      throw new Error('product_category_id is required');
+    }
 
     const result = await pool.query(`
       INSERT INTO products (
-        name, price, old_price, discount_percent, category, contact, rating,
+        name, price, old_price, discount_percent, category, product_category_id,
+        contact, rating,
         badge1, badge2, shipping, isFlashSale, isNewArrival, image, description,
         shipping_fee, free_shipping_eligible, return_enabled, return_window_days,
         restocking_fee_percent, return_shipping_paid_by, return_condition,
-        stock, is_featured
+        stock, is_featured, business_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
       RETURNING *
     `, [
-      name, price, old_price || null, discount_percent || null, category, contact, rating,
-      badge1 || null, badge2 || null, shipping || null, isFlashSale || false, isNewArrival || false,
+      name, price, old_price || null, discount_percent || null, category || null,
+      parseInt(product_category_id, 10),
+      contact || null, rating || null,
+      badge1 || null, badge2 || null, shipping || null,
+      isFlashSale || false, isNewArrival || false,
       image || null, description || null,
       shipping_fee || null, free_shipping_eligible || false, return_enabled !== false,
       return_window_days || 14, restocking_fee_percent || 0,
       return_shipping_paid_by || 'buyer', return_condition || 'unopened',
-      stock || 0, is_featured || false
+      stock || 0, is_featured || false, business_id || null
     ]);
 
-    return result.rows[0];
+    // Return with the joined category name for callers that want it.
+    return this.findById(result.rows[0].id);
   }
 
   /**
    * Update product
+   * B.1 — product_category_id is updatable
+   * B.8 — returns the joined category name
    */
   static async update(id, data) {
     const fields = [];
@@ -155,8 +205,8 @@ class Product {
     let paramIndex = 1;
 
     const allowedFields = [
-      'name', 'price', 'old_price', 'discount_percent', 'category', 'contact',
-      'rating', 'badge1', 'badge2', 'shipping', 'isFlashSale', 'isNewArrival',
+      'name', 'price', 'old_price', 'discount_percent', 'category', 'product_category_id',
+      'contact', 'rating', 'badge1', 'badge2', 'shipping', 'isFlashSale', 'isNewArrival',
       'image', 'description', 'shipping_fee', 'free_shipping_eligible',
       'return_enabled', 'return_window_days', 'restocking_fee_percent',
       'return_shipping_paid_by', 'return_condition', 'stock', 'is_featured'
@@ -165,7 +215,11 @@ class Product {
     for (const field of allowedFields) {
       if (data[field] !== undefined) {
         fields.push(`${field} = $${paramIndex}`);
-        params.push(data[field]);
+        if (field === 'product_category_id') {
+          params.push(parseInt(data[field], 10));
+        } else {
+          params.push(data[field]);
+        }
         paramIndex++;
       }
     }
@@ -181,7 +235,10 @@ class Product {
     `;
 
     const result = await pool.query(query, params);
-    return result.rows[0] || null;
+    if (!result.rows[0]) return null;
+
+    // Return with the joined category name for callers that want it.
+    return this.findById(id);
   }
 
   /**
@@ -192,10 +249,8 @@ class Product {
     try {
       await client.query('BEGIN');
 
-      // Delete variants first
       await client.query('DELETE FROM product_variants WHERE product_id = $1', [id]);
 
-      // Delete product
       const result = await client.query(
         'DELETE FROM products WHERE id = $1 RETURNING id',
         [id]
@@ -407,7 +462,46 @@ class Product {
   }
 
   /**
-   * Get categories with counts
+   * Get product categories defined in the database
+   * B.1 — this is the single source of truth for product categories.
+   * Optional filters:
+   *   business_category_id — restrict to a specific business category
+   *   includeGeneric       — include product categories with no business_category_id
+   */
+  static async getProductCategories({ business_category_id, includeGeneric = true } = {}) {
+    const conditions = ['pc.is_active = true'];
+    const params = [];
+    let paramIndex = 1;
+
+    if (business_category_id) {
+      if (includeGeneric) {
+        conditions.push(`(pc.business_category_id = $${paramIndex} OR pc.business_category_id IS NULL)`);
+      } else {
+        conditions.push(`pc.business_category_id = $${paramIndex}`);
+      }
+      params.push(parseInt(business_category_id, 10));
+      paramIndex++;
+    }
+
+    const result = await pool.query(`
+      SELECT
+        pc.id, pc.name, pc.slug, pc.icon, pc.description,
+        pc.business_category_id,
+        bc.name AS business_category_name,
+        bc.slug AS business_category_slug,
+        (SELECT COUNT(*)::int FROM products WHERE product_category_id = pc.id) AS product_count
+      FROM product_categories pc
+      LEFT JOIN business_categories bc ON bc.id = pc.business_category_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY bc.name NULLS FIRST, pc.name ASC
+    `, params);
+
+    return result.rows;
+  }
+
+  /**
+   * Legacy free-text category counts (kept for backward compatibility).
+   * New code should use getProductCategories().
    */
   static async getCategories() {
     const result = await pool.query(`
@@ -422,12 +516,18 @@ class Product {
 
   /**
    * Search products
+   * B.8 — joined product category fields
    */
   static async search(query, limit = 20) {
     const result = await pool.query(`
-      SELECT * FROM products
-      WHERE name ILIKE $1 OR description ILIKE $1 OR category ILIKE $1
-      ORDER BY created_at DESC
+      SELECT p.*,
+             pc.name AS product_category_name,
+             pc.slug AS product_category_slug,
+             pc.icon AS product_category_icon
+      FROM products p
+      LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+      WHERE p.name ILIKE $1 OR p.description ILIKE $1 OR p.category ILIKE $1
+      ORDER BY p.created_at DESC
       LIMIT $2
     `, [`%${query}%`, limit]);
     return result.rows;

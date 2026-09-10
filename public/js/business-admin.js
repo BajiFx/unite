@@ -1,26 +1,36 @@
 // ============================================================
 //  BUSINESS ADMIN JAVASCRIPT - COMPLETE VERSION
 //  Location: public/js/business-admin.js
+//
+//  B.1 — Product categories come from the database
+//  B.3 — Picker shows only categories relevant to the business
+//  B.4 — Picker is searchable (with visible match feedback)
+//  B.5 — Product category is required before save
+//  B.6 — Business admin can request new product categories
+//  B.8 — Joined product category name shown on each product
+//
+//  Section B — missing-category warning
+//   Every business admin load now checks /api/auth/my-business
+//   for has_business_category. If false, a red banner and a red
+//   dot on the Business Profile sidebar item are shown until the
+//   admin assigns a category. This catches businesses that
+//   registered before Section B and still have no category.
 // ============================================================
 
 // Check if running in embedded mode (inside dashboard panel)
 const isEmbeddedBA = new URLSearchParams(window.location.search).get('embedded') === '1';
 
-// If embedded, adjust layout
 if (isEmbeddedBA) {
   document.addEventListener('DOMContentLoaded', function() {
-    // Hide the admin header
     const header = document.querySelector('.admin-header');
     if (header) header.style.display = 'none';
 
-    // Adjust main content
     const mainContent = document.querySelector('.admin-main-content');
     if (mainContent) {
       mainContent.style.paddingTop = '10px';
       mainContent.style.maxWidth = '100%';
     }
 
-    // Hide sidebar toggle
     const sidebarToggle = document.querySelector('.embedded-sidebar-toggle');
     if (sidebarToggle) sidebarToggle.style.display = 'none';
   });
@@ -37,6 +47,7 @@ let ordersData = [];
 let productsData = [];
 let customersData = [];
 let businessCategories = [];
+let productCategories = [];
 let socket = null;
 let statsInterval = null;
 let currentFilterStatus = null;
@@ -186,10 +197,21 @@ async function verifyBusinessAccess() {
         const productBadge = document.querySelector('.menu-item[data-section="products"] .badge');
         if (productBadge) productBadge.textContent = businessData.product_count || 0;
 
+        // Section B — warn / prompt if the business has no business category yet.
+        // This catches businesses that registered before Section B and never
+        // got a category assigned.
+        applyCategoryWarning(data.has_business_category === true);
+
         initSocket();
-        loadBusinessCategories();
+        // Load business categories (for the multi-select) and product categories
+        // (for the searchable picker) in parallel.
+        await Promise.all([
+            loadBusinessCategories(),
+            loadProductCategories()
+        ]);
+
         const section = new URLSearchParams(window.location.search).get('section');
-        const validSections = ['dashboard', 'orders', 'customers', 'products', 'profile', 'payments', 'delivery', 'ordersettings'];
+        const validSections = ['dashboard', 'orders', 'customers', 'products', 'productcategories', 'profile', 'payments', 'delivery', 'ordersettings'];
         navigateTo(validSections.includes(section) ? section : 'dashboard');
 
         console.log('✅ Business admin initialized for:', businessData.business_name);
@@ -197,6 +219,73 @@ async function verifyBusinessAccess() {
     } catch (err) {
         console.error('❌ Business access error:', err);
         showAccessDenied('Access Error', err.message || 'Failed to verify business access.', '/register-business.html', 'Register Business');
+    }
+}
+
+// ============================================================
+//  Section B — missing business-category warning
+//  Renders a red banner at the top of the panel and a red dot on
+//  the Business Profile sidebar item when the business has no
+//  business category assigned. Removes both once one is set.
+// ============================================================
+
+function applyCategoryWarning(hasCategory) {
+    const existing = document.getElementById('missingCategoryBanner');
+    const profileItem = document.querySelector('.menu-item[data-section="profile"]');
+
+    if (hasCategory) {
+        if (existing) existing.remove();
+        if (profileItem) {
+            const dot = profileItem.querySelector('.menu-red-dot');
+            if (dot) dot.remove();
+        }
+        return;
+    }
+
+    // Red dot on the sidebar "Business Profile" item
+    if (profileItem && !profileItem.querySelector('.menu-red-dot')) {
+        const dot = document.createElement('span');
+        dot.className = 'menu-red-dot';
+        dot.title = 'Action required';
+        profileItem.appendChild(dot);
+    }
+
+    // Banner at the top of the main content
+    if (!existing) {
+        const banner = document.createElement('div');
+        banner.id = 'missingCategoryBanner';
+        banner.style.cssText = `
+            background: #fef2f2;
+            border: 1px solid #fca5a5;
+            border-left: 4px solid #ef4444;
+            color: #991b1b;
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin: 12px 20px 0;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            font-size: 0.9rem;
+        `;
+        banner.innerHTML = `
+            <span style="font-size:1.3rem; flex-shrink:0;">⚠️</span>
+            <div style="flex:1;">
+                <strong style="display:block; margin-bottom:4px;">Your business has no category yet</strong>
+                <p style="margin:0 0 8px 0; color:#7f1d1d;">
+                    Customers can't find your business by category, and your product picker will be empty.
+                    Please pick at least one business category to continue.
+                </p>
+                <button type="button"
+                        onclick="navigateTo('profile')"
+                        style="background:#ef4444; color:white; border:none; padding:6px 14px; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.8rem;">
+                    Fix now
+                </button>
+            </div>
+        `;
+        const mainContent = document.getElementById('mainContent');
+        if (mainContent) {
+            mainContent.insertBefore(banner, mainContent.firstChild);
+        }
     }
 }
 
@@ -234,7 +323,7 @@ function initSocket() {
 }
 
 // ============================================================
-//  SIDEBAR FUNCTIONS
+//  SIDEBAR
 // ============================================================
 
 function toggleSidebar() {
@@ -307,6 +396,7 @@ function navigateTo(section) {
         orders: 'Orders',
         customers: 'Customers',
         products: 'Products',
+        productcategories: 'Product Categories',
         profile: 'Business Profile',
         payments: 'Payment Settings',
         delivery: 'Delivery / Shipping',
@@ -328,6 +418,9 @@ function navigateTo(section) {
             break;
         case 'products':
             loadProducts();
+            break;
+        case 'productcategories':
+            loadProductCategorySection();
             break;
         case 'customers':
             loadCustomers();
@@ -382,28 +475,36 @@ async function loadDashboard() {
     }
 }
 
+// ============================================================
+//  BUSINESS CATEGORIES (multi-select on the business profile form)
+// ============================================================
+
 async function loadBusinessCategories() {
-    const select = document.getElementById('pCategory');
-    if (!select) return;
     try {
         const response = await fetch('/api/business-admin/categories', {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (!response.ok) throw new Error('Unable to load categories');
         businessCategories = await response.json();
-        select.innerHTML = '<option value="">Select a category</option>' + businessCategories
-            .map(category => `<option value="${escapeHtml(category.name)}">${escapeHtml(category.name)}</option>`).join('');
+
+        // Fill the business-category picker used by the product-category request form
+        const requestCategorySelect = document.getElementById('requestCategoryBusinessCategory');
+        if (requestCategorySelect) {
+            requestCategorySelect.innerHTML = '<option value="">Leave blank for a generic category</option>' +
+                businessCategories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+        }
     } catch (error) {
-        console.error('Category loading error:', error);
-        select.innerHTML = '<option value="">Categories unavailable — try refreshing</option>';
+        console.error('Business category loading error:', error);
     }
 }
 
-function populateBusinessCategorySelect(selectedCategories, customCategory) {
+function populateBusinessCategorySelect(selectedCategories) {
     const select = document.getElementById('businessCategories');
     if (!select || !businessCategories.length) return;
     const selectedIds = new Set((selectedCategories || []).map(category => Number(category.id)));
-    select.innerHTML = businessCategories.map(category => `<option value="${category.id}" ${selectedIds.has(Number(category.id)) ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('');
+    select.innerHTML = businessCategories.map(category =>
+        `<option value="${category.id}" ${selectedIds.has(Number(category.id)) ? 'selected' : ''}>${escapeHtml(category.name)}</option>`
+    ).join('');
 }
 
 function filterBusinessCategoryOptions() {
@@ -413,6 +514,262 @@ function filterBusinessCategoryOptions() {
     });
 }
 
+// ============================================================
+//  PRODUCT CATEGORIES — load, cache, filter, render
+//  B.1 / B.3 / B.4
+// ============================================================
+
+async function loadProductCategories(forceReload = false) {
+    // Reset the cache on force reload.
+    if (forceReload) productCategories = [];
+
+    // If we already have the list, just refresh the UI.
+    if (productCategories.length > 0) {
+        populateProductCategoryPickers();
+        renderProductCategoriesList();
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/business-admin/product-categories', {
+            headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-store' }
+        });
+
+        if (!res.ok) throw new Error(`Failed to load product categories (${res.status})`);
+        productCategories = await res.json();
+
+        populateProductCategoryPickers();
+        renderProductCategoriesList();
+    } catch (err) {
+        console.error('❌ Product categories error:', err);
+        const msg = '<option value="">❌ Categories could not be loaded</option>';
+        ['pProductCategory', 'bulkProductCategory'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = msg;
+        });
+    }
+}
+
+function populateProductCategoryPickers() {
+    const optionsHtml = '<option value="">Select a product category...</option>' +
+        productCategories.map(c => {
+            const label = `${c.icon || '📦'} ${c.name}${c.business_category_name ? ` · ${c.business_category_name}` : ''}`;
+            return `<option value="${c.id}">${escapeHtml(label)}</option>`;
+        }).join('');
+
+    ['pProductCategory', 'bulkProductCategory'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = optionsHtml;
+    });
+}
+
+/**
+ * B.4 — Searchable picker.
+ *
+ * scope = 'single' (default) filters the single-product picker.
+ * scope = 'bulk'             filters the bulk picker.
+ *
+ * Behaviour:
+ *  - Filters productCategories by name / business_category_name / slug.
+ *  - Rebuilds the option list in place.
+ *  - Shows a status line as the first option while filtering
+ *    (e.g. "5 matches — pick one below" or "No categories match your search"),
+ *    so the user can SEE that the search is doing something.
+ *  - Auto-selects the single match, if exactly one, so a keystroke is actionable.
+ *  - Restores the previous value if it survives the filter.
+ *  - Updates the helper text under the picker with the match count.
+ */
+function filterProductCategoryOptions(scope = 'single') {
+    const input = scope === 'bulk'
+        ? document.getElementById('bulkProductCategorySearch')
+        : document.getElementById('pProductCategorySearch');
+    const select = scope === 'bulk'
+        ? document.getElementById('bulkProductCategory')
+        : document.getElementById('pProductCategory');
+    if (!input || !select) return;
+
+    const query = input.value.trim().toLowerCase();
+    const currentValue = select.value;
+
+    const filtered = (productCategories || []).filter(c => {
+        if (!query) return true;
+        const haystack = `${c.name || ''} ${c.business_category_name || ''} ${c.slug || ''}`.toLowerCase();
+        return haystack.includes(query);
+    });
+
+    // Status line for the first <option>. This is what makes the search
+    // feel responsive — without it, filtering alone is invisible.
+    let statusLabel = 'Select a product category...';
+    if (query && filtered.length === 0) {
+        statusLabel = 'No categories match your search';
+    } else if (query && filtered.length === 1) {
+        statusLabel = '1 match — select below';
+    } else if (query) {
+        statusLabel = `${filtered.length} matches — pick one below`;
+    }
+
+    const optionsHtml = `<option value="">${escapeHtml(statusLabel)}</option>` +
+        filtered.map(c => {
+            const label = `${c.icon || '📦'} ${c.name}${c.business_category_name ? ` · ${c.business_category_name}` : ''}`;
+            return `<option value="${c.id}">${escapeHtml(label)}</option>`;
+        }).join('');
+
+    select.innerHTML = optionsHtml;
+
+    // If there's exactly one match and the user is searching, auto-select it.
+    if (query && filtered.length === 1) {
+        select.value = String(filtered[0].id);
+    } else if (currentValue && filtered.some(c => String(c.id) === String(currentValue))) {
+        select.value = currentValue;
+    }
+
+    // Update the helper text under the single-product picker.
+    if (scope === 'single') {
+        const help = document.getElementById('pProductCategoryHelp');
+        if (help) {
+            if (query) {
+                help.textContent = `${filtered.length} categor${filtered.length === 1 ? 'y' : 'ies'} match "${query}"`;
+            } else {
+                help.innerHTML = `Pick from the platform's defined product categories. Can't find yours? <a href="#" onclick="navigateTo('productcategories'); return false;">Request a new category</a>.`;
+            }
+        }
+    }
+}
+
+function renderProductCategoriesList() {
+    const container = document.getElementById('productCategoriesList');
+    if (!container) return;
+
+    if (!productCategories.length) {
+        container.innerHTML = '<p class="empty-msg">No product categories are available for your business yet.</p>';
+        return;
+    }
+
+    // Group by business category so the list is easy to scan.
+    const groups = new Map();
+    productCategories.forEach(cat => {
+        const key = cat.business_category_name || 'General';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(cat);
+    });
+
+    let html = '';
+    for (const [businessCategoryName, cats] of groups) {
+        html += `<div style="margin-bottom:14px;">`;
+        html += `<h4 style="font-size:0.85rem; font-weight:700; color:#0f172a; margin:0 0 6px 0;">${escapeHtml(businessCategoryName)}</h4>`;
+        html += `<div style="display:flex; flex-wrap:wrap; gap:6px;">`;
+        cats.forEach(cat => {
+            html += `
+                <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 12px; background:#f1f5f9; border-radius:20px; font-size:0.75rem; color:#334155;">
+                    <span>${escapeHtml(cat.icon || '📦')}</span>
+                    <span>${escapeHtml(cat.name)}</span>
+                    ${cat.is_requested ? '<span style="background:#fef3c7; color:#92400e; padding:0 8px; border-radius:10px; font-size:0.6rem; font-weight:700;">PENDING</span>' : ''}
+                    ${cat.product_count ? `<span style="color:#94a3b8;">· ${cat.product_count}</span>` : ''}
+                </span>
+            `;
+        });
+        html += `</div></div>`;
+    }
+    container.innerHTML = html;
+}
+
+/**
+ * Called when the user navigates to the Product Categories section.
+ * Refreshes the business-category dropdown in the request form and
+ * re-renders the list.
+ */
+function loadProductCategorySection() {
+    if (!businessCategories.length) {
+        loadBusinessCategories().then(loadProductCategorySection);
+        return;
+    }
+    loadProductCategories().then(() => {
+        renderProductCategoriesList();
+    });
+}
+
+/**
+ * B.6 — Submit a new product category request.
+ */
+async function submitProductCategoryRequest() {
+    const nameInput = document.getElementById('requestCategoryName');
+    const descriptionInput = document.getElementById('requestCategoryDescription');
+    const businessCategorySelect = document.getElementById('requestCategoryBusinessCategory');
+    const statusEl = document.getElementById('requestCategoryStatus');
+
+    if (!nameInput) return;
+
+    const name = nameInput.value.trim();
+    if (!name || name.length < 2) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please enter a category name (at least 2 characters).';
+            statusEl.style.color = '#ef4444';
+        }
+        nameInput.focus();
+        return;
+    }
+
+    const payload = {
+        name,
+        description: descriptionInput?.value.trim() || undefined,
+        business_category_id: businessCategorySelect?.value ? parseInt(businessCategorySelect.value, 10) : undefined
+    };
+
+    if (statusEl) {
+        statusEl.textContent = '⏳ Submitting request...';
+        statusEl.style.color = '#2563eb';
+    }
+
+    try {
+        const res = await fetch('/api/business-admin/product-categories/request', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (res.status === 202) {
+            if (statusEl) {
+                statusEl.textContent = '⏳ ' + (data.message || 'That category is already awaiting approval.');
+                statusEl.style.color = '#f59e0b';
+            }
+            return;
+        }
+
+        if (!res.ok) {
+            throw new Error(data.error || 'Failed to submit request');
+        }
+
+        if (statusEl) {
+            statusEl.textContent = '✅ ' + (data.message || 'Request submitted. It will be available once approved.');
+            statusEl.style.color = '#16a34a';
+        }
+        showToast('✅ Product category request submitted!', 'success');
+
+        nameInput.value = '';
+        if (descriptionInput) descriptionInput.value = '';
+        if (businessCategorySelect) businessCategorySelect.value = '';
+
+        // Force a fresh fetch so the pending row shows up right away.
+        await loadProductCategories(true);
+    } catch (err) {
+        console.error('❌ Product category request error:', err);
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + err.message;
+            statusEl.style.color = '#ef4444';
+        }
+        showToast('❌ ' + err.message, 'error');
+    }
+}
+
+// ============================================================
+//  DASHBOARD STATS / RECENT ORDERS / BADGES
+// ============================================================
+
 function renderDashboardStats(data) {
     const grid = document.getElementById('statsGrid');
     if (!grid) return;
@@ -421,9 +778,7 @@ function renderDashboardStats(data) {
     const statuses = data.orderStatuses || [];
 
     const statusCounts = {};
-    statuses.forEach(s => {
-        statusCounts[s.status] = s.count;
-    });
+    statuses.forEach(s => { statusCounts[s.status] = s.count; });
 
     const items = [
         { key: 'total_orders', label: 'Total Orders', icon: 'fa-shopping-bag', css: 'total' },
@@ -447,12 +802,8 @@ function renderDashboardStats(data) {
 
     items.forEach(function(item) {
         let value = stats[item.key] || 0;
-        if (item.key === 'total_revenue') {
-            value = 'Ksh ' + parseFloat(value).toFixed(2);
-        }
-        if (item.key === 'average_rating') {
-            value = parseFloat(value).toFixed(1) + ' ⭐';
-        }
+        if (item.key === 'total_revenue') value = 'Ksh ' + parseFloat(value).toFixed(2);
+        if (item.key === 'average_rating') value = parseFloat(value).toFixed(1) + ' ⭐';
         html += `
             <div class="stat-link ${item.css}" style="cursor:default;">
                 <span class="stat-icon"><i class="fas ${item.icon}"></i></span>
@@ -514,14 +865,8 @@ function updateOrderBadge() {
             headers: { 'Authorization': `Bearer ${token}` }
         })
         .then(res => res.json())
-        .then(orders => {
-            if (Array.isArray(orders)) {
-                badge.textContent = orders.length;
-            }
-        })
-        .catch(() => {
-            badge.textContent = '0';
-        });
+        .then(orders => { if (Array.isArray(orders)) badge.textContent = orders.length; })
+        .catch(() => { badge.textContent = '0'; });
     }
 }
 
@@ -530,7 +875,6 @@ function updateOrderBadge() {
 // ============================================================
 
 function filterOrdersByStatus(status) {
-    console.log('🔍 Filtering by status:', status);
     currentFilterStatus = status;
 
     document.querySelectorAll('#statsGrid .stat-link').forEach(function(link) {
@@ -549,10 +893,7 @@ function filterOrdersByStatus(status) {
 // ============================================================
 
 async function loadOrders() {
-    if (!businessData) {
-        console.log('⚠️ No business data, cannot load orders');
-        return;
-    }
+    if (!businessData) return;
 
     const container = document.getElementById('ordersListContainer');
     if (container) container.innerHTML = '<p class="empty-msg">Loading orders...</p>';
@@ -572,10 +913,7 @@ async function loadOrders() {
         if (finalStatus !== 'all') url += `status=${finalStatus}&`;
         if (search) url += `search=${encodeURIComponent(search)}&`;
 
-        const res = await fetch(url, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
+        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok) throw new Error('Failed to load orders');
         const orders = await res.json();
         ordersData = orders;
@@ -594,11 +932,7 @@ async function loadOrders() {
 
             let deliveryInfo = '';
             if (order.delivery_method) {
-                const methodLabels = {
-                    'delivery': '🚚 Delivery',
-                    'pickup': '📍 Pickup',
-                    'chat': '💬 Chat'
-                };
+                const methodLabels = { 'delivery': '🚚 Delivery', 'pickup': '📍 Pickup', 'chat': '💬 Chat' };
                 deliveryInfo = `<span style="font-size:0.6rem; color:#64748b; margin-left:8px;">${methodLabels[order.delivery_method] || order.delivery_method}</span>`;
             }
 
@@ -627,17 +961,11 @@ async function loadOrders() {
 
 function getOrderActions(order) {
     let actions = '';
-
     let statusOptions = '';
-    if (order.status === 'pending') {
-        statusOptions = `<option value="confirmed">Confirm</option><option value="shipped">Ship</option>`;
-    } else if (order.status === 'confirmed') {
-        statusOptions = `<option value="shipped">Ship</option>`;
-    } else if (order.status === 'shipped') {
-        statusOptions = `<option value="delivered">Deliver</option>`;
-    } else if (order.status === 'delivered') {
-        statusOptions = `<option value="received">Mark Received</option>`;
-    }
+    if (order.status === 'pending') statusOptions = `<option value="confirmed">Confirm</option><option value="shipped">Ship</option>`;
+    else if (order.status === 'confirmed') statusOptions = `<option value="shipped">Ship</option>`;
+    else if (order.status === 'shipped') statusOptions = `<option value="delivered">Deliver</option>`;
+    else if (order.status === 'delivered') statusOptions = `<option value="received">Mark Received</option>`;
 
     if (statusOptions) {
         actions += `
@@ -648,26 +976,17 @@ function getOrderActions(order) {
             <button class="btn btn-primary btn-sm" onclick="updateOrderStatus(${order.id})">Update</button>
         `;
     }
-
-    if (order.status === 'pending') {
-        actions += `<button class="btn btn-confirm btn-sm" onclick="confirmOrder(${order.id})">Confirm</button>`;
-    }
-
-    if (order.status === 'delivered') {
-        actions += `<button class="btn btn-primary btn-sm" onclick="markReceived(${order.id})">Mark Received</button>`;
-    }
-
+    if (order.status === 'pending') actions += `<button class="btn btn-confirm btn-sm" onclick="confirmOrder(${order.id})">Confirm</button>`;
+    if (order.status === 'delivered') actions += `<button class="btn btn-primary btn-sm" onclick="markReceived(${order.id})">Mark Received</button>`;
     if (['pending', 'confirmed', 'pending_payment'].includes(order.status)) {
         actions += `<button class="btn btn-danger btn-sm" onclick="cancelOrder(${order.id})">Cancel</button>`;
     }
-
     if (order.refund_status === 'pending') {
         actions += `
             <button class="btn btn-success btn-sm" onclick="handleRefund(${order.id},'approve')">Approve Refund</button>
             <button class="btn btn-danger btn-sm" onclick="handleRefund(${order.id},'reject')">Reject</button>
         `;
     }
-
     return actions || '<span style="font-size:0.6rem;color:#94a3b8;">No actions</span>';
 }
 
@@ -680,148 +999,86 @@ async function updateOrderStatus(orderId) {
     if (!select) return;
     const status = select.value;
     if (!status) return;
-
     if (!confirm(`Update order to ${status.toUpperCase()}?`)) return;
 
     try {
         const res = await fetch(`/api/business-admin/orders/${orderId}/status`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ status })
         });
-
         const data = await res.json();
-        if (data.success) {
-            alert('✅ Order status updated');
-            loadOrders();
-            loadDashboard();
-        } else {
-            alert('❌ ' + (data.error || 'Failed to update'));
-        }
-    } catch (err) {
-        alert('❌ Network error');
-    }
+        if (data.success) { alert('✅ Order status updated'); loadOrders(); loadDashboard(); }
+        else alert('❌ ' + (data.error || 'Failed to update'));
+    } catch (err) { alert('❌ Network error'); }
 }
 
 async function confirmOrder(orderId) {
     if (!confirm('Confirm this order?')) return;
-
     try {
         const res = await fetch(`/api/business-admin/orders/${orderId}/status`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ status: 'confirmed' })
         });
-
         const data = await res.json();
-        if (data.success) {
-            alert('✅ Order confirmed');
-            loadOrders();
-            loadDashboard();
-        } else {
-            alert('❌ ' + (data.error || 'Failed to confirm'));
-        }
-    } catch (err) {
-        alert('❌ Network error');
-    }
+        if (data.success) { alert('✅ Order confirmed'); loadOrders(); loadDashboard(); }
+        else alert('❌ ' + (data.error || 'Failed to confirm'));
+    } catch (err) { alert('❌ Network error'); }
 }
 
 async function markReceived(orderId) {
     if (!confirm('Mark this order as received?')) return;
-
     try {
         const res = await fetch(`/api/business-admin/orders/${orderId}/status`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ status: 'received' })
         });
-
         const data = await res.json();
-        if (data.success) {
-            alert('✅ Order marked as received');
-            loadOrders();
-            loadDashboard();
-        } else {
-            alert('❌ ' + (data.error || 'Failed to update'));
-        }
-    } catch (err) {
-        alert('❌ Network error');
-    }
+        if (data.success) { alert('✅ Order marked as received'); loadOrders(); loadDashboard(); }
+        else alert('❌ ' + (data.error || 'Failed to update'));
+    } catch (err) { alert('❌ Network error'); }
 }
 
 async function cancelOrder(orderId) {
     const reason = prompt('Cancellation reason:');
     if (!reason) return;
     if (!confirm('Cancel this order?')) return;
-
     try {
         const res = await fetch(`/api/business-admin/orders/${orderId}/status`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ status: 'cancelled' })
         });
-
         const data = await res.json();
-        if (data.success) {
-            alert('✅ Order cancelled');
-            loadOrders();
-            loadDashboard();
-        } else {
-            alert('❌ ' + (data.error || 'Failed to cancel'));
-        }
-    } catch (err) {
-        alert('❌ Network error');
-    }
+        if (data.success) { alert('✅ Order cancelled'); loadOrders(); loadDashboard(); }
+        else alert('❌ ' + (data.error || 'Failed to cancel'));
+    } catch (err) { alert('❌ Network error'); }
 }
 
 async function handleRefund(orderId, action) {
     if (!confirm(`${action === 'approve' ? 'Approve' : 'Reject'} refund?`)) return;
-
     try {
         const res = await fetch(`/api/admin/orders/${orderId}/refund`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ action })
         });
-
         const data = await res.json();
-        if (data.success) {
-            alert(`✅ Refund ${action}d.`);
-            loadOrders();
-            loadDashboard();
-        } else {
-            alert('❌ ' + (data.error || 'Failed to process refund'));
-        }
-    } catch (err) {
-        alert('❌ Network error');
-    }
+        if (data.success) { alert(`✅ Refund ${action}d.`); loadOrders(); loadDashboard(); }
+        else alert('❌ ' + (data.error || 'Failed to process refund'));
+    } catch (err) { alert('❌ Network error'); }
 }
 
 function filterOrders() {
     const dropdownStatus = document.getElementById('orderFilterStatus')?.value || 'all';
     if (dropdownStatus === 'all') {
         currentFilterStatus = null;
-        document.querySelectorAll('#statsGrid .stat-link').forEach(function(link) {
-            link.classList.remove('active');
-        });
+        document.querySelectorAll('#statsGrid .stat-link').forEach(link => link.classList.remove('active'));
     } else {
         currentFilterStatus = dropdownStatus;
-        document.querySelectorAll('#statsGrid .stat-link').forEach(function(link) {
+        document.querySelectorAll('#statsGrid .stat-link').forEach(link => {
             link.classList.toggle('active', link.dataset.status === dropdownStatus);
         });
     }
@@ -829,14 +1086,11 @@ function filterOrders() {
 }
 
 // ============================================================
-//  PRODUCTS - COMPLETE
+//  PRODUCTS
 // ============================================================
 
 async function loadProducts() {
-    if (!businessData) {
-        console.log('⚠️ No business data, cannot load products');
-        return;
-    }
+    if (!businessData) return;
 
     const list = document.getElementById('productList');
     if (list) list.innerHTML = '<p style="color:#94a3b8;">Loading products...</p>';
@@ -860,10 +1114,14 @@ async function loadProducts() {
 
         let html = '';
         products.forEach(function(p) {
+            const categoryLabel = p.product_category_name
+                ? `<span style="font-size:0.6rem; color:#2563eb; background:#eff6ff; padding:1px 8px; border-radius:10px; margin-left:6px;">${escapeHtml(p.product_category_name)}</span>`
+                : '';
             html += `
                 <div class="product-item">
                     <div class="info">
-                        <span class="name">${p.name}</span>
+                        <span class="name">${escapeHtml(p.name)}</span>
+                        ${categoryLabel}
                         <span class="price">Ksh ${p.price}</span>
                         ${p.rating ? `<span style="margin-left:8px;">⭐(${p.rating})</span>` : ''}
                         ${p.isFlashSale ? ' <span style="color:#ef4444;">🔥</span>' : ''}
@@ -872,7 +1130,7 @@ async function loadProducts() {
                     </div>
                     <div class="actions">
                         <button class="btn-secondary btn-sm" onclick="editProduct(${p.id})">✏️ Edit</button>
-                        <button class="btn-danger btn-sm" onclick="deleteProduct(${p.id})">Delete</button>
+                        <button class="btn-danger btn-sm" onclick="deleteProduct(${p.id})">🗑️ Delete</button>
                     </div>
                 </div>
             `;
@@ -886,24 +1144,33 @@ async function loadProducts() {
 }
 
 // ============================================================
-//  PRODUCT CRUD - COMPLETE
+//  PRODUCT CRUD
 // ============================================================
 
 document.getElementById('productForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
+
+    // B.5 — Block the save when no product category is selected.
+    const categorySelect = document.getElementById('pProductCategory');
+    if (!categorySelect || !categorySelect.value) {
+        showToast('❌ Please select a product category.', 'error');
+        if (categorySelect) categorySelect.focus();
+        return;
+    }
 
     const formData = new FormData(this);
     const editId = document.getElementById('editProductId').value;
     const url = editId ? `/api/business-admin/products/${editId}` : '/api/business-admin/products';
     const method = editId ? 'PUT' : 'POST';
 
+    // Send the product_category_id explicitly (the select already carries the name).
+    formData.set('product_category_id', categorySelect.value);
+
     const variants = getVariantData();
     if (variants.length > 0) {
         formData.append('variants', JSON.stringify(variants));
-        variants.forEach(function(v, index) {
-            if (v.file) {
-                formData.append('variantImages', v.file);
-            }
+        variants.forEach(function(v) {
+            if (v.file) formData.append('variantImages', v.file);
         });
     }
 
@@ -917,7 +1184,6 @@ document.getElementById('productForm')?.addEventListener('submit', async functio
             headers: { 'Authorization': `Bearer ${token}` },
             body: formData
         });
-
         const data = await res.json();
 
         if (data.success || data.product) {
@@ -935,15 +1201,44 @@ document.getElementById('productForm')?.addEventListener('submit', async functio
     }
 });
 
+// ============================================================
+//  BATCH PRODUCTS — B.1 / B.5
+// ============================================================
+
 async function submitProductBatch() {
     const input = document.getElementById('bulkProductsInput');
+    const categorySelect = document.getElementById('bulkProductCategory');
+
+    if (!categorySelect || !categorySelect.value) {
+        showToast('❌ Please select a product category for the batch.', 'error');
+        if (categorySelect) categorySelect.focus();
+        return;
+    }
+
+    const productCategoryId = parseInt(categorySelect.value, 10);
+
     const lines = (input?.value || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
     if (!lines.length) return showToast('Enter at least one product line.', 'warning');
-    const products = lines.map((line, index) => {
-        const [name, price, category, stock, ...description] = line.split(',').map(value => value.trim());
-        if (!name || !price) throw new Error(`Line ${index + 1} needs a name and price.`);
-        return { name, price, category, stock, description: description.join(',') };
-    });
+
+    let products;
+    try {
+        products = lines.map((line, index) => {
+            // Format: name, price, stock, description
+            const [name, price, stock, ...description] = line.split(',').map(value => value.trim());
+            if (!name || !price) throw new Error(`Line ${index + 1} needs a name and price.`);
+            return {
+                name,
+                price,
+                stock,
+                description: description.join(','),
+                product_category_id: productCategoryId
+            };
+        });
+    } catch (error) {
+        showToast(error.message, 'error');
+        return;
+    }
+
     try {
         const response = await fetch('/api/business-admin/products/batch', {
             method: 'POST',
@@ -965,20 +1260,16 @@ async function submitProductBatch() {
 // ============================================================
 
 function addVariantRow(name, price, stock, colorCode) {
-    name = name || '';
-    price = price || '';
-    stock = stock || '';
-    colorCode = colorCode || '#cccccc';
     const container = document.getElementById('variantsContainer');
     if (!container) return;
     const row = document.createElement('div');
     row.className = 'variant-row';
     row.dataset.index = variantCounter++;
     row.innerHTML = `
-        <input type="text" class="variant-name" placeholder="Color name" value="${name}">
-        <input type="text" class="variant-price" placeholder="Price (optional)" value="${price}">
-        <input type="number" class="variant-stock" placeholder="Stock" value="${stock}">
-        <input type="color" class="variant-color-code" value="${colorCode}">
+        <input type="text" class="variant-name" placeholder="Color name" value="${name || ''}">
+        <input type="text" class="variant-price" placeholder="Price (optional)" value="${price || ''}">
+        <input type="number" class="variant-stock" placeholder="Stock" value="${stock || ''}">
+        <input type="color" class="variant-color-code" value="${colorCode || '#cccccc'}">
         <input type="file" class="variant-image" accept="image/*">
         <button type="button" class="remove-variant" onclick="this.closest('.variant-row').remove()">✕</button>
     `;
@@ -992,16 +1283,14 @@ function clearVariants() {
 }
 
 function getVariantData() {
-    const rows = document.querySelectorAll('.variant-row');
     const variants = [];
-    rows.forEach(function(row) {
-        const name = row.querySelector('.variant-name') ? row.querySelector('.variant-name').value.trim() : '';
-        const price = row.querySelector('.variant-price') ? row.querySelector('.variant-price').value.trim() : '';
-        const stock = row.querySelector('.variant-stock') ? row.querySelector('.variant-stock').value.trim() : '';
-        const colorCode = row.querySelector('.variant-color-code') ? row.querySelector('.variant-color-code').value : '#cccccc';
-        const fileInput = row.querySelector('.variant-image');
-        const file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
-        if (name) variants.push({ name: name, price: price, stock: stock, colorCode: colorCode, file: file });
+    document.querySelectorAll('.variant-row').forEach(function(row) {
+        const name = row.querySelector('.variant-name')?.value.trim();
+        const price = row.querySelector('.variant-price')?.value.trim();
+        const stock = row.querySelector('.variant-stock')?.value.trim();
+        const colorCode = row.querySelector('.variant-color-code')?.value || '#cccccc';
+        const file = row.querySelector('.variant-image')?.files?.[0] || null;
+        if (name) variants.push({ name, price, stock, colorCode, file });
     });
     return variants;
 }
@@ -1021,7 +1310,6 @@ async function editProduct(id) {
             pPrice: product.price || '',
             pOldPrice: product.old_price || '',
             pDiscount: product.discount_percent || '',
-            pCategory: product.category || '',
             pStock: product.stock || 0,
             pContact: product.contact || '+254700000000',
             pRating: product.rating || '',
@@ -1033,16 +1321,27 @@ async function editProduct(id) {
             pNewArrival: product.isNewArrival || false
         };
 
-        Object.keys(fields).forEach(function(id) {
-            const el = document.getElementById(id);
-            if (el) {
-                if (el.type === 'checkbox') {
-                    el.checked = fields[id];
-                } else {
-                    el.value = fields[id];
-                }
-            }
+        Object.keys(fields).forEach(function(key) {
+            const el = document.getElementById(key);
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = fields[key];
+            else el.value = fields[key];
         });
+
+        // B.1 — Preselect the product's category in the searchable picker.
+        const categorySelect = document.getElementById('pProductCategory');
+        const categorySearch = document.getElementById('pProductCategorySearch');
+        if (categorySelect) {
+            if (product.product_category_id) {
+                categorySelect.value = String(product.product_category_id);
+            } else if (product.product_category_name) {
+                const match = productCategories.find(c => c.name === product.product_category_name);
+                categorySelect.value = match ? String(match.id) : '';
+            } else {
+                categorySelect.value = '';
+            }
+        }
+        if (categorySearch) categorySearch.value = '';
 
         clearVariants();
         variants.forEach(function(v) {
@@ -1064,6 +1363,10 @@ function cancelEditProduct() {
     if (form) form.reset();
     const editIdField = document.getElementById('editProductId');
     if (editIdField) editIdField.value = '';
+    const categorySearch = document.getElementById('pProductCategorySearch');
+    if (categorySearch) categorySearch.value = '';
+    const categorySelect = document.getElementById('pProductCategory');
+    if (categorySelect) categorySelect.value = '';
     const submitBtn = document.getElementById('productSubmitBtn');
     if (submitBtn) submitBtn.textContent = '➕ Add Product';
     const cancelBtn = document.getElementById('cancelEditBtn');
@@ -1074,33 +1377,22 @@ function cancelEditProduct() {
 
 async function deleteProduct(id) {
     if (!confirm('Delete this product?')) return;
-
     try {
         const res = await fetch(`/api/business-admin/products/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
-        if (res.ok) {
-            alert('✅ Product deleted');
-            loadProducts();
-        } else {
-            alert('❌ Failed to delete product');
-        }
-    } catch (err) {
-        alert('❌ Network error');
-    }
+        if (res.ok) { alert('✅ Product deleted'); loadProducts(); }
+        else alert('❌ Failed to delete product');
+    } catch (err) { alert('❌ Network error'); }
 }
 
 // ============================================================
-//  CUSTOMERS - COMPLETE
+//  CUSTOMERS
 // ============================================================
 
 async function loadCustomers() {
-    if (!businessData) {
-        console.log('⚠️ No business data, cannot load customers');
-        return;
-    }
+    if (!businessData) return;
 
     const tbody = document.getElementById('customerTableBody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Loading customers...</td></tr>';
@@ -1109,7 +1401,6 @@ async function loadCustomers() {
         const res = await fetch('/api/business-admin/customers', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         if (!res.ok) throw new Error('Failed to load customers');
         const customers = await res.json();
         customersData = customers;
@@ -1123,9 +1414,9 @@ async function loadCustomers() {
         customers.forEach(function(c) {
             html += `
                 <tr>
-                    <td><strong>${c.name}</strong></td>
-                    <td>${c.email}</td>
-                    <td>${c.phone || '—'}</td>
+                    <td><strong>${escapeHtml(c.name)}</strong></td>
+                    <td>${escapeHtml(c.email)}</td>
+                    <td>${escapeHtml(c.phone || '—')}</td>
                     <td>${c.order_count || 0}</td>
                     <td>Ksh ${parseFloat(c.total_spent || 0).toFixed(2)}</td>
                     <td>${new Date(c.created_at).toLocaleDateString()}</td>
@@ -1141,59 +1432,55 @@ async function loadCustomers() {
 }
 
 // ============================================================
-//  BUSINESS PROFILE - COMPLETE
+//  BUSINESS PROFILE
 // ============================================================
 
 async function loadBusinessProfile() {
-    if (!businessData) {
-        console.log('⚠️ No business data, cannot load profile');
-        return;
-    }
+    if (!businessData) return;
 
     try {
         const res = await fetch('/api/business-admin/profile', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         if (!res.ok) throw new Error('Failed to load profile');
         const data = await res.json();
-
         const business = data.business;
 
-        document.getElementById('bName').value = business.business_name || '';
-        document.getElementById('bLocation').value = business.location || '';
-        document.getElementById('bAddress').value = business.address || '';
-        document.getElementById('bDescription').value = business.description || '';
-        document.getElementById('bMission').value = business.mission || '';
-        document.getElementById('bVision').value = business.vision || '';
-        document.getElementById('bLatitude').value = business.latitude || '';
-        document.getElementById('bLongitude').value = business.longitude || '';
-        document.getElementById('bWhatsapp').value = business.whatsapp || '';
-        document.getElementById('bTiktok').value = business.tiktok || '';
-        document.getElementById('bInstagram').value = business.instagram || '';
-        document.getElementById('bFacebook').value = business.facebook || '';
-        document.getElementById('bLinkedin').value = business.linkedin || '';
-        document.getElementById('bPhone').value = business.phone || '';
-        document.getElementById('bPhoneNumbers').value = Array.isArray(business.phone_numbers) ? business.phone_numbers.join(', ') : '';
-        document.getElementById('bWebsite').value = business.website || '';
-        document.getElementById('bEmail').value = business.email || '';
-        document.getElementById('bEmailAddresses').value = Array.isArray(business.email_addresses) ? business.email_addresses.join(', ') : '';
+        const fieldIds = {
+            bName: business.business_name || '',
+            bLocation: business.location || '',
+            bAddress: business.address || '',
+            bDescription: business.description || '',
+            bMission: business.mission || '',
+            bVision: business.vision || '',
+            bLatitude: business.latitude || '',
+            bLongitude: business.longitude || '',
+            bWhatsapp: business.whatsapp || '',
+            bTiktok: business.tiktok || '',
+            bInstagram: business.instagram || '',
+            bFacebook: business.facebook || '',
+            bLinkedin: business.linkedin || '',
+            bPhone: business.phone || '',
+            bPhoneNumbers: Array.isArray(business.phone_numbers) ? business.phone_numbers.join(', ') : '',
+            bWebsite: business.website || '',
+            bEmail: business.email || '',
+            bEmailAddresses: Array.isArray(business.email_addresses) ? business.email_addresses.join(', ') : ''
+        };
+        Object.keys(fieldIds).forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = fieldIds[id];
+        });
+
         const categoriesResponse = await fetch(`/api/businesses/${encodeURIComponent(business.slug)}`);
         const publicBusiness = categoriesResponse.ok ? await categoriesResponse.json() : { categories: [] };
         if (!businessCategories.length) await loadBusinessCategories();
-        populateBusinessCategorySelect(publicBusiness.categories, business.custom_category);
+        populateBusinessCategorySelect(publicBusiness.categories);
 
-        // Online orders toggle
         const onlineOrdersToggle = document.getElementById('onlineOrdersEnabled');
-        if (onlineOrdersToggle) {
-            onlineOrdersToggle.checked = business.online_orders_enabled !== false;
-        }
+        if (onlineOrdersToggle) onlineOrdersToggle.checked = business.online_orders_enabled !== false;
 
-        // Delivery toggle
         const deliveryToggle = document.getElementById('deliveryEnabled');
-        if (deliveryToggle) {
-            deliveryToggle.checked = business.delivery_enabled !== false;
-        }
+        if (deliveryToggle) deliveryToggle.checked = business.delivery_enabled !== false;
 
     } catch (err) {
         console.error('❌ Profile error:', err);
@@ -1203,7 +1490,6 @@ async function loadBusinessProfile() {
 
 document.getElementById('profileForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
-
     const formData = new FormData(this);
     const status = document.getElementById('profileStatus');
     if (status) status.textContent = '⏳ Saving...';
@@ -1214,7 +1500,6 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
             headers: { 'Authorization': `Bearer ${token}` },
             body: formData
         });
-
         const data = await res.json();
 
         if (data.success) {
@@ -1228,42 +1513,40 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
                 const categoryError = await categoriesResponse.json().catch(() => ({}));
                 throw new Error(categoryError.error || 'Profile saved but categories could not be saved');
             }
-            if (status) {
-                status.textContent = '✅ Profile updated successfully!';
-                status.style.color = '#16a34a';
-            }
+            if (status) { status.textContent = '✅ Profile updated successfully!'; status.style.color = '#16a34a'; }
             alert('✅ Business profile updated!');
             businessData = data.business;
             document.getElementById('businessNameDisplay').textContent = businessData.business_name;
+
+            // Section B — re-evaluate the missing-category warning. If the
+            // admin just assigned a category, the banner and red dot disappear
+            // immediately. If they removed all categories, the warning returns.
+            const afterSave = await fetch('/api/auth/my-business', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).then(r => r.ok ? r.json() : { has_business_category: false })
+              .catch(() => ({ has_business_category: false }));
+            applyCategoryWarning(afterSave.has_business_category === true);
+
+            // Business categories changed → the available product categories may have changed too.
+            await loadProductCategories(true);
         } else {
-            if (status) {
-                status.textContent = '❌ ' + (data.error || 'Failed to update');
-                status.style.color = '#ef4444';
-            }
+            if (status) { status.textContent = '❌ ' + (data.error || 'Failed to update'); status.style.color = '#ef4444'; }
         }
     } catch (err) {
-        if (status) {
-            status.textContent = '❌ Network error';
-            status.style.color = '#ef4444';
-        }
+        if (status) { status.textContent = '❌ Network error'; status.style.color = '#ef4444'; }
     }
 });
 
 // ============================================================
-//  PAYMENT SETTINGS - COMPLETE
+//  PAYMENT SETTINGS
 // ============================================================
 
 async function loadPaymentSettings() {
-    if (!businessData) {
-        console.log('⚠️ No business data, cannot load payment settings');
-        return;
-    }
-
+    if (!businessData) return;
     try {
         const res = await fetch('/api/business-admin/payment-settings', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         if (!res.ok) throw new Error('Failed to load payment settings');
         const settings = await res.json();
 
@@ -1277,7 +1560,6 @@ async function loadPaymentSettings() {
         document.getElementById('pBankHolder').value = settings.bank_account_name || '';
         document.getElementById('pPaypalEnabled').checked = settings.paypal_enabled || false;
         document.getElementById('pPaypalEmail').value = settings.paypal_email || '';
-
     } catch (err) {
         console.error('❌ Payment settings error:', err);
         alert('Error loading payment settings');
@@ -1286,7 +1568,6 @@ async function loadPaymentSettings() {
 
 document.getElementById('paymentSettingsForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
-
     const data = {
         mpesa_enabled: document.getElementById('pMpesaEnabled').checked,
         mpesa_number: document.getElementById('pMpesaNumber').value,
@@ -1299,112 +1580,89 @@ document.getElementById('paymentSettingsForm')?.addEventListener('submit', async
         paypal_enabled: document.getElementById('pPaypalEnabled').checked,
         paypal_email: document.getElementById('pPaypalEmail').value
     };
-
     const status = document.getElementById('paymentStatus');
     if (status) status.textContent = '⏳ Saving...';
 
     try {
         const res = await fetch('/api/business-admin/payment-settings', {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify(data)
         });
-
         const result = await res.json();
-
         if (result.success) {
-            if (status) {
-                status.textContent = '✅ Payment settings updated!';
-                status.style.color = '#16a34a';
-            }
+            if (status) { status.textContent = '✅ Payment settings updated!'; status.style.color = '#16a34a'; }
             alert('✅ Payment settings updated!');
         } else {
-            if (status) {
-                status.textContent = '❌ ' + (result.error || 'Failed to update');
-                status.style.color = '#ef4444';
-            }
+            if (status) { status.textContent = '❌ ' + (result.error || 'Failed to update'); status.style.color = '#ef4444'; }
         }
     } catch (err) {
-        if (status) {
-            status.textContent = '❌ Network error';
-            status.style.color = '#ef4444';
-        }
+        if (status) { status.textContent = '❌ Network error'; status.style.color = '#ef4444'; }
     }
 });
 
 // ============================================================
-//  DELIVERY SETTINGS - COMPLETE
+//  DELIVERY SETTINGS
 // ============================================================
 
 function toggleDeliveryOffered(value) {
     deliverySettings.offered = value;
-
     const noContainer = document.getElementById('deliveryNoContainer');
     const yesContainer = document.getElementById('deliveryYesContainer');
     const previewContainer = document.getElementById('deliveryPreviewContainer');
     const commonContainer = document.getElementById('deliveryCommonContainer');
 
     if (value === 'no') {
-        noContainer.style.display = 'block';
-        yesContainer.style.display = 'none';
-        previewContainer.style.display = 'block';
-        commonContainer.style.display = 'none';
+        if (noContainer) noContainer.style.display = 'block';
+        if (yesContainer) yesContainer.style.display = 'none';
+        if (previewContainer) previewContainer.style.display = 'block';
+        if (commonContainer) commonContainer.style.display = 'none';
         updateDeliveryPreview();
     } else if (value === 'yes') {
-        noContainer.style.display = 'none';
-        yesContainer.style.display = 'block';
-        previewContainer.style.display = 'block';
-        commonContainer.style.display = 'block';
+        if (noContainer) noContainer.style.display = 'none';
+        if (yesContainer) yesContainer.style.display = 'block';
+        if (previewContainer) previewContainer.style.display = 'block';
+        if (commonContainer) commonContainer.style.display = 'block';
         const freeRadios = document.querySelectorAll('input[name="delivery_free"]');
         let freeValue = null;
         freeRadios.forEach(r => { if (r.checked) freeValue = r.value; });
-        if (freeValue) {
-            toggleDeliveryFree(freeValue);
-        }
+        if (freeValue) toggleDeliveryFree(freeValue);
         updateDeliveryPreview();
     }
 }
 
 function toggleDeliveryFree(value) {
     deliverySettings.free = value;
-
     const freeYesContainer = document.getElementById('deliveryFreeYesContainer');
     const freeNoContainer = document.getElementById('deliveryFreeNoContainer');
     const commonContainer = document.getElementById('deliveryCommonContainer');
 
     if (value === 'yes') {
-        freeYesContainer.style.display = 'block';
-        freeNoContainer.style.display = 'none';
-        commonContainer.style.display = 'block';
+        if (freeYesContainer) freeYesContainer.style.display = 'block';
+        if (freeNoContainer) freeNoContainer.style.display = 'none';
+        if (commonContainer) commonContainer.style.display = 'block';
         const whereRadios = document.querySelectorAll('input[name="delivery_free_where"]');
         let whereValue = null;
         whereRadios.forEach(r => { if (r.checked) whereValue = r.value; });
-        if (whereValue) {
-            toggleFreeWhere(whereValue);
-        }
+        if (whereValue) toggleFreeWhere(whereValue);
     } else if (value === 'no') {
-        freeYesContainer.style.display = 'none';
-        freeNoContainer.style.display = 'block';
-        commonContainer.style.display = 'block';
+        if (freeYesContainer) freeYesContainer.style.display = 'none';
+        if (freeNoContainer) freeNoContainer.style.display = 'block';
+        if (commonContainer) commonContainer.style.display = 'block';
     }
     updateDeliveryPreview();
 }
 
 function toggleFreeWhere(value) {
     deliverySettings.free_where = value;
-
     const everywhereContainer = document.getElementById('freeEverywhereContainer');
     const specificContainer = document.getElementById('freeSpecificContainer');
-
     if (value === 'everywhere') {
-        everywhereContainer.style.display = 'block';
-        specificContainer.style.display = 'none';
+        if (everywhereContainer) everywhereContainer.style.display = 'block';
+        if (specificContainer) specificContainer.style.display = 'none';
     } else if (value === 'specific') {
-        everywhereContainer.style.display = 'none';
-        specificContainer.style.display = 'block';
+        if (everywhereContainer) everywhereContainer.style.display = 'none';
+        if (specificContainer) specificContainer.style.display = 'block';
     }
     updateDeliveryPreview();
 }
@@ -1414,7 +1672,6 @@ function updateDeliveryPreview() {
     if (!container) return;
 
     let html = '';
-
     const offered = deliverySettings.offered;
     const free = deliverySettings.free;
     const freeWhere = deliverySettings.free_where;
@@ -1425,7 +1682,6 @@ function updateDeliveryPreview() {
     const feeFixed = document.getElementById('deliveryFeeFixed')?.value || 0;
     const feePerKm = document.getElementById('deliveryFeePerKm')?.value || 0;
     const minOrderFree = document.getElementById('deliveryMinOrderFree')?.value || 0;
-    const maxDistance = document.getElementById('deliveryMaxDistance')?.value || 50;
     const estimatedTime = document.getElementById('deliveryEstimatedTime')?.value || 'Same day';
     const policy = document.getElementById('deliveryPolicy')?.value || '';
 
@@ -1433,13 +1689,9 @@ function updateDeliveryPreview() {
     document.querySelectorAll('input[name="delivery_days"]').forEach(r => {
         if (r.checked) {
             const labels = {
-                'same_day': 'Same day',
-                'next_day': 'Next day',
-                'within_2_days': 'Within 2 days',
-                'within_3_days': 'Within 3 days',
-                'within_4_days': 'Within 4 days',
-                'within_5_days': 'Within 5 days',
-                'within_6_days': 'Within 6 days',
+                'same_day': 'Same day', 'next_day': 'Next day', 'within_2_days': 'Within 2 days',
+                'within_3_days': 'Within 3 days', 'within_4_days': 'Within 4 days',
+                'within_5_days': 'Within 5 days', 'within_6_days': 'Within 6 days',
                 'within_7_days': 'Within 7 days'
             };
             selectedDays = labels[r.value] || 'Within 3 days';
@@ -1467,139 +1719,67 @@ function updateDeliveryPreview() {
                 <span style="font-size:0.6rem; background:#2563eb; color:white; padding:2px 10px; border-radius:12px;">${selectedDays}</span>
             </div>
         `;
-
         if (free === 'yes') {
             html += `
                 <div style="background:#dcfce7; padding:8px 12px; border-radius:6px; margin-bottom:6px;">
-                    <p style="font-size:0.85rem; color:#166534; margin:0;">
-                        <strong>🎁 FREE DELIVERY!</strong>
-                    </p>
+                    <p style="font-size:0.85rem; color:#166534; margin:0;"><strong>🎁 FREE DELIVERY!</strong></p>
                 </div>
             `;
-
             if (freeWhere === 'everywhere') {
-                html += `
-                    <p style="font-size:0.85rem; color:#475569; margin:0 0 4px 0;">
-                        🌍 I deliver FREE everywhere in Kenya!
-                    </p>
-                `;
+                html += `<p style="font-size:0.85rem; color:#475569; margin:0 0 4px 0;">🌍 I deliver FREE everywhere in Kenya!</p>`;
             } else if (freeWhere === 'specific') {
-                html += `
-                    <div style="background:#f8fafc; padding:8px 12px; border-radius:6px; border-left:3px solid #f59e0b;">
-                        <p style="font-size:0.8rem; color:#475569; margin:0;">
-                            ${freeMessage || 'I offer free delivery based on your location or order size. Contact me for details.'}
-                        </p>
-                    </div>
-                `;
+                html += `<div style="background:#f8fafc; padding:8px 12px; border-radius:6px; border-left:3px solid #f59e0b;"><p style="font-size:0.8rem; color:#475569; margin:0;">${freeMessage || 'I offer free delivery based on your location or order size. Contact me for details.'}</p></div>`;
             }
         } else if (free === 'no') {
-            html += `
-                <div style="background:#f8fafc; padding:8px 12px; border-radius:6px; border-left:3px solid #f59e0b;">
-                    <p style="font-size:0.8rem; color:#475569; margin:0;">
-                        ${paidMessage || 'I charge for delivery based on your location or order size. Contact me for details.'}
-                    </p>
-                </div>
-            `;
+            html += `<div style="background:#f8fafc; padding:8px 12px; border-radius:6px; border-left:3px solid #f59e0b;"><p style="font-size:0.8rem; color:#475569; margin:0;">${paidMessage || 'I charge for delivery based on your location or order size. Contact me for details.'}</p></div>`;
         }
-
         if (feeType === 'fixed' && parseFloat(feeFixed) > 0) {
-            html += `
-                <p style="font-size:0.75rem; color:#64748b; margin-top:4px;">
-                    💰 Delivery fee: Ksh ${parseFloat(feeFixed).toFixed(2)}
-                </p>
-            `;
+            html += `<p style="font-size:0.75rem; color:#64748b; margin-top:4px;">💰 Delivery fee: Ksh ${parseFloat(feeFixed).toFixed(2)}</p>`;
         } else if (feeType === 'per_km' && parseFloat(feePerKm) > 0) {
-            html += `
-                <p style="font-size:0.75rem; color:#64748b; margin-top:4px;">
-                    💰 Delivery fee: Ksh ${parseFloat(feePerKm).toFixed(2)} per km
-                </p>
-            `;
+            html += `<p style="font-size:0.75rem; color:#64748b; margin-top:4px;">💰 Delivery fee: Ksh ${parseFloat(feePerKm).toFixed(2)} per km</p>`;
         }
-
         if (parseFloat(minOrderFree) > 0) {
-            html += `
-                <p style="font-size:0.75rem; color:#166534; margin-top:2px;">
-                    🎉 Free delivery on orders over Ksh ${parseFloat(minOrderFree).toFixed(2)}
-                </p>
-            `;
+            html += `<p style="font-size:0.75rem; color:#166534; margin-top:2px;">🎉 Free delivery on orders over Ksh ${parseFloat(minOrderFree).toFixed(2)}</p>`;
         }
-
-        if (policy) {
-            html += `
-                <p style="font-size:0.7rem; color:#64748b; margin-top:4px;">
-                    📋 ${policy}
-                </p>
-            `;
-        }
-
-        html += `
-            <p style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">
-                ⏰ Estimated delivery: ${estimatedTime || selectedDays}
-            </p>
-        `;
+        if (policy) html += `<p style="font-size:0.7rem; color:#64748b; margin-top:4px;">📋 ${policy}</p>`;
+        html += `<p style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">⏰ Estimated delivery: ${estimatedTime || selectedDays}</p>`;
     }
-
     container.innerHTML = html;
 }
 
 async function loadDeliverySettings() {
-    if (!businessData) {
-        console.log('⚠️ No business data, cannot load delivery settings');
-        return;
-    }
-
+    if (!businessData) return;
     try {
         const res = await fetch('/api/business-admin/delivery-settings', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         if (!res.ok) throw new Error('Failed to load delivery settings');
         const data = await res.json();
 
         if (data) {
             const offered = data.delivery_offered || 'no';
-            document.querySelectorAll('input[name="delivery_offered"]').forEach(r => {
-                r.checked = r.value === offered;
-            });
+            document.querySelectorAll('input[name="delivery_offered"]').forEach(r => { r.checked = r.value === offered; });
             toggleDeliveryOffered(offered);
 
-            if (data.delivery_no_message) {
-                document.getElementById('deliveryNoMessage').value = data.delivery_no_message;
-            }
+            if (data.delivery_no_message) document.getElementById('deliveryNoMessage').value = data.delivery_no_message;
 
             const free = data.delivery_free || 'no';
-            document.querySelectorAll('input[name="delivery_free"]').forEach(r => {
-                r.checked = r.value === free;
-            });
-            if (offered === 'yes') {
-                toggleDeliveryFree(free);
-            }
+            document.querySelectorAll('input[name="delivery_free"]').forEach(r => { r.checked = r.value === free; });
+            if (offered === 'yes') toggleDeliveryFree(free);
 
             const freeWhere = data.delivery_free_where || 'everywhere';
-            document.querySelectorAll('input[name="delivery_free_where"]').forEach(r => {
-                r.checked = r.value === freeWhere;
-            });
-            if (free === 'yes') {
-                toggleFreeWhere(freeWhere);
-            }
+            document.querySelectorAll('input[name="delivery_free_where"]').forEach(r => { r.checked = r.value === freeWhere; });
+            if (free === 'yes') toggleFreeWhere(freeWhere);
 
-            if (data.delivery_free_message) {
-                document.getElementById('freeDeliveryMessage').value = data.delivery_free_message;
-            }
-            if (data.delivery_paid_message) {
-                document.getElementById('deliveryPaidMessage').value = data.delivery_paid_message;
-            }
+            if (data.delivery_free_message) document.getElementById('freeDeliveryMessage').value = data.delivery_free_message;
+            if (data.delivery_paid_message) document.getElementById('deliveryPaidMessage').value = data.delivery_paid_message;
 
             const days = data.delivery_days || 'within_3_days';
-            document.querySelectorAll('input[name="delivery_days"]').forEach(r => {
-                r.checked = r.value === days;
-            });
+            document.querySelectorAll('input[name="delivery_days"]').forEach(r => { r.checked = r.value === days; });
             deliverySettings.days = days;
 
             const feeType = data.delivery_fee_type || 'fixed';
-            document.querySelectorAll('input[name="delivery_fee_type"]').forEach(r => {
-                r.checked = r.value === feeType;
-            });
+            document.querySelectorAll('input[name="delivery_fee_type"]').forEach(r => { r.checked = r.value === feeType; });
             document.getElementById('deliveryFeeFixed').value = data.delivery_fee_fixed || 0;
             document.getElementById('deliveryFeePerKm').value = data.delivery_fee_per_km || 0;
             document.getElementById('deliveryMinOrderFree').value = data.delivery_min_order_free || 0;
@@ -1610,26 +1790,20 @@ async function loadDeliverySettings() {
             if (data.delivery_time_slots) {
                 document.getElementById('deliveryTimeSlots').value = data.delivery_time_slots.join(', ');
             }
-
             document.getElementById('deliveryCutoffTime').value = data.delivery_cutoff_time || '14:00';
 
             updateDeliveryPreview();
             loadDeliveryOrders();
         }
-
     } catch (err) {
         console.error('❌ Delivery settings error:', err);
         const status = document.getElementById('deliveryStatus');
-        if (status) {
-            status.textContent = '❌ Error loading delivery settings';
-            status.style.color = '#ef4444';
-        }
+        if (status) { status.textContent = '❌ Error loading delivery settings'; status.style.color = '#ef4444'; }
     }
 }
 
 document.getElementById('deliveryForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
-
     const offered = document.querySelector('input[name="delivery_offered"]:checked');
     const free = document.querySelector('input[name="delivery_free"]:checked');
     const freeWhere = document.querySelector('input[name="delivery_free_where"]:checked');
@@ -1662,15 +1836,10 @@ document.getElementById('deliveryForm')?.addEventListener('submit', async functi
     try {
         const res = await fetch('/api/business-admin/delivery-settings', {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify(data)
         });
-
         const result = await res.json();
-
         if (result.success) {
             status.textContent = '✅ Delivery settings saved successfully!';
             status.style.color = '#16a34a';
@@ -1692,29 +1861,20 @@ document.getElementById('deliveryForm')?.addEventListener('submit', async functi
 async function loadDeliveryOrders() {
     const container = document.getElementById('deliveryOrdersContainer');
     if (!container) return;
-
     try {
         const res = await fetch('/api/business-admin/orders?status=delivered', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         if (!res.ok) throw new Error('Failed to load delivery orders');
         const orders = await res.json();
-
         if (!orders || orders.length === 0) {
             container.innerHTML = '<p class="empty-msg">No delivery orders yet.</p>';
             return;
         }
-
         let html = '';
         orders.forEach(order => {
-            const methodLabels = {
-                'delivery': '🚚 Delivery',
-                'pickup': '📍 Pickup',
-                'chat': '💬 Chat'
-            };
+            const methodLabels = { 'delivery': '🚚 Delivery', 'pickup': '📍 Pickup', 'chat': '💬 Chat' };
             const methodLabel = methodLabels[order.delivery_method] || order.delivery_method || 'Pickup';
-
             html += `
                 <div class="order-row" style="border-left-color: #2563eb;">
                     <div class="order-header">
@@ -1730,9 +1890,7 @@ async function loadDeliveryOrders() {
                 </div>
             `;
         });
-
         container.innerHTML = html;
-
     } catch (err) {
         console.error('❌ Delivery orders error:', err);
         container.innerHTML = '<p class="empty-msg">Error loading delivery orders.</p>';
@@ -1740,27 +1898,19 @@ async function loadDeliveryOrders() {
 }
 
 // ============================================================
-//  ORDER SETTINGS - COMPLETE
+//  ORDER SETTINGS
 // ============================================================
 
 async function loadOrderSettings() {
-    if (!businessData) {
-        console.log('⚠️ No business data, cannot load order settings');
-        return;
-    }
-
+    if (!businessData) return;
     try {
         const res = await fetch('/api/business-admin/order-settings', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         if (!res.ok) throw new Error('Failed to load order settings');
         const settings = await res.json();
-
-        // Update state
         Object.assign(orderSettings, settings);
 
-        // Online orders
         document.getElementById('orderOnlineEnabled').checked = settings.online_orders_enabled !== false;
         document.getElementById('onlinePaymentEnabled').checked = settings.online_payment_enabled !== false;
         document.getElementById('paymentOnDeliveryEnabled').checked = settings.payment_on_delivery_enabled === true;
@@ -1769,13 +1919,9 @@ async function loadOrderSettings() {
         document.getElementById('orderRegions').value = settings.order_regions || 'Anywhere in Kenya';
         document.getElementById('orderCutoffTime').value = settings.order_cutoff_time || '14:00';
         document.getElementById('orderProcessingTime').value = settings.order_processing_time || '1-2 hours';
-
-        // Auto settings
         document.getElementById('orderAutoCancelHours').value = settings.auto_cancel_hours || 24;
         document.getElementById('orderAutoCompleteDays').value = settings.auto_complete_days || 7;
         document.getElementById('orderReplacementHours').value = settings.replacement_hours || 6;
-
-        // Status messages
         document.getElementById('orderStatusPending').value = settings.status_pending || '📋 Your order is being reviewed.';
         document.getElementById('orderStatusPendingPayment').value = settings.status_pending_payment || '⏳ Awaiting payment confirmation.';
         document.getElementById('orderStatusConfirmed').value = settings.status_confirmed || '✅ Your order is confirmed and being prepared.';
@@ -1784,17 +1930,11 @@ async function loadOrderSettings() {
         document.getElementById('orderStatusReceived').value = settings.status_received || '✔️ You have confirmed receipt. Thank you!';
         document.getElementById('orderStatusCancelled').value = settings.status_cancelled || '❌ This order has been cancelled.';
         document.getElementById('orderStatusCompleted').value = settings.status_completed || '✅ Order completed. Thank you for shopping!';
-
-        // Return policy
         document.getElementById('orderReturnPolicy').value = settings.return_policy || 'Returns accepted within 14 days of delivery. Products must be in original condition.';
         document.getElementById('orderReturnWindow').value = settings.return_window_days || 14;
 
-        // Toggle visibility
         toggleOrderSettingsVisibility(settings.online_orders_enabled !== false);
-
-        // Update preview
         updateOrderPreview();
-
     } catch (err) {
         console.error('❌ Order settings error:', err);
         showToast('Error loading order settings', 'error');
@@ -1804,19 +1944,13 @@ async function loadOrderSettings() {
 function toggleOrderSettingsVisibility(enabled) {
     const container = document.getElementById('orderSettingsContainer');
     const disabledMessage = document.getElementById('orderDisabledMessage');
-
-    if (container) {
-        container.style.display = enabled ? 'block' : 'none';
-    }
-    if (disabledMessage) {
-        disabledMessage.style.display = enabled ? 'none' : 'block';
-    }
+    if (container) container.style.display = enabled ? 'block' : 'none';
+    if (disabledMessage) disabledMessage.style.display = enabled ? 'none' : 'block';
 }
 
 function updateOrderPreview() {
     const container = document.getElementById('orderPreviewContent');
     if (!container) return;
-
     const enabled = document.getElementById('orderOnlineEnabled').checked;
     const regions = document.getElementById('orderRegions').value.trim() || 'Anywhere in Kenya';
     const cutoffTime = document.getElementById('orderCutoffTime').value || '14:00';
@@ -1834,32 +1968,17 @@ function updateOrderPreview() {
                 ${!enabled ? '<span style="font-size:0.7rem; color:#ef4444;">Customers cannot place orders</span>' : ''}
             </div>
     `;
-
     if (enabled) {
         html += `
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 20px; font-size:0.8rem; color:#475569;">
-                <div><strong>📍 Regions:</strong></div>
-                <div>${regions}</div>
-
-                <div><strong>⏰ Cutoff Time:</strong></div>
-                <div>${cutoffTime}</div>
-
-                <div><strong>⏳ Processing Time:</strong></div>
-                <div>${processingTime}</div>
-
-                <div><strong>🔁 Replacement Window:</strong></div>
-                <div>${replacementHours} hours</div>
-
-                <div><strong>📦 Return Window:</strong></div>
-                <div>${returnWindow} days</div>
-
-                <div><strong>⏰ Auto-Cancel:</strong></div>
-                <div>${autoCancel} hours</div>
-
-                <div><strong>✅ Auto-Complete:</strong></div>
-                <div>${autoComplete} days after receipt</div>
+                <div><strong>📍 Regions:</strong></div><div>${regions}</div>
+                <div><strong>⏰ Cutoff Time:</strong></div><div>${cutoffTime}</div>
+                <div><strong>⏳ Processing Time:</strong></div><div>${processingTime}</div>
+                <div><strong>🔁 Replacement Window:</strong></div><div>${replacementHours} hours</div>
+                <div><strong>📦 Return Window:</strong></div><div>${returnWindow} days</div>
+                <div><strong>⏰ Auto-Cancel:</strong></div><div>${autoCancel} hours</div>
+                <div><strong>✅ Auto-Complete:</strong></div><div>${autoComplete} days after receipt</div>
             </div>
-
             <div style="margin-top:8px; padding:8px 12px; background:#f8fafc; border-radius:6px; border-left:3px solid #2563eb;">
                 <p style="font-size:0.75rem; color:#64748b; margin:0;">
                     <strong>📋 Order Status Messages:</strong><br>
@@ -1869,7 +1988,6 @@ function updateOrderPreview() {
                     • Delivered: ${document.getElementById('orderStatusDelivered').value || 'Your order is ready for pickup.'}
                 </p>
             </div>
-
             <div style="margin-top:8px; padding:8px 12px; background:#f0fdf4; border-radius:6px; border-left:3px solid #22c55e;">
                 <p style="font-size:0.75rem; color:#166534; margin:0;">
                     <strong>🔄 Return Policy:</strong><br>
@@ -1887,7 +2005,6 @@ function updateOrderPreview() {
             </div>
         `;
     }
-
     html += '</div>';
     container.innerHTML = html;
 }
@@ -1918,47 +2035,27 @@ async function saveOrderSettings() {
     };
 
     const status = document.getElementById('orderSettingsStatus');
-    if (status) {
-        status.textContent = '⏳ Saving order settings...';
-        status.style.color = '#2563eb';
-    }
+    if (status) { status.textContent = '⏳ Saving order settings...'; status.style.color = '#2563eb'; }
 
     try {
         const res = await fetch('/api/business-admin/order-settings', {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify(data)
         });
-
         const result = await res.json();
-
         if (result.success) {
-            if (status) {
-                status.textContent = '✅ Order settings saved successfully!';
-                status.style.color = '#16a34a';
-            }
+            if (status) { status.textContent = '✅ Order settings saved successfully!'; status.style.color = '#16a34a'; }
             showToast('✅ Order settings saved!', 'success');
-
-            // Update businessData
             businessData.online_orders_enabled = data.online_orders_enabled;
             toggleOrderSettingsVisibility(data.online_orders_enabled);
             updateOrderPreview();
-
         } else {
-            if (status) {
-                status.textContent = '❌ ' + (result.error || 'Failed to save');
-                status.style.color = '#ef4444';
-            }
+            if (status) { status.textContent = '❌ ' + (result.error || 'Failed to save'); status.style.color = '#ef4444'; }
             showToast('❌ Failed to save order settings', 'error');
         }
     } catch (err) {
-        if (status) {
-            status.textContent = '❌ Network error: ' + err.message;
-            status.style.color = '#ef4444';
-        }
+        if (status) { status.textContent = '❌ Network error: ' + err.message; status.style.color = '#ef4444'; }
         showToast('❌ Network error', 'error');
     }
 }
@@ -1970,7 +2067,7 @@ function updateOrderSettingsUI() {
 }
 
 // ============================================================
-//  DELIVERY RECORDING FUNCTIONS
+//  DELIVERY RECORDING
 // ============================================================
 
 function openDeliveryLog(orderId) {
@@ -1984,17 +2081,11 @@ function openDeliveryLog(orderId) {
                 <h3 style="font-size:1.1rem; font-weight:700;">📦 Delivery Log - Order #${orderId}</h3>
                 <button onclick="closeDeliveryLog()" style="background:none; border:none; font-size:1.5rem; cursor:pointer;">✕</button>
             </div>
-            <div id="deliveryLogContent">
-                <p style="text-align:center; color:#94a3b8; padding:20px;">Loading delivery log...</p>
-            </div>
+            <div id="deliveryLogContent"><p style="text-align:center; color:#94a3b8; padding:20px;">Loading delivery log...</p></div>
             <div style="margin-top:16px; display:flex; gap:8px; justify-content:flex-end;">
                 <button class="btn btn-secondary" onclick="closeDeliveryLog()">Close</button>
-                <button class="btn btn-success" onclick="confirmDelivery(${orderId})">
-                    <i class="fas fa-check"></i> Confirm Delivery
-                </button>
-                <button class="btn btn-danger" onclick="reportDeliveryIssue(${orderId})">
-                    <i class="fas fa-exclamation-triangle"></i> Report Issue
-                </button>
+                <button class="btn btn-success" onclick="confirmDelivery(${orderId})"><i class="fas fa-check"></i> Confirm Delivery</button>
+                <button class="btn btn-danger" onclick="reportDeliveryIssue(${orderId})"><i class="fas fa-exclamation-triangle"></i> Report Issue</button>
             </div>
         </div>
     `;
@@ -2009,14 +2100,11 @@ function closeDeliveryLog() {
 
 async function loadDeliveryLogData(orderId) {
     const container = document.getElementById('deliveryLogContent');
-
     try {
         const res = await fetch(`/api/orders/${orderId}/delivery-record`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         const data = await res.json();
-
         if (!data || Object.keys(data).length === 0) {
             container.innerHTML = `
                 <div style="background:#fefce8; padding:16px; border-radius:8px; text-align:center;">
@@ -2026,22 +2114,15 @@ async function loadDeliveryLogData(orderId) {
             `;
             return;
         }
-
         let html = `
             <div style="background:#f8fafc; border-radius:8px; padding:16px; border:1px solid #e2e8f0;">
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 20px; font-size:0.9rem;">
-                    <div><strong>Order:</strong></div>
-                    <div>${data.order_ref || 'N/A'}</div>
-                    <div><strong>Method:</strong></div>
-                    <div>${data.delivery_method || 'Pickup'}</div>
-                    <div><strong>Code:</strong></div>
-                    <div style="font-weight:700; color:#2563eb;">${data.delivery_code || 'N/A'}</div>
-                    <div><strong>Chosen:</strong></div>
-                    <div>${data.recorded_at ? new Date(data.recorded_at).toLocaleString() : 'N/A'}</div>
-                    <div><strong>Status:</strong></div>
-                    <div>${getDeliveryStatusBadge(data.status)}</div>
+                    <div><strong>Order:</strong></div><div>${data.order_ref || 'N/A'}</div>
+                    <div><strong>Method:</strong></div><div>${data.delivery_method || 'Pickup'}</div>
+                    <div><strong>Code:</strong></div><div style="font-weight:700; color:#2563eb;">${data.delivery_code || 'N/A'}</div>
+                    <div><strong>Chosen:</strong></div><div>${data.recorded_at ? new Date(data.recorded_at).toLocaleString() : 'N/A'}</div>
+                    <div><strong>Status:</strong></div><div>${getDeliveryStatusBadge(data.status)}</div>
         `;
-
         if (data.delivery_method === 'delivery') {
             html += `
                 <div style="grid-column:1/-1; border-top:1px solid #e2e8f0; padding-top:8px; margin-top:4px;">
@@ -2056,7 +2137,6 @@ async function loadDeliveryLogData(orderId) {
                 </div>
             `;
         }
-
         if (data.delivery_method === 'pickup') {
             html += `
                 <div style="grid-column:1/-1; border-top:1px solid #e2e8f0; padding-top:8px; margin-top:4px;">
@@ -2068,7 +2148,6 @@ async function loadDeliveryLogData(orderId) {
                 </div>
             `;
         }
-
         html += `
                     <div style="grid-column:1/-1; border-top:1px solid #e2e8f0; padding-top:8px; margin-top:4px; font-size:0.75rem; color:#64748b;">
                         <div style="display:flex; gap:16px; flex-wrap:wrap;">
@@ -2080,11 +2159,8 @@ async function loadDeliveryLogData(orderId) {
                 </div>
             </div>
         `;
-
         container.innerHTML = html;
-
     } catch (err) {
-        console.error('Error loading delivery log:', err);
         container.innerHTML = `
             <div style="background:#fee2e2; padding:16px; border-radius:8px; text-align:center;">
                 <p style="color:#991b1b;">❌ Error loading delivery log</p>
@@ -2106,54 +2182,32 @@ function getDeliveryStatusBadge(status) {
 
 async function confirmDelivery(orderId) {
     if (!confirm('Confirm delivery for this order?')) return;
-
     try {
         const res = await fetch(`/api/orders/${orderId}/confirm-delivery`, {
             method: 'PUT',
             headers: { 'Authorization': `Bearer ${token}` }
         });
-
         const data = await res.json();
-
-        if (data.success) {
-            showToast('✅ Delivery confirmed!', 'success');
-            closeDeliveryLog();
-            loadOrders();
-        } else {
-            showToast('❌ ' + (data.error || 'Failed to confirm'), 'error');
-        }
-    } catch (err) {
-        showToast('❌ Network error', 'error');
-    }
+        if (data.success) { showToast('✅ Delivery confirmed!', 'success'); closeDeliveryLog(); loadOrders(); }
+        else showToast('❌ ' + (data.error || 'Failed to confirm'), 'error');
+    } catch (err) { showToast('❌ Network error', 'error'); }
 }
 
 function reportDeliveryIssue(orderId) {
     const reason = prompt('Please describe the issue with this delivery:');
     if (!reason) return;
-    if (reason.length < 10) {
-        alert('Please provide more details (at least 10 characters).');
-        return;
-    }
-
+    if (reason.length < 10) { alert('Please provide more details (at least 10 characters).'); return; }
     if (!confirm('Report this issue? This will notify the customer and admin.')) return;
 
     fetch(`/api/orders/${orderId}/dispute`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ reason })
     })
     .then(res => res.json())
     .then(data => {
-        if (data.success) {
-            showToast('⚠️ Issue reported. Admin will review.', 'warning');
-            closeDeliveryLog();
-            loadOrders();
-        } else {
-            showToast('❌ ' + (data.error || 'Failed to report'), 'error');
-        }
+        if (data.success) { showToast('⚠️ Issue reported. Admin will review.', 'warning'); closeDeliveryLog(); loadOrders(); }
+        else showToast('❌ ' + (data.error || 'Failed to report'), 'error');
     })
     .catch(() => showToast('❌ Network error', 'error'));
 }
@@ -2168,44 +2222,18 @@ function showToast(message, type = 'success') {
 
     const container = document.createElement('div');
     container.className = 'toast-container';
-    container.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 99999;
-        max-width: 400px;
-        width: 100%;
-    `;
+    container.style.cssText = `position: fixed; top: 20px; right: 20px; z-index: 99999; max-width: 400px; width: 100%;`;
 
     const toast = document.createElement('div');
-    const typeMap = {
-        success: '#22c55e',
-        error: '#ef4444',
-        warning: '#f59e0b',
-        info: '#2563eb'
-    };
-    const iconMap = {
-        success: '✅',
-        error: '❌',
-        warning: '⚠️',
-        info: 'ℹ️'
-    };
+    const typeMap = { success: '#22c55e', error: '#ef4444', warning: '#f59e0b', info: '#2563eb' };
+    const iconMap = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
     const bgColor = typeMap[type] || '#2563eb';
 
     toast.style.cssText = `
-        background: ${bgColor};
-        color: white;
-        padding: 14px 20px;
-        border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-        font-size: 0.9rem;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        animation: slideIn 0.3s ease;
-        margin-bottom: 8px;
-        word-break: break-word;
+        background: ${bgColor}; color: white; padding: 14px 20px; border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15); font-size: 0.9rem; font-weight: 500;
+        display: flex; align-items: center; gap: 12px; animation: slideIn 0.3s ease;
+        margin-bottom: 8px; word-break: break-word;
     `;
 
     const icon = document.createElement('span');
@@ -2219,21 +2247,8 @@ function showToast(message, type = 'success') {
 
     const closeBtn = document.createElement('button');
     closeBtn.innerHTML = '✕';
-    closeBtn.style.cssText = `
-        background: none;
-        border: none;
-        color: white;
-        font-size: 1rem;
-        cursor: pointer;
-        margin-left: auto;
-        opacity: 0.7;
-        transition: opacity 0.2s;
-        flex-shrink: 0;
-    `;
-    closeBtn.onclick = () => {
-        toast.style.transform = 'translateX(120%)';
-        setTimeout(() => container.remove(), 300);
-    };
+    closeBtn.style.cssText = `background: none; border: none; color: white; font-size: 1rem; cursor: pointer; margin-left: auto; opacity: 0.7; transition: opacity 0.2s; flex-shrink: 0;`;
+    closeBtn.onclick = () => { toast.style.transform = 'translateX(120%)'; setTimeout(() => container.remove(), 300); };
 
     toast.appendChild(icon);
     toast.appendChild(text);
@@ -2258,16 +2273,8 @@ async function logout() {
         window.parent.logout();
         return;
     }
-    if (statsInterval) {
-        clearInterval(statsInterval);
-        statsInterval = null;
-    }
-
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
-
+    if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+    if (socket) { socket.disconnect(); socket = null; }
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     localStorage.removeItem('businessId');
     localStorage.removeItem('businessName');
@@ -2284,6 +2291,10 @@ window.openMarketplaceMessages = openMarketplaceMessages;
 window.openPublicPreview = openPublicPreview;
 window.navigateTo = navigateTo;
 window.loadDashboard = loadDashboard;
+window.loadProductCategories = loadProductCategories;
+window.filterProductCategoryOptions = filterProductCategoryOptions;
+window.submitProductCategoryRequest = submitProductCategoryRequest;
+window.loadProductCategorySection = loadProductCategorySection;
 window.submitProductBatch = submitProductBatch;
 window.filterBusinessCategoryOptions = filterBusinessCategoryOptions;
 window.loadOrders = loadOrders;
@@ -2314,5 +2325,8 @@ window.closeDeliveryLog = closeDeliveryLog;
 window.confirmDelivery = confirmDelivery;
 window.reportDeliveryIssue = reportDeliveryIssue;
 window.showToast = showToast;
+
+// Section B — expose the missing-category warning helper
+window.applyCategoryWarning = applyCategoryWarning;
 
 console.log('✅ Business Admin JS loaded successfully');

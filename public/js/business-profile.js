@@ -1,13 +1,23 @@
 // ============================================================
 //  BUSINESS PROFILE JAVASCRIPT - COMPLETE VERSION (FIXED)
 //  Location: public/js/business-profile.js
+//
+//  Section B (Product Categories) additions:
+//   - Defined product-category filter (B.7) alongside the legacy one.
+//   - Single render path for product cards (B.8, no drift).
+//   - Category chip on each product card (B.7).
+//   - Deterministic SVG fallback image, matching product-detail.js.
+//
+//  Hardening:
+//   - businessFallbackImage() strips unpaired surrogates and control
+//     characters before encodeURIComponent, so a corrupted product
+//     name can no longer throw "URIError: URI malformed".
 // ============================================================
 
 // ============================================================
 //  GLOBALS - Make sure no duplicate declarations with app.js
 // ============================================================
 
-// Check if already declared in app.js, if not then declare
 if (typeof window.businessSlug === 'undefined') {
     window.businessSlug = null;
 }
@@ -49,6 +59,14 @@ if (typeof window.customerLocation === 'undefined') {
 }
 if (typeof window.isOwnBusiness === 'undefined') {
     window.isOwnBusiness = false;
+}
+
+// Product loading pagination state (reserved for a future Load-More button).
+if (typeof window.nextProductPage === 'undefined') {
+    window.nextProductPage = 1;
+}
+if (typeof window.hasMoreProducts === 'undefined') {
+    window.hasMoreProducts = true;
 }
 
 // Use window-scoped variables to avoid conflicts
@@ -135,7 +153,6 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
-    // FIXED: Call updateNavigation directly instead of updateBusinessProfileNav
     if (typeof updateNavigation === 'function') {
         updateNavigation();
     }
@@ -233,7 +250,6 @@ async function loadBusinessProfile() {
 
         checkIfOwnBusiness();
 
-        // FIXED: Call updateNavigation directly instead of updateBusinessProfileNav
         if (typeof updateNavigation === 'function') {
             updateNavigation();
         }
@@ -485,15 +501,24 @@ async function loadBusinessProducts() {
         const data = await res.json();
         const allProducts = data.products || [];
         const totalPages = data.pagination?.pages || 1;
+
         for (let page = 2; page <= totalPages; page += 1) {
             const nextRes = await fetch(`/api/businesses/${encodeURIComponent(businessSlug)}/products?limit=100&page=${page}`);
             if (!nextRes.ok) throw new Error(`Failed to load products (${nextRes.status})`);
             const nextData = await nextRes.json();
             allProducts.push(...(nextData.products || []));
         }
+
         window.businessProductList = allProducts;
         businessProductList = window.businessProductList;
+        window.nextProductPage = totalPages + 1;
+        window.hasMoreProducts = false; // eagerly loaded all pages for now
+
+        // Legacy free-text filter (kept for backward compatibility).
         populateBusinessProductCategories();
+        // B.7 — defined product-category filter from the product_categories table.
+        populateDefinedProductCategories();
+
         console.log(`📦 Loaded ${businessProductList.length} products for ${businessData.business_name}`);
 
         renderBusinessGrid();
@@ -507,9 +532,40 @@ async function loadBusinessProducts() {
 }
 
 // ============================================================
-//  RENDER BUSINESS GRID
+//  FALLBACK IMAGE — deterministic SVG, matches product-detail.js
+//
+//  HARDENED: strips control characters and unpaired surrogates
+//  before encoding, and wraps encodeURIComponent in a try/catch
+//  with a static fallback. Fixes "URIError: URI malformed" that
+//  occurs when a product name contains a broken emoji or lone
+//  high surrogate.
 // ============================================================
 
+function businessFallbackImage(product) {
+    const rawLabel = String((product && product.name) || 'Product').slice(0, 32);
+    // Strip anything that cannot be safely URI-encoded.
+    const safeLabel = rawLabel.replace(/[\u0000-\u001F\u007F\uD800-\uDFFF\uFFFE\uFFFF]/g, '');
+
+    let encoded;
+    try {
+        encoded = encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${safeLabel}</text></svg>`
+        );
+    } catch (err) {
+        // Absolute last-resort fallback — no dynamic content at all.
+        encoded = encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text></svg>`
+        );
+    }
+
+    return `data:image/svg+xml;charset=UTF-8,${encoded}`;
+}
+
+// ============================================================
+//  POPULATE PRODUCT-CATEGORY FILTERS
+// ============================================================
+
+// Legacy free-text picker — kept so existing filters continue to work.
 function populateBusinessProductCategories() {
     const select = document.getElementById('businessProductCategoryFilter');
     if (!select) return;
@@ -526,11 +582,50 @@ function populateBusinessProductCategories() {
     select.value = categories.includes(selected) ? selected : 'all';
 }
 
+// B.7 — defined-list picker. Only shows categories that yield at least one
+// result for this business, so every option is guaranteed to be useful.
+function populateDefinedProductCategories() {
+    const select = document.getElementById('businessProductCategoryIdFilter');
+    if (!select) return;
+    const selected = select.value || 'all';
+
+    const map = new Map();
+    (businessProductList || []).forEach(product => {
+        if (!product.product_category_id) return;
+        const id = String(product.product_category_id);
+        if (!map.has(id)) {
+            map.set(id, {
+                id,
+                name: product.product_category_name || 'Uncategorised',
+                icon: product.product_category_icon || '📦'
+            });
+        }
+    });
+
+    const categories = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+    select.innerHTML = '<option value="all">All defined categories</option>';
+    categories.forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat.id;
+        option.textContent = `${cat.icon} ${cat.name}`;
+        select.appendChild(option);
+    });
+
+    select.value = categories.some(c => c.id === selected) ? selected : 'all';
+}
+
+// ============================================================
+//  RENDER BUSINESS GRID — single source of truth for card markup
+// ============================================================
+
 function renderBusinessGrid() {
+    renderBusinessProductGrid(businessProductList || []);
+}
+
+function renderBusinessProductGrid(products) {
     const grid = document.getElementById('productGrid');
     if (!grid) return;
-
-    const products = businessProductList || [];
 
     if (!products || products.length === 0) {
         grid.innerHTML = `<p style="text-align:center;padding:40px;color:#94a3b8;">No products available yet.</p>`;
@@ -547,14 +642,16 @@ function renderBusinessGrid() {
         const qtyId = `bqty-${p.id}`;
         const disabled = !onlineOrdersEnabled ? 'disabled' : '';
 
-        let imageHtml = '';
-        if (p.image) {
-            imageHtml = `<img src="${p.image}" alt="${p.name}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;background:#e2e8f0;font-size:2rem;\\'>📦</div>'">`;
-        } else {
-            imageHtml = `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e2e8f0;font-size:2rem;">📦</div>`;
-        }
+        const imageSrc = p.image || businessFallbackImage(p);
+        // The onerror handler rebuilds the fallback for this product on demand,
+        // so a broken remote image still ends up showing a clean SVG card.
+        const fallbackForThisProduct = businessFallbackImage(p).replace(/'/g, "\\'");
+        const imageHtml = `<img src="${imageSrc}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackForThisProduct}'">`;
 
         const ratingHtml = p.rating ? `<div class="rating"><span>⭐</span>(${p.rating})</div>` : '';
+        const categoryHtml = p.product_category_name
+            ? `<div class="product-category-chip" title="${p.product_category_name}">${p.product_category_icon || '📦'} ${p.product_category_name}</div>`
+            : '';
 
         return `
             <div class="product-card">
@@ -567,6 +664,7 @@ function renderBusinessGrid() {
                 </div>
                 <div class="info">
                     <div class="name">${p.name} ${inCart ? '<span class="green-tick">✔</span>' : ''}</div>
+                    ${categoryHtml}
                     <div class="price">${p.price}</div>
                     ${ratingHtml}
                     <div class="actions">
@@ -609,77 +707,40 @@ function addBusinessCardToCart(productId) {
 
 // ============================================================
 //  FILTER BUSINESS PRODUCTS
+//  Cumulative: search AND defined category AND legacy category.
 // ============================================================
 
 function filterBusinessProducts() {
-    const searchInput = document.getElementById('businessSearchInput');
     const grid = document.getElementById('productGrid');
+    if (!grid) return;
 
-    if (!grid || !businessProductList) return;
+    const query = (document.getElementById('businessSearchInput')?.value || '').trim().toLowerCase();
+    const definedCategoryId = document.getElementById('businessProductCategoryIdFilter')?.value || 'all';
+    const legacyCategory = document.getElementById('businessProductCategoryFilter')?.value || 'all';
 
-    const query = searchInput?.value?.trim().toLowerCase() || '';
-    const category = document.getElementById('businessProductCategoryFilter')?.value || 'all';
-
-    let products = businessProductList || [];
+    let products = (businessProductList || []).slice();
 
     if (query) {
         products = products.filter(p =>
-            p.name.toLowerCase().includes(query) ||
+            (p.name || '').toLowerCase().includes(query) ||
             (p.description && p.description.toLowerCase().includes(query))
         );
     }
-    if (category !== 'all') products = products.filter(product => product.category === category);
+
+    if (definedCategoryId !== 'all') {
+        products = products.filter(p => String(p.product_category_id || '') === definedCategoryId);
+    }
+
+    if (legacyCategory !== 'all') {
+        products = products.filter(p => p.category === legacyCategory);
+    }
 
     if (products.length === 0) {
-        grid.innerHTML = `<p style="text-align:center;padding:40px;color:#94a3b8;">No products found for "<strong>${query}</strong>"</p>`;
+        grid.innerHTML = `<p style="text-align:center;padding:40px;color:#94a3b8;">No products match your filters.</p>`;
         return;
     }
 
-    const cart = typeof getCart === 'function' ? getCart() : [];
-    const onlineOrdersEnabled = businessData.online_orders_enabled !== false;
-
-    grid.innerHTML = products.map(p => {
-        const inCart = cart.some(item => item.id === p.id);
-        const btnText = inCart ? 'Add More' : 'Add to Cart';
-        const btnClass = inCart ? 'in-cart' : '';
-        const qtyId = `bqty-${p.id}`;
-        const disabled = !onlineOrdersEnabled ? 'disabled' : '';
-
-        let imageHtml = '';
-        if (p.image) {
-            imageHtml = `<img src="${p.image}" alt="${p.name}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;background:#e2e8f0;font-size:2rem;\\'>📦</div>'">`;
-        } else {
-            imageHtml = `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e2e8f0;font-size:2rem;">📦</div>`;
-        }
-
-        const ratingHtml = p.rating ? `<div class="rating"><span>⭐</span>(${p.rating})</div>` : '';
-
-        return `
-            <div class="product-card">
-                <div class="media-wrap" onclick="location.href='/product-detail.html?id=${p.id}&business=${businessSlug}'">
-                    ${imageHtml}
-                    <div class="quick-view-icon"><i class="fas fa-eye"></i></div>
-                    ${p.isFlashSale ? `<div class="flash-badge">🔥</div>` : ''}
-                    ${p.isNewArrival ? `<div class="new-badge">🆕</div>` : ''}
-                </div>
-                <div class="info">
-                    <div class="name">${p.name} ${inCart ? '<span class="green-tick">✔</span>' : ''}</div>
-                    <div class="price">${p.price}</div>
-                    ${ratingHtml}
-                    <div class="actions">
-                        <div class="qty-control">
-                            <button onclick="changeBusinessCardQty(${p.id}, -1)" ${disabled}>−</button>
-                            <span id="${qtyId}">1</span>
-                            <button onclick="changeBusinessCardQty(${p.id}, 1)" ${disabled}>+</button>
-                        </div>
-                        <button class="btn-add ${btnClass}" onclick="addBusinessCardToCart(${p.id})" ${disabled}>
-                            <i class="fas fa-cart-plus"></i> ${onlineOrdersEnabled ? btnText : 'Unavailable'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
+    renderBusinessProductGrid(products);
 }
 
 // ============================================================
@@ -1110,5 +1171,10 @@ window.toggleFollow = toggleFollow;
 window.filterBusinessProducts = filterBusinessProducts;
 window.showToast = showToast;
 window.checkIfOwnBusiness = checkIfOwnBusiness;
+
+// Section B exposures
+window.renderBusinessProductGrid = renderBusinessProductGrid;
+window.populateDefinedProductCategories = populateDefinedProductCategories;
+window.businessFallbackImage = businessFallbackImage;
 
 console.log('✅ Business Profile JS loaded successfully (FIXED - No circular dependency)');

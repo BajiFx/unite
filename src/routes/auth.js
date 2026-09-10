@@ -675,6 +675,13 @@ router.get('/verify', authMiddleware, (req, res) => {
 
 // ============================================================
 //  GET MY BUSINESS (For logged-in business admin)
+//
+//  Section B: this endpoint now also returns
+//  `has_business_category` so the admin UI can warn businesses
+//  that registered before Section B and have no business
+//  category assigned yet. The admin panel uses the flag to
+//  show a red banner + a red dot on the Business Profile
+//  sidebar item until a category is set.
 // ============================================================
 
 router.get('/my-business', authMiddleware, async (req, res) => {
@@ -744,12 +751,14 @@ router.get('/my-business', authMiddleware, async (req, res) => {
       return res.json({ business: null });
     }
 
-    // Get business data
+    // Get business data — including the count of assigned
+    // business categories so the UI can prompt for a missing one.
     const businessResult = await pool.query(`
       SELECT b.*,
         (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
         (SELECT COUNT(*) FROM orders WHERE business_id = b.id) as order_count,
-        (SELECT COALESCE(SUM(total), 0) FROM orders WHERE business_id = b.id AND status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')) as total_revenue
+        (SELECT COALESCE(SUM(total), 0) FROM orders WHERE business_id = b.id AND status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')) as total_revenue,
+        (SELECT COUNT(*) FROM business_category_assignments WHERE business_id = b.id) as business_category_count
       FROM businesses b
       WHERE b.id = $1 AND b.is_active = true
     `, [user.business_id]);
@@ -759,8 +768,15 @@ router.get('/my-business', authMiddleware, async (req, res) => {
       return res.json({ business: null });
     }
 
-    console.log('✅ Business found:', businessResult.rows[0].business_name);
-    res.json({ business: businessResult.rows[0], role: user.role });
+    const business = businessResult.rows[0];
+    console.log('✅ Business found:', business.business_name);
+    console.log('✅ Business category count:', business.business_category_count);
+
+    res.json({
+      business,
+      role: user.role,
+      has_business_category: parseInt(business.business_category_count, 10) > 0
+    });
 
   } catch (err) {
     console.error('❌ Get my business error:', err);

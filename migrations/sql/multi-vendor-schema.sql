@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS products (
     old_price VARCHAR(50),
     discount_percent VARCHAR(10),
     category VARCHAR(100),
+    product_category_id INTEGER REFERENCES product_categories(id) ON DELETE SET NULL,
     contact VARCHAR(100),
     rating VARCHAR(50),
     badge1 VARCHAR(100),
@@ -423,6 +424,21 @@ CREATE TABLE IF NOT EXISTS business_category_assignments (
     PRIMARY KEY (business_id, category_id)
 );
 
+-- Product Categories (Section B.1 — defined list in the database)
+CREATE TABLE IF NOT EXISTS product_categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    slug VARCHAR(120) NOT NULL UNIQUE,
+    icon VARCHAR(50),
+    description TEXT,
+    business_category_id INTEGER REFERENCES business_categories(id) ON DELETE SET NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_requested BOOLEAN NOT NULL DEFAULT FALSE,
+    requested_by_business_id INTEGER REFERENCES businesses(id) ON DELETE SET NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================
 -- 5. LOCATION & DELIVERY
 -- ============================================================
@@ -641,7 +657,11 @@ CREATE INDEX IF NOT EXISTS idx_orders_business_id ON orders(business_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_business_id ON order_items(business_id);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_product_category ON products(product_category_id);
 CREATE INDEX IF NOT EXISTS idx_products_business_id ON products(business_id);
+CREATE INDEX IF NOT EXISTS idx_product_categories_business_category ON product_categories(business_category_id);
+CREATE INDEX IF NOT EXISTS idx_product_categories_active ON product_categories(is_active);
+CREATE INDEX IF NOT EXISTS idx_product_categories_slug ON product_categories(slug);
 CREATE INDEX IF NOT EXISTS idx_carts_customer_id ON carts(customer_id);
 CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id);
 CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
@@ -799,6 +819,200 @@ INSERT INTO pickup_stations (name, county_id, sub_county_id, address, contact_ph
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
+-- 9b. PRODUCT CATEGORIES SEED (Section B.1)
+-- ============================================================
+
+-- Health
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Medicines & Prescriptions', 'medicines-prescriptions', '💊'),
+    ('First Aid & Bandages', 'first-aid-bandages', '🩹'),
+    ('Vitamins & Supplements', 'vitamins-supplements', '🧴'),
+    ('Medical Equipment', 'medical-equipment', '🩺'),
+    ('Baby & Maternal Care', 'baby-maternal-care', '🍼'),
+    ('Personal Protective Equipment', 'personal-protective-equipment', '🧤')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'health'
+ON CONFLICT (name) DO NOTHING;
+
+-- Beauty
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Skincare', 'skincare', '🧴'),
+    ('Makeup & Cosmetics', 'makeup-cosmetics', '💄'),
+    ('Haircare', 'haircare', '💇'),
+    ('Fragrances & Perfumes', 'fragrances-perfumes', '🌸'),
+    ('Nail Care', 'nail-care', '💅'),
+    ('Bath & Body', 'bath-body', '🛁')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'beauty'
+ON CONFLICT (name) DO NOTHING;
+
+-- Hardware
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Hand Tools', 'hand-tools', '🔨'),
+    ('Power Tools', 'power-tools', '⚡'),
+    ('Building Materials', 'building-materials', '🧱'),
+    ('Plumbing Supplies', 'plumbing-supplies', '🚰'),
+    ('Electrical Supplies', 'electrical-supplies', '🔌'),
+    ('Paint & Finishes', 'paint-finishes', '🎨'),
+    ('Fasteners & Fixings', 'fasteners-fixings', '🔩')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'hardware'
+ON CONFLICT (name) DO NOTHING;
+
+-- Books
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Textbooks', 'textbooks', '📖'),
+    ('Stationery', 'stationery', '✏️'),
+    ('Office Supplies', 'office-supplies', '📎'),
+    ('School Bags', 'school-bags', '🎒'),
+    ('Art & Craft Supplies', 'art-craft-supplies', '🎨')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'books'
+ON CONFLICT (name) DO NOTHING;
+
+-- Electronics
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Mobile Phones', 'mobile-phones', '📱'),
+    ('Tablets', 'tablets', '📲'),
+    ('Laptops & Computers', 'laptops-computers', '💻'),
+    ('Computer Accessories', 'computer-accessories', '🖱️'),
+    ('Audio & Headphones', 'audio-headphones', '🎧'),
+    ('TVs & Home Theatre', 'tvs-home-theatre', '📺'),
+    ('Cameras & Photography', 'cameras-photography', '📷'),
+    ('Gaming Consoles', 'gaming-consoles', '🎮'),
+    ('Smart Watches', 'smart-watches', '⌚'),
+    ('Power Banks & Chargers', 'power-banks-chargers', '🔋')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'electronics'
+ON CONFLICT (name) DO NOTHING;
+
+-- Fashion
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('T-Shirts', 't-shirts', '👕'),
+    ('Shirts & Blouses', 'shirts-blouses', '👔'),
+    ('Dresses', 'dresses', '👗'),
+    ('Skirts', 'skirts', '👚'),
+    ('Trousers & Jeans', 'trousers-jeans', '👖'),
+    ('Jackets & Coats', 'jackets-coats', '🧥'),
+    ('Sneakers', 'sneakers', '👟'),
+    ('Dress Shoes', 'dress-shoes', '👞'),
+    ('Sandals & Slippers', 'sandals-slippers', '🩴'),
+    ('Boots', 'boots', '🥾'),
+    ('Bags & Handbags', 'bags-handbags', '👜'),
+    ('Jewelry & Watches', 'jewelry-watches', '💍'),
+    ('Hats & Caps', 'hats-caps', '🧢'),
+    ('Underwear & Lingerie', 'underwear-lingerie', '🩲'),
+    ('Sportswear', 'sportswear', '🎽')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'fashion'
+ON CONFLICT (name) DO NOTHING;
+
+-- Food
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Fresh Produce', 'fresh-produce', '🥬'),
+    ('Meat & Poultry', 'meat-poultry', '🥩'),
+    ('Fish & Seafood', 'fish-seafood', '🐟'),
+    ('Dairy & Eggs', 'dairy-eggs', '🥚'),
+    ('Bakery & Bread', 'bakery-bread', '🥖'),
+    ('Cakes & Pastries', 'cakes-pastries', '🧁'),
+    ('Beverages', 'beverages', '🥤'),
+    ('Snacks & Confectionery', 'snacks-confectionery', '🍫'),
+    ('Canned & Packaged Foods', 'canned-packaged-foods', '🥫'),
+    ('Spices & Seasonings', 'spices-seasonings', '🧂'),
+    ('Grains & Cereals', 'grains-cereals', '🌾'),
+    ('Prepared Meals', 'prepared-meals', '🍱')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'food'
+ON CONFLICT (name) DO NOTHING;
+
+-- Home
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Furniture', 'home-furniture', '🛋️'),
+    ('Bedding & Mattresses', 'bedding-mattresses', '🛏️'),
+    ('Curtains & Blinds', 'curtains-blinds', '🪟'),
+    ('Home Decor', 'home-decor', '🖼️'),
+    ('Kitchen & Cookware', 'kitchen-cookware', '🍳'),
+    ('Home Appliances', 'home-appliances', '🔌'),
+    ('Lighting', 'lighting', '💡'),
+    ('Cleaning Supplies', 'cleaning-supplies', '🧽'),
+    ('Storage & Organization', 'storage-organization', '📦')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'home'
+ON CONFLICT (name) DO NOTHING;
+
+-- Sports
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Gym Equipment', 'gym-equipment', '🏋️'),
+    ('Sports Shoes', 'sports-shoes', '👟'),
+    ('Balls & Sports Gear', 'balls-sports-gear', '⚽'),
+    ('Cycling Gear', 'cycling-gear', '🚴'),
+    ('Fitness Accessories', 'fitness-accessories', '🧘'),
+    ('Outdoor & Hiking Gear', 'hiking-gear', '🥾')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'sports'
+ON CONFLICT (name) DO NOTHING;
+
+-- Automotive
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Car Parts', 'car-parts', '🔧'),
+    ('Motorcycle Parts', 'motorcycle-parts', '🏍️'),
+    ('Tyres & Wheels', 'tyres-wheels', '🛞'),
+    ('Car Batteries', 'car-batteries', '🔋'),
+    ('Car Care & Cleaning', 'car-care-cleaning', '🧼'),
+    ('Car Accessories', 'car-accessories', '🚙'),
+    ('Oils & Lubricants', 'oils-lubricants', '🛢️')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'automotive'
+ON CONFLICT (name) DO NOTHING;
+
+-- Services
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Consulting Services', 'consulting-services', '💼'),
+    ('Legal Services', 'legal-services', '⚖️'),
+    ('Accounting & Tax', 'accounting-tax', '🧾'),
+    ('Marketing & Design', 'marketing-design', '📢'),
+    ('IT Services', 'it-services', '🖥️'),
+    ('Repair Services', 'repair-services', '🛠️'),
+    ('Cleaning Services', 'professional-cleaning', '🧹')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'services'
+ON CONFLICT (name) DO NOTHING;
+
+-- Other
+INSERT INTO product_categories (name, slug, icon, business_category_id)
+SELECT v.name, v.slug, v.icon, bc.id
+FROM (VALUES
+    ('Gifts & Souvenirs', 'gifts-souvenirs', '🎁'),
+    ('Arts & Crafts', 'arts-crafts', '🎨'),
+    ('Party Supplies', 'party-supplies', '🎉'),
+    ('General Merchandise', 'general-merchandise', '📦')
+) AS v(name, slug, icon)
+JOIN business_categories bc ON bc.slug = 'other'
+ON CONFLICT (name) DO NOTHING;
+
+-- ============================================================
 -- 10. TRIGGERS (optional: auto-update business_stats)
 -- ============================================================
 
@@ -853,6 +1067,21 @@ AFTER INSERT OR DELETE ON business_followers
 FOR EACH ROW
 EXECUTE FUNCTION update_business_stats();
 
+-- Product categories updated_at trigger
+CREATE OR REPLACE FUNCTION set_product_categories_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_product_categories_updated_at ON product_categories;
+CREATE TRIGGER trg_product_categories_updated_at
+BEFORE UPDATE ON product_categories
+FOR EACH ROW
+EXECUTE FUNCTION set_product_categories_updated_at();
+
 -- ============================================================
 -- 11. VIEW (for easy business listing)
 -- ============================================================
@@ -874,6 +1103,13 @@ WHERE b.is_active = true;
 -- ============================================================
 
 DO $$
+DECLARE
+    bc_count INTEGER;
+    pc_count INTEGER;
 BEGIN
+    SELECT COUNT(*) INTO bc_count FROM business_categories;
+    SELECT COUNT(*) INTO pc_count FROM product_categories;
     RAISE NOTICE '✅ Multi-vendor database schema created successfully!';
+    RAISE NOTICE '   business_categories rows: %', bc_count;
+    RAISE NOTICE '   product_categories rows: %', pc_count;
 END $$;

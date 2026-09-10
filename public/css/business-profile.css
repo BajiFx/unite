@@ -442,6 +442,26 @@
   margin-top: 2px;
 }
 
+/* ============================================================
+   B.7 — Defined product-category chip on profile product cards
+   ============================================================ */
+.product-card .product-category-chip {
+  display: inline-block;
+  max-width: 100%;
+  margin: 2px 0 4px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
 /* ===== SLIDER SECTION ===== */
 .slider-section {
   padding: 0 12px;

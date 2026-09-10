@@ -130,13 +130,19 @@
     </div>
 
     <!-- ===== PRODUCTS SECTION ===== -->
+    <!-- B.7 — filter by product category (from the DB) as well as by search -->
     <div class="products-section" id="products">
       <div class="section-header">
         <h2>📦 Our Products</h2>
         <div class="products-filters">
           <input type="text" id="businessSearchInput" placeholder="Search products..." onkeyup="filterBusinessProducts()">
-          <select id="businessProductCategoryFilter" onchange="filterBusinessProducts()" aria-label="Filter products by category">
+          <!-- Legacy free-text category filter (kept for backward compatibility) -->
+          <select id="businessProductCategoryFilter" onchange="filterBusinessProducts()" aria-label="Filter products by legacy category">
             <option value="all">All product categories</option>
+          </select>
+          <!-- B.7 — product category filter (defined list from the DB) -->
+          <select id="businessProductCategoryIdFilter" onchange="filterBusinessProducts()" aria-label="Filter products by product category">
+            <option value="all">All defined categories</option>
           </select>
         </div>
       </div>

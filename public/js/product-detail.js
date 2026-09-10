@@ -1,5 +1,11 @@
 // ============================================================
 //  PRODUCT DETAIL JAVASCRIPT
+//
+//  Section B (B.7) additions:
+//   - Related products are scoped to the same product_category_id.
+//   - The product's defined category is rendered as a chip.
+//   - The related filter dropdown now surfaces defined product
+//     categories alongside the legacy free-text categories.
 // ============================================================
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -81,7 +87,17 @@ async function loadProductDetail() {
     }
 
     currentVariantId = allVariants[0].id;
-    renderDetail(data.product, data.reviews || [], data.related || []);
+
+    // B.7 — when this product has a defined category, prefer related products
+    // from the same category so the customer sees "more like this".
+    let related = data.related || [];
+    const sameCategoryId = data.product && data.product.product_category_id;
+    if (sameCategoryId) {
+      const filtered = related.filter(r => r.product_category_id === sameCategoryId);
+      if (filtered.length > 0) related = filtered;
+    }
+
+    renderDetail(data.product, data.reviews || [], related);
   } catch (err) {
     document.getElementById('detailContent').innerHTML = `<p style="color:#ef4444;">Error: ${err.message}</p>`;
   }
@@ -186,6 +202,11 @@ function renderDetail(product, reviews, related) {
     `;
   }
 
+  // B.7 — Defined product category chip (from the product_categories table).
+  const categoryChipHtml = product.product_category_name
+    ? `<div class="product-category-chip" title="${product.product_category_name}">${product.product_category_icon || '📦'} ${product.product_category_name}</div>`
+    : '';
+
   // Badges
   let badgesHtml = '';
   if (product.badge1) badgesHtml += `<span class="badge badge-green">${product.badge1}</span>`;
@@ -287,7 +308,11 @@ function renderDetail(product, reviews, related) {
   (related || []).forEach(item => { item.image = fallbackMediaUrl(item); });
   if (related && related.length > 0) {
     relatedHtml = related.slice(0, 4).map(p => `
-      <div class="related-item" data-name="${p.name.toLowerCase()}" data-category="${(p.category || '').toLowerCase()}" onclick="location.href='/product-detail.html?id=${p.id}&business=${encodeURIComponent(product.business_slug || '')}'">
+      <div class="related-item"
+           data-name="${(p.name || '').toLowerCase()}"
+           data-category="${(p.category || '').toLowerCase()}"
+           data-category-id="${p.product_category_id || ''}"
+           onclick="location.href='/product-detail.html?id=${p.id}&business=${encodeURIComponent(product.business_slug || '')}'">
         ${p.image ? `<img src="${p.image}" alt="${p.name}">` : `<div class="no-image">📦</div>`}
         <div class="related-info">
           <div class="related-name">${p.name}</div>
@@ -295,6 +320,30 @@ function renderDetail(product, reviews, related) {
         </div>
       </div>
     `).join('');
+  }
+
+  // Related filter dropdown — combine the defined product categories with the
+  // legacy free-text categories so the customer can narrow by either.
+  const definedCategoryOptions = [...new Map(
+    (related || [])
+      .filter(item => item.product_category_id && item.product_category_name)
+      .map(item => [String(item.product_category_id), item.product_category_name])
+  ).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+
+  const legacyCategoryOptions = [...new Set(
+    (related || []).map(item => item.category).filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+
+  let relatedFilterOptions = '<option value="all">All product categories</option>';
+  if (definedCategoryOptions.length > 0) {
+    relatedFilterOptions += `<optgroup label="Defined categories">${definedCategoryOptions
+      .map(([id, name]) => `<option value="id:${id}">${name}</option>`)
+      .join('')}</optgroup>`;
+  }
+  if (legacyCategoryOptions.length > 0) {
+    relatedFilterOptions += `<optgroup label="Other categories">${legacyCategoryOptions
+      .map(category => `<option value="name:${category.toLowerCase()}">${category}</option>`)
+      .join('')}</optgroup>`;
   }
 
   // Cart button
@@ -312,6 +361,7 @@ function renderDetail(product, reviews, related) {
 
       <div class="detail-info">
         <div class="name">${product.name}</div>
+        ${categoryChipHtml}
         ${ratingHtml}
         ${priceHtml}
         ${stockHtml}
@@ -371,7 +421,7 @@ function renderDetail(product, reviews, related) {
       <h3>You may also like</h3>
       <div class="products-filters related-filters">
         <input id="relatedProductSearch" type="search" placeholder="Search this business's products" oninput="filterRelatedProducts()">
-        <select id="relatedProductCategory" onchange="filterRelatedProducts()"><option value="all">All product categories</option>${[...new Set((related || []).map(item => item.category).filter(Boolean))].map(category => `<option value="${category.toLowerCase()}">${category}</option>`).join('')}</select>
+        <select id="relatedProductCategory" onchange="filterRelatedProducts()">${relatedFilterOptions}</select>
       </div>
       <div class="related-grid">${relatedHtml}</div>
     </div>
@@ -399,12 +449,27 @@ function selectMedia(index) {
   loadProductDetail();
 }
 
+// Related filter now understands both encoded option formats:
+//   id:<product_category_id>   — defined product categories
+//   name:<legacy category>     — legacy free-text categories
 function filterRelatedProducts() {
   const query = (document.getElementById('relatedProductSearch')?.value || '').trim().toLowerCase();
-  const category = document.getElementById('relatedProductCategory')?.value || 'all';
+  const selection = document.getElementById('relatedProductCategory')?.value || 'all';
+
+  let mode = 'all';
+  let target = '';
+  if (selection.startsWith('id:')) { mode = 'id'; target = selection.slice(3); }
+  else if (selection.startsWith('name:')) { mode = 'name'; target = selection.slice(5); }
+
   document.querySelectorAll('.related-products .related-item').forEach(item => {
-    const matches = (!query || item.dataset.name.includes(query)) && (category === 'all' || item.dataset.category === category);
-    item.style.display = matches ? '' : 'none';
+    const matchesQuery = !query || (item.dataset.name || '').includes(query);
+    let matchesCategory = true;
+    if (mode === 'id') {
+      matchesCategory = String(item.dataset.categoryId || '') === target;
+    } else if (mode === 'name') {
+      matchesCategory = (item.dataset.category || '') === target;
+    }
+    item.style.display = (matchesQuery && matchesCategory) ? '' : 'none';
   });
 }
 

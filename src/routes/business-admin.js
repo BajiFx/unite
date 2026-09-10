@@ -1,6 +1,12 @@
 // ============================================================
 //  BUSINESS ADMIN ROUTES - COMPLETE WITH ALL SETTINGS
 //  Location: src/routes/business-admin.js
+//
+//  B.1 — Product categories come from the database
+//  B.3 — Filtered by the business's own business category
+//  B.5 — Required on create, update, and batch
+//  B.6 — Business admins can request new product categories
+//  B.8 — Joined category name returned on every product
 // ============================================================
 
 const express = require('express');
@@ -35,69 +41,116 @@ async function geocodeLocation(location) {
     }
 }
 
-router.put('/location', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+// ============================================================
+//  PRODUCT CATEGORIES — list for the current business
+//  B.1, B.3 — Only categories linked to the business's own
+//             business categories are returned. Generic ones
+//             (business_category_id IS NULL) are always included.
+// ============================================================
+
+router.get('/product-categories', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
     try {
-        const location = Object.fromEntries(LOCATION_FIELDS.map(field => [field, typeof req.body[field] === 'string' ? req.body[field].trim() || null : undefined]));
-        const suppliedFields = Object.entries(location).filter(([, value]) => value !== undefined);
-        if (!suppliedFields.length) return res.status(400).json({ error: 'Provide at least one location field' });
-        const current = await pool.query('SELECT * FROM businesses WHERE id = $1', [req.businessId]);
-        if (!current.rows[0]) return res.status(404).json({ error: 'Business not found' });
-        const fullLocation = { ...current.rows[0], ...Object.fromEntries(suppliedFields) };
-        const geocoded = await geocodeLocation(fullLocation);
-        const fields = suppliedFields.map(([field], index) => `${field} = $${index + 1}`);
-        const values = suppliedFields.map(([, value]) => value);
-        if (geocoded) {
-            fields.push(`latitude = $${values.length + 1}`, `longitude = $${values.length + 2}`, `location_geocoded = true`);
-            values.push(geocoded.latitude, geocoded.longitude);
-        } else {
-            fields.push('location_geocoded = false');
-        }
-        values.push(req.businessId);
-        const result = await pool.query(`UPDATE businesses SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${values.length} RETURNING *`, values);
-        res.json({ success: true, business: result.rows[0], geocoded: Boolean(geocoded), warning: geocoded ? undefined : 'Saved, but the address could not be geocoded.' });
+        const result = await pool.query(`
+            SELECT DISTINCT
+                pc.id,
+                pc.name,
+                pc.slug,
+                pc.icon,
+                pc.description,
+                pc.business_category_id,
+                bc.name AS business_category_name,
+                bc.slug AS business_category_slug
+            FROM product_categories pc
+            LEFT JOIN business_categories bc ON bc.id = pc.business_category_id
+            WHERE pc.is_active = true
+              AND (
+                    pc.business_category_id IS NULL
+                 OR pc.business_category_id IN (
+                        SELECT category_id
+                        FROM business_category_assignments
+                        WHERE business_id = $1
+                    )
+              )
+            ORDER BY bc.name NULLS FIRST, pc.name ASC
+        `, [req.businessId]);
+
+        res.json(result.rows);
     } catch (err) {
-        logError(err, 'Update business location');
-        res.status(500).json({ error: 'Unable to update location' });
+        logError(err, 'Get business admin product categories');
+        res.status(500).json({ error: 'Unable to load product categories' });
     }
 });
 
-router.get('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
-    try {
-        const result = await pool.query('SELECT *, CASE WHEN views > 0 THEN ROUND((clicks::numeric / views) * 100, 2) ELSE 0 END AS click_through_rate FROM business_ads WHERE business_id = $1 ORDER BY created_at DESC', [req.businessId]);
-        res.json({ ads: result.rows });
-    } catch (err) { res.status(500).json({ error: 'Unable to load ads' }); }
-});
+// ============================================================
+//  PRODUCT CATEGORIES — request a new one
+//  B.6 — Business admins can request a new product category.
+//        The row is stored with is_active = false and
+//        is_requested = true so a platform admin can approve it.
+// ============================================================
 
-router.post('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
-    try {
-        const { media_type, media_url, title, description, link_type = 'profile', link_target_id, display_duration, is_active = true } = req.body;
-        if (!['image', 'video'].includes(media_type) || !media_url) return res.status(400).json({ error: 'media_type (image or video) and media_url are required' });
-        if (!['profile', 'product'].includes(link_type)) return res.status(400).json({ error: 'Invalid link type' });
-        if (link_type === 'product' && !link_target_id) return res.status(400).json({ error: 'A product target is required' });
-        const duration = Number(display_duration) || (media_type === 'video' ? 120 : 10);
-        const result = await pool.query(`INSERT INTO business_ads (business_id, media_type, media_url, title, description, link_type, link_target_id, display_duration, is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [req.businessId, media_type, media_url, title || null, description || null, link_type, link_target_id || null, duration, Boolean(is_active)]);
-        await pool.query('UPDATE businesses SET ad_media_enabled = true WHERE id = $1', [req.businessId]);
-        res.status(201).json({ success: true, ad: result.rows[0] });
-    } catch (err) { logError(err, 'Create ad'); res.status(500).json({ error: 'Unable to create ad' }); }
-});
+router.post('/product-categories/request', authMiddleware, businessAdminOnly, getBusinessIdFromToken, [
+    body('name').trim().isLength({ min: 2 }).withMessage('Product category name is required'),
+    body('business_category_id').optional().isInt()
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
 
-router.put('/ads/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
-    try {
-        const permitted = ['media_type', 'media_url', 'title', 'description', 'link_type', 'link_target_id', 'display_duration', 'is_active'];
-        const entries = permitted.filter(field => req.body[field] !== undefined).map(field => [field, req.body[field]]);
-        if (!entries.length) return res.status(400).json({ error: 'No ad fields to update' });
-        const result = await pool.query(`UPDATE business_ads SET ${entries.map(([field], i) => `${field} = $${i + 1}`).join(', ')}, updated_at = NOW() WHERE id = $${entries.length + 1} AND business_id = $${entries.length + 2} RETURNING *`, [...entries.map(([, value]) => value), req.params.id, req.businessId]);
-        if (!result.rows[0]) return res.status(404).json({ error: 'Ad not found' });
-        res.json({ success: true, ad: result.rows[0] });
-    } catch (err) { res.status(500).json({ error: 'Unable to update ad' }); }
-});
+    const { name, business_category_id, description } = req.body;
+    const trimmedName = String(name).trim();
+    const slugBase = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const slug = slugBase || `product-category-${Date.now()}`;
 
-router.delete('/ads/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
     try {
-        const result = await pool.query('DELETE FROM business_ads WHERE id = $1 AND business_id = $2 RETURNING id', [req.params.id, req.businessId]);
-        if (!result.rows[0]) return res.status(404).json({ error: 'Ad not found' });
-        res.status(204).end();
-    } catch (err) { res.status(500).json({ error: 'Unable to delete ad' }); }
+        const existing = await pool.query(
+            'SELECT id, is_active, is_requested FROM product_categories WHERE LOWER(name) = LOWER($1)',
+            [trimmedName]
+        );
+
+        if (existing.rows.length > 0) {
+            const found = existing.rows[0];
+            if (found.is_active) {
+                return res.status(409).json({ error: 'That product category already exists.' });
+            }
+            if (found.is_requested) {
+                return res.status(202).json({
+                    success: true,
+                    pending: true,
+                    message: 'That product category has already been requested and is awaiting approval.'
+                });
+            }
+        }
+
+        const result = await pool.query(`
+            INSERT INTO product_categories
+                (name, slug, description, business_category_id, is_active, is_requested, requested_by_business_id)
+            VALUES ($1, $2, $3, $4, false, true, $5)
+            RETURNING id, name, slug, business_category_id, is_active, is_requested
+        `, [
+            trimmedName,
+            slug,
+            description || null,
+            business_category_id || null,
+            req.businessId
+        ]);
+
+        await logAdminActivity(req.userId, 'REQUEST_PRODUCT_CATEGORY', {
+            productCategoryId: result.rows[0].id,
+            name: trimmedName,
+            businessId: req.businessId
+        });
+
+        res.status(201).json({
+            success: true,
+            pending: true,
+            product_category: result.rows[0],
+            message: 'Product category request submitted. It will be available once approved.'
+        });
+    } catch (err) {
+        logError(err, 'Request product category');
+        res.status(500).json({ error: 'Unable to submit product category request' });
+    }
 });
 
 // ============================================================
@@ -126,8 +179,6 @@ router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
             [req.businessId]
         );
 
-        // Also return the business's current category assignments so the form can
-        // preselect them (needed for the "edit categories" flow).
         const categories = await pool.query(`
             SELECT c.id, c.name, c.slug, c.icon
             FROM business_categories c
@@ -239,18 +290,23 @@ router.put('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
 
 // ============================================================
 //  GET BUSINESS PRODUCTS
+//  B.8 — Joined product category name returned with every product
 // ============================================================
 
 router.get('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
     try {
         console.log('📦 Fetching products for business ID:', req.businessId);
 
-        const { search, category, limit = 50, page = 1 } = req.query;
+        const { search, category, product_category_id, limit = 50, page = 1 } = req.query;
         const offset = (page - 1) * limit;
 
         let query = `
-            SELECT p.*
+            SELECT p.*,
+                   pc.name AS product_category_name,
+                   pc.slug AS product_category_slug,
+                   pc.icon AS product_category_icon
             FROM products p
+            LEFT JOIN product_categories pc ON pc.id = p.product_category_id
             WHERE p.business_id = $1 AND p.is_active = true
         `;
         const params = [req.businessId];
@@ -268,6 +324,12 @@ router.get('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToke
             paramIndex++;
         }
 
+        if (product_category_id) {
+            query += ` AND p.product_category_id = $${paramIndex}`;
+            params.push(parseInt(product_category_id, 10));
+            paramIndex++;
+        }
+
         query += ` ORDER BY p.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(parseInt(limit), parseInt(offset));
 
@@ -282,8 +344,6 @@ router.get('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToke
 
 // ============================================================
 //  GET BUSINESS ADMIN CATEGORIES
-//  Returns the exact same shape as /api/businesses/categories/all
-//  so the admin UI and the registration form share one source of truth.
 // ============================================================
 
 router.get('/categories', authMiddleware, businessAdminOnly, async (req, res) => {
@@ -339,13 +399,17 @@ router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 
 // ============================================================
 //  ADD PRODUCT TO BUSINESS
+//  B.1 — product_category_id is required
+//  B.5 — Save blocked without a category
+//  B.8 — Joined name echoed back in the response
 // ============================================================
 
 router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
     upload.fields([{ name: 'image', maxCount: 8 }, { name: 'video', maxCount: 4 }, { name: 'variantImages', maxCount: 20 }]),
     [
         body('name').notEmpty().withMessage('Product name required'),
-        body('price').notEmpty().withMessage('Price required')
+        body('price').notEmpty().withMessage('Price required'),
+        body('product_category_id').notEmpty().withMessage('Please select a product category')
     ],
     async (req, res) => {
         const errors = validationResult(req);
@@ -354,6 +418,16 @@ router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromTok
         }
 
         try {
+            const { product_category_id } = req.body;
+            const productCategoryId = parseInt(product_category_id, 10);
+            if (!Number.isInteger(productCategoryId)) {
+                return res.status(400).json({ error: 'Please select a product category' });
+            }
+            const categoryCheck = await pool.query('SELECT id FROM product_categories WHERE id = $1 AND is_active = true', [productCategoryId]);
+            if (categoryCheck.rows.length === 0) {
+                return res.status(400).json({ error: 'Selected product category does not exist or is not active' });
+            }
+
             let image = null;
             let video = null;
 
@@ -393,15 +467,17 @@ router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromTok
 
             const result = await pool.query(`
                 INSERT INTO products (
-                    name, price, old_price, discount_percent, category, contact, rating,
+                    name, price, old_price, discount_percent, category, product_category_id,
+                    contact, rating,
                     badge1, badge2, shipping, isFlashSale, isNewArrival, image, video,
                     description, stock, business_id, is_active, images, videos
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                 RETURNING *
             `, [
                 name, price, old_price || null,
                 discount_percent || null, category || null,
+                productCategoryId,
                 contact || null, rating || null,
                 badge1 || null, badge2 || null,
                 shipping || null,
@@ -431,7 +507,14 @@ router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromTok
                 }
             }
 
-            res.status(201).json({ success: true, product });
+            const enriched = await pool.query(`
+                SELECT p.*, pc.name AS product_category_name, pc.slug AS product_category_slug
+                FROM products p
+                LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+                WHERE p.id = $1
+            `, [product.id]);
+
+            res.status(201).json({ success: true, product: enriched.rows[0] || product });
         } catch (err) {
             console.error('❌ Add product error:', err);
             logError(err, 'Add product');
@@ -442,6 +525,8 @@ router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromTok
 
 // ============================================================
 //  UPDATE PRODUCT
+//  B.1 / B.5 — product_category_id is required and validated
+//  B.8 — Joined name echoed back
 // ============================================================
 
 router.put('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
@@ -491,10 +576,25 @@ router.put('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdFrom
             }
 
             const {
-                name, price, old_price, discount_percent, category, contact, rating,
+                name, price, old_price, discount_percent, category, product_category_id,
+                contact, rating,
                 badge1, badge2, shipping, isFlashSale, isNewArrival,
                 description, stock, is_active, is_featured
             } = req.body;
+
+            let productCategoryId = null;
+            if (product_category_id !== undefined && product_category_id !== '') {
+                productCategoryId = parseInt(product_category_id, 10);
+                if (!Number.isInteger(productCategoryId)) {
+                    return res.status(400).json({ error: 'Please select a product category' });
+                }
+                const categoryCheck = await pool.query('SELECT id FROM product_categories WHERE id = $1 AND is_active = true', [productCategoryId]);
+                if (categoryCheck.rows.length === 0) {
+                    return res.status(400).json({ error: 'Selected product category does not exist or is not active' });
+                }
+            } else if (!productCheck.rows[0].product_category_id) {
+                return res.status(400).json({ error: 'Please select a product category' });
+            }
 
             const result = await pool.query(`
                 UPDATE products
@@ -503,22 +603,23 @@ router.put('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdFrom
                     old_price = COALESCE($3, old_price),
                     discount_percent = COALESCE($4, discount_percent),
                     category = COALESCE($5, category),
-                    contact = COALESCE($6, contact),
-                    rating = COALESCE($7, rating),
-                    badge1 = COALESCE($8, badge1),
-                    badge2 = COALESCE($9, badge2),
-                    shipping = COALESCE($10, shipping),
-                    isFlashSale = COALESCE($11, isFlashSale),
-                    isNewArrival = COALESCE($12, isNewArrival),
-                    image = COALESCE($13, image),
-                    video = COALESCE($14, video),
-                    description = COALESCE($15, description),
-                    stock = COALESCE($16, stock),
-                    is_active = COALESCE($17, is_active),
-                    is_featured = COALESCE($18, is_featured),
-                    images = $19,
-                    videos = $20
-                WHERE id = $21 AND business_id = $22
+                    product_category_id = COALESCE($6, product_category_id),
+                    contact = COALESCE($7, contact),
+                    rating = COALESCE($8, rating),
+                    badge1 = COALESCE($9, badge1),
+                    badge2 = COALESCE($10, badge2),
+                    shipping = COALESCE($11, shipping),
+                    isFlashSale = COALESCE($12, isFlashSale),
+                    isNewArrival = COALESCE($13, isNewArrival),
+                    image = COALESCE($14, image),
+                    video = COALESCE($15, video),
+                    description = COALESCE($16, description),
+                    stock = COALESCE($17, stock),
+                    is_active = COALESCE($18, is_active),
+                    is_featured = COALESCE($19, is_featured),
+                    images = $20,
+                    videos = $21
+                WHERE id = $22 AND business_id = $23
                 RETURNING *
             `, [
                 name || null,
@@ -526,6 +627,7 @@ router.put('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdFrom
                 old_price || null,
                 discount_percent || null,
                 category || null,
+                productCategoryId,
                 contact || null,
                 rating || null,
                 badge1 || null,
@@ -543,7 +645,15 @@ router.put('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdFrom
             ]);
 
             await logAdminActivity(req.userId, 'UPDATE_PRODUCT', { productId, businessId: req.businessId });
-            res.json({ success: true, product: result.rows[0] });
+
+            const enriched = await pool.query(`
+                SELECT p.*, pc.name AS product_category_name, pc.slug AS product_category_slug
+                FROM products p
+                LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+                WHERE p.id = $1
+            `, [productId]);
+
+            res.json({ success: true, product: enriched.rows[0] || result.rows[0] });
         } catch (err) {
             console.error('❌ Update product error:', err);
             logError(err, 'Update product');
@@ -578,23 +688,44 @@ router.delete('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdF
     }
 });
 
-// Batch creation deliberately accepts the same fields as the normal form. Files are
-// uploaded with individual products; this endpoint makes data-entry batches atomic.
+// ============================================================
+//  BATCH PRODUCT CREATE
+//  B.1 / B.5 — Each product needs a valid product_category_id
+// ============================================================
+
 router.post('/products/batch', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
     const products = Array.isArray(req.body.products) ? req.body.products : [];
     if (!products.length || products.length > 100) return res.status(400).json({ error: 'Provide 1 to 100 products' });
     if (products.some(product => !String(product.name || '').trim() || product.price === undefined || product.price === '')) {
         return res.status(400).json({ error: 'Every product needs a name and price' });
     }
+    if (products.some(product => !product.product_category_id)) {
+        return res.status(400).json({ error: 'Please select a product category for every product' });
+    }
+
+    const categoryIds = [...new Set(products.map(p => parseInt(p.product_category_id, 10)).filter(Number.isInteger))];
+    if (categoryIds.length !== products.length && products.some(p => !Number.isInteger(parseInt(p.product_category_id, 10)))) {
+        return res.status(400).json({ error: 'One or more product categories are invalid' });
+    }
+
     const client = await pool.connect();
     try {
+        const validCategories = await client.query(
+            'SELECT id FROM product_categories WHERE id = ANY($1::int[]) AND is_active = true',
+            [categoryIds]
+        );
+        if (validCategories.rows.length !== categoryIds.length) {
+            return res.status(400).json({ error: 'One or more selected product categories do not exist or are inactive' });
+        }
+
         await client.query('BEGIN');
         const created = [];
         for (const product of products) {
             const result = await client.query(
-                `INSERT INTO products (name, price, old_price, category, description, stock, business_id, is_active)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, true) RETURNING *`,
+                `INSERT INTO products (name, price, old_price, category, product_category_id, description, stock, business_id, is_active)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING *`,
                 [String(product.name).trim(), product.price, product.old_price || null, product.category || null,
+                    parseInt(product.product_category_id, 10),
                     product.description || null, Number.parseInt(product.stock, 10) || 0, req.businessId]
             );
             created.push(result.rows[0]);
@@ -917,7 +1048,6 @@ router.get('/delivery-settings', authMiddleware, businessAdminOnly, getBusinessI
 
         const settings = result.rows[0];
 
-        // Parse JSON fields
         if (settings.delivery_areas && typeof settings.delivery_areas === 'string') {
             try { settings.delivery_areas = JSON.parse(settings.delivery_areas); } catch(e) { settings.delivery_areas = []; }
         }
@@ -969,12 +1099,10 @@ router.put('/delivery-settings', authMiddleware, businessAdminOnly, getBusinessI
             meeting_points
         } = req.body;
 
-        // Build update query
         const updates = [];
         const values = [];
         let paramIndex = 1;
 
-        // Only update fields that are provided
         if (delivery_offered !== undefined) {
             updates.push(`delivery_offered = $${paramIndex}`);
             values.push(delivery_offered);
@@ -1070,10 +1198,7 @@ router.put('/delivery-settings', authMiddleware, businessAdminOnly, getBusinessI
             return res.status(400).json({ error: 'No fields to update' });
         }
 
-        // Add updated_at
         updates.push(`updated_at = NOW()`);
-
-        // Add business_id to values
         values.push(req.businessId);
 
         const query = `
@@ -1082,9 +1207,6 @@ router.put('/delivery-settings', authMiddleware, businessAdminOnly, getBusinessI
             WHERE id = $${paramIndex}
             RETURNING *
         `;
-
-        console.log('📦 Update query:', query);
-        console.log('📦 Values:', values);
 
         const result = await pool.query(query, values);
 
@@ -1107,9 +1229,6 @@ router.put('/delivery-settings', authMiddleware, businessAdminOnly, getBusinessI
 
 router.get('/order-settings', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
     try {
-        console.log('📋 Fetching order settings for business:', req.businessId);
-
-        // Get order settings from businesses table (online_orders_enabled)
         const result = await pool.query(`
             SELECT
                 online_orders_enabled,
@@ -1150,19 +1269,12 @@ router.get('/order-settings', authMiddleware, businessAdminOnly, getBusinessIdFr
             return res.status(404).json({ error: 'Business not found' });
         }
 
-        // Also get system settings as fallback
-        const systemSettings = await pool.query(`
-            SELECT key, value FROM system_settings
-        `);
-
+        const systemSettings = await pool.query(`SELECT key, value FROM system_settings`);
         const settingsMap = {};
-        systemSettings.rows.forEach(row => {
-            settingsMap[row.key] = row.value;
-        });
+        systemSettings.rows.forEach(row => { settingsMap[row.key] = row.value; });
 
         const settings = result.rows[0];
 
-        // Use business settings if available, otherwise system defaults
         const response = {
             online_orders_enabled: settings.online_orders_enabled !== false,
             show_cart_when_disabled: settings.show_cart_when_disabled === true,
@@ -1210,9 +1322,6 @@ router.get('/order-settings', authMiddleware, businessAdminOnly, getBusinessIdFr
 
 router.put('/order-settings', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
     try {
-        console.log('📋 Updating order settings for business:', req.businessId);
-        console.log('📦 Request body:', req.body);
-
         const {
             online_orders_enabled,
             show_cart_when_disabled,
@@ -1246,7 +1355,6 @@ router.put('/order-settings', authMiddleware, businessAdminOnly, getBusinessIdFr
             pod_agreement_text
         } = req.body;
 
-        // Build update query
         const updates = [];
         const values = [];
         let paramIndex = 1;
@@ -1371,10 +1479,7 @@ router.put('/order-settings', authMiddleware, businessAdminOnly, getBusinessIdFr
             return res.status(400).json({ error: 'No fields to update' });
         }
 
-        // Add updated_at
         updates.push(`updated_at = NOW()`);
-
-        // Add business_id to values
         values.push(req.businessId);
 
         const query = `
@@ -1383,9 +1488,6 @@ router.put('/order-settings', authMiddleware, businessAdminOnly, getBusinessIdFr
             WHERE id = $${paramIndex}
             RETURNING *
         `;
-
-        console.log('📦 Update query:', query);
-        console.log('📦 Values:', values);
 
         const result = await pool.query(query, values);
 

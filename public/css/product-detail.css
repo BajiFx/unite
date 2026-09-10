@@ -246,6 +246,29 @@
   100% { opacity: 0.7; }
 }
 
+/* ============================================================
+   B.7 — Defined product-category chip on product detail
+   The chip is emitted by renderDetail() in
+   public/js/product-detail.js and shows the product's defined
+   category (from the product_categories table).
+   ============================================================ */
+.detail-info .product-category-chip {
+  display: inline-block;
+  max-width: 100%;
+  margin: 4px 0 6px;
+  padding: 3px 12px;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
 .detail-info .description {
   font-size: 0.9rem;
   color: #475569;

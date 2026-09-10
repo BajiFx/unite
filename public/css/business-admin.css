@@ -833,3 +833,25 @@ html.embedded .sidebar { display: none !important; }
   align-items: center;
   gap: 7px;
 }
+
+/* ============================================================
+   Section B — Missing business-category indicator
+   Rendered by applyCategoryWarning() in public/js/business-admin.js
+   when /api/auth/my-business reports has_business_category = false.
+   This flag is what tells existing businesses (registered before
+   Section B launched) that they still need to pick a category.
+   ============================================================ */
+.sidebar .sidebar-menu .menu-item { position: relative; }
+
+.menu-red-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-left: 8px;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+  animation: pulse-blink 1.4s infinite;
+  align-self: center;
+  flex-shrink: 0;
+}

@@ -78,6 +78,9 @@
         <i class="fas fa-tag"></i> Products
         <span class="badge" id="productBadge">0</span>
       </div>
+      <div class="menu-item" data-section="productcategories" onclick="navigateTo('productcategories')">
+        <i class="fas fa-list"></i> Product Categories
+      </div>
 
       <!-- ===== SETTINGS ===== -->
       <div class="menu-label">Settings</div>
@@ -213,6 +216,9 @@
 
     <!-- ============================================================ -->
     <!-- SECTION: PRODUCTS -->
+    <!-- B.1 — product category comes from the database (no free text)
+         B.4 — searchable product-category picker
+         B.5 — category is required before save -->
     <!-- ============================================================ -->
     <div class="section" id="section-products">
       <div class="section-header">
@@ -226,7 +232,17 @@
             <div><label>Price (Ksh) *</label><input type="text" id="pPrice" name="price" required></div>
             <div><label>Old Price (Ksh)</label><input type="text" id="pOldPrice" name="old_price" placeholder="e.g., 799"></div>
             <div><label>Discount (%)</label><input type="text" id="pDiscount" name="discount_percent" placeholder="e.g., 20"></div>
-            <div><label>Category</label><select id="pCategory" name="category"><option value="">Select a category</option></select></div>
+
+            <!-- B.4 — Searchable product category picker -->
+            <div class="full">
+              <label>Product Category *</label>
+              <input type="search" id="pProductCategorySearch" placeholder="Search product categories..." autocomplete="off" oninput="filterProductCategoryOptions()">
+              <select id="pProductCategory" name="product_category_id" required style="margin-top:4px;">
+                <option value="">⏳ Loading categories...</option>
+              </select>
+              <small id="pProductCategoryHelp">Pick from the platform's defined product categories. Can't find yours? <a href="#" onclick="navigateTo('productcategories'); return false;">Request a new category</a>.</small>
+            </div>
+
             <div><label>Stock</label><input type="number" id="pStock" name="stock" placeholder="0" value="0"></div>
             <div><label>Contact</label><input type="text" id="pContact" name="contact" value="+254700000000"></div>
             <div><label>Rating</label><input type="text" id="pRating" name="rating" placeholder="e.g., 4.5"></div>
@@ -249,11 +265,74 @@
           <button type="submit" class="btn-save" id="productSubmitBtn">➕ Add Product</button>
           <button type="button" class="btn-secondary" onclick="cancelEditProduct()" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
         </form>
-        <details style="margin-top:16px"><summary><strong>Bulk add products</strong> (one product per line)</summary><p class="help-text">Paste CSV values: name, price, category, stock, description. Media can be added by editing a product afterward.</p><textarea id="bulkProductsInput" rows="6" placeholder="Blue T-shirt,1200,Clothing & Fashion,8,Soft cotton"></textarea><button type="button" class="btn-secondary" onclick="submitProductBatch()">Add product batch</button></details>
+
+        <!-- B.1 + B.5 — Bulk add requires a product category per batch -->
+        <details style="margin-top:16px">
+          <summary><strong>Bulk add products</strong> (one product per line)</summary>
+          <p class="help-text">Paste CSV values: name, price, stock, description. All products in a batch share the product category you select below. Media can be added by editing a product afterward.</p>
+          <label style="display:block; margin:8px 0 4px; font-weight:600; font-size:0.85rem;">Product Category for this batch *</label>
+          <input type="search" id="bulkProductCategorySearch" placeholder="Search product categories..." autocomplete="off" oninput="filterProductCategoryOptions('bulk')">
+          <select id="bulkProductCategory" required style="margin-top:4px;">
+            <option value="">⏳ Loading categories...</option>
+          </select>
+          <textarea id="bulkProductsInput" rows="6" placeholder="Blue T-shirt,1200,8,Soft cotton" style="margin-top:8px;"></textarea>
+          <button type="button" class="btn-secondary" onclick="submitProductBatch()">Add product batch</button>
+        </details>
+
         <div style="margin-top:20px; border-top:1px solid #e2e8f0; padding-top:16px;">
           <h3>📋 Your Products</h3>
           <div id="productList"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SECTION: PRODUCT CATEGORIES (B.6)
+         Browse the platform-defined categories relevant to the business
+         and request new ones. -->
+    <!-- ============================================================ -->
+    <div class="section" id="section-productcategories">
+      <div class="section-header">
+        <h2>🏷️ Product Categories</h2>
+        <button class="btn-save" onclick="loadProductCategories()"><i class="fas fa-sync-alt"></i> Refresh</button>
+      </div>
+
+      <div class="settings-section">
+        <h3 style="font-size:0.95rem; font-weight:700; margin-bottom:8px;">Categories available to you</h3>
+        <p class="help-text" style="margin-bottom:10px;">
+          These categories are defined by the platform and are shared by every business.
+          Only categories that match your business categories are shown here.
+        </p>
+        <div id="productCategoriesList"><p class="empty-msg">Loading product categories...</p></div>
+      </div>
+
+      <div class="settings-section" style="margin-top:16px;">
+        <h3 style="font-size:0.95rem; font-weight:700; margin-bottom:8px;">Request a new product category</h3>
+        <p class="help-text" style="margin-bottom:10px;">
+          If you sell a product that doesn't fit any of the categories above, you can request a new one.
+          The platform admin will review your request and, once approved, it will become available to every business.
+        </p>
+        <form id="requestProductCategoryForm" onsubmit="event.preventDefault(); submitProductCategoryRequest();">
+          <div class="form-row">
+            <div class="full">
+              <label>Category Name *</label>
+              <input type="text" id="requestCategoryName" name="name" placeholder="e.g., Reusable Shopping Bags" required>
+            </div>
+            <div class="full">
+              <label>Description (optional)</label>
+              <textarea id="requestCategoryDescription" rows="2" placeholder="Briefly describe the kind of products this category covers."></textarea>
+            </div>
+            <div class="full">
+              <label>Related Business Category (optional)</label>
+              <select id="requestCategoryBusinessCategory">
+                <option value="">Leave blank for a generic category</option>
+              </select>
+              <small>The platform admin can move it under a different business category if needed.</small>
+            </div>
+          </div>
+          <button type="submit" class="btn-save">📨 Submit Request</button>
+          <div id="requestCategoryStatus" style="margin-top:8px; font-size:0.9rem;"></div>
+        </form>
       </div>
     </div>
 
