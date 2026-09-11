@@ -20,19 +20,20 @@
                 Images default to 6s, videos to 60s. The per-ad
                 display_duration, when set, overrides both.
 
-    J.5b — "Liveness" for image slides (final: blurred background
-                + Ken Burns on the blurred copy only)
-                Image slides emit two <img> elements:
-                  1) .ads-media-bg — the same image, cover-cropped,
-                     heavily blurred, darkened, and slowly drifting
-                     (Ken Burns). Fills the whole square frame so
-                     the frame never looks empty.
-                  2) .ads-media    — the sharp image on top,
-                     object-fit: contain, so the whole picture is
-                     always visible and never cropped.
-                Videos keep a single element and play normally.
-                Pure CSS for the animation; the blurred copy is
-                written by renderAdSlide() in index.js.
+    J.5b — "Liveness" for image slides
+                Image slides sit on a colourful 2-stop gradient
+                backdrop that fills the whole square frame so the
+                frame never looks empty. The gradient pair is
+                seeded per slide by renderAdSlide() in index.js
+                through the --ad-bg-a and --ad-bg-b CSS variables,
+                so every ad gets its own pair of attractive brand
+                colours instead of one flat grey blur. A subtle
+                radial highlight and a slow Ken Burns drift keep
+                the frame feeling alive.
+                The sharp image on top uses object-fit: contain,
+                so the whole picture is always visible and never
+                cropped. Videos keep a single element and play
+                normally.
 
     J.5c — Split slider layout (final)
                 The slider is a two-column grid on desktop:
@@ -442,11 +443,15 @@
    Replaces the old Featured Businesses grid. The hero banner
    above stays in place.
 
-   J.5b — Image slides carry a blurred, cover-cropped copy of
-          the same image behind the sharp image. The sharp image
-          uses object-fit: contain so the whole picture stays
-          visible. The blurred copy fills the frame and drifts
-          via Ken Burns, so the small square still feels alive.
+   J.5b — Image slides sit on a colourful brand gradient that
+          fills the frame so nothing ever looks empty. The
+          gradient pair comes from renderAdSlide() in index.js
+          via --ad-bg-a and --ad-bg-b, chosen deterministically
+          per ad id, so every ad gets its own attractive pair.
+          A soft radial highlight and a slow Ken Burns drift
+          keep the frame alive. The sharp image on top uses
+          object-fit: contain, so the whole picture stays
+          visible and is never cropped.
 
    J.5c — Split layout: LEFT is the square media frame, RIGHT
           is a solid blue reserved panel.
@@ -558,33 +563,48 @@
 }
 
 /* ------------------------------------------------------------
-   J.5b — Blurred background copy of the image
-   The blurred copy fills the whole frame (cover + blur) so the
-   square never looks empty. It is the element that "lives"
-   via Ken Burns, so the sharp image on top can stay calm.
+   Colourful gradient backdrop for image slides.
 
-   image-rendering is left to the browser default; blur hides
-   any scaling artefacts.
+   The two colour stops come from renderAdSlide() in index.js
+   through --ad-bg-a and --ad-bg-b, seeded per ad id, so every
+   slide gets its own attractive pair instead of one flat grey.
+
+   The 2-stop linear gradient plus a soft radial highlight gives
+   the frame a warm, branded look even when the underlying image
+   is bright or dark. It fills the whole square frame behind the
+   sharp image, so no letterbox area ever looks empty.
    ------------------------------------------------------------ */
 .ads-media-bg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
   display: block;
   user-select: none;
   pointer-events: none;
-  filter: blur(24px) brightness(0.55) saturate(1.1);
-  transform: scale(1.15);
-  transform-origin: center center;
-  will-change: transform, filter;
   z-index: 0;
+
+  background:
+    radial-gradient(
+      circle at 25% 20%,
+      rgba(255, 255, 255, 0.35) 0%,
+      rgba(255, 255, 255, 0.05) 40%,
+      transparent 70%
+    ),
+    linear-gradient(
+      135deg,
+      var(--ad-bg-a, #16a34a) 0%,
+      var(--ad-bg-b, #facc15) 100%
+    );
+
+  transform: scale(1.02);
+  transform-origin: center center;
+  will-change: transform;
 }
 
 /* The sharp image on top. object-fit: contain guarantees the
    whole picture is visible and never cropped. Its letterbox
-   area is filled by the blurred .ads-media-bg behind it. */
+   area is filled by the colourful gradient behind it. */
 .ads-media {
   position: absolute;
   inset: 0;
@@ -596,8 +616,8 @@
   z-index: 1;
 }
 
-/* Video slides do not carry a blurred background copy — the
-   video itself is the visual. Safety net in case a .ads-media-bg
+/* Video slides do not carry a gradient backdrop — the video
+   itself is the visual. Safety net in case a .ads-media-bg
    is ever emitted next to a video. */
 .ads-slide.is-video .ads-media-bg {
   display: none;
@@ -610,21 +630,21 @@
 }
 
 /* ------------------------------------------------------------
-   J.5b — Ken Burns on the blurred background only
+   Ken Burns on the gradient backdrop.
    Keyed off .ads-slide.is-active so it restarts on every
-   activation. Videos are untouched (the blurred copy is not
-   emitted for them, and the safety rule above hides it if it
-   ever is).
+   activation. Videos are untouched (the gradient backdrop is
+   not emitted for them, and the safety rule above hides it if
+   it ever is).
 
    The 6s duration matches the image default so the drift
    finishes as the slide changes.
    ------------------------------------------------------------ */
 @keyframes adKenBurns {
   0% {
-    transform: scale(1.15) translate3d(0, 0, 0);
+    transform: scale(1.02) translate3d(0, 0, 0);
   }
   100% {
-    transform: scale(1.28) translate3d(-2%, -1.5%, 0);
+    transform: scale(1.10) translate3d(-1.5%, -1%, 0);
   }
 }
 
@@ -632,7 +652,7 @@
   animation: adKenBurns 6s ease-out forwards;
 }
 
-/* Respect reduced-motion preference: still blurred background,
+/* Respect reduced-motion preference: still colourful backdrop,
    no drift. */
 @media (prefers-reduced-motion: reduce) {
   .ads-slide.is-active .ads-media-bg {
@@ -876,16 +896,10 @@
     width: 16px;
   }
 
-  /* Lighter blur on phones: cheaper and still reads as a soft
-     backdrop behind the sharp image. */
-  .ads-media-bg {
-    filter: blur(16px) brightness(0.55) saturate(1.05);
-  }
-
   /* Gentler Ken Burns on small screens. */
   @keyframes adKenBurns {
-    0%   { transform: scale(1.15) translate3d(0, 0, 0); }
-    100% { transform: scale(1.22) translate3d(-1%, -1%, 0); }
+    0%   { transform: scale(1.02) translate3d(0, 0, 0); }
+    100% { transform: scale(1.06) translate3d(-1%, -0.8%, 0); }
   }
 }
 

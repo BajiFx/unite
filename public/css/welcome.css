@@ -1,0 +1,443 @@
+/* ============================================================
+   WELCOME / LANDING SPLASH
+   Location: public/css/welcome.css
+   Shown once per session before the marketplace loads.
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+.welcome-body {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: radial-gradient(circle at 20% 20%, #14532d 0%, #052e16 60%, #020617 100%);
+  color: #e2e8f0;
+  overflow-x: hidden;
+  position: relative;
+  animation: welcomeFadeIn 700ms ease;
+}
+
+@keyframes welcomeFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ============================================================
+   Animated background
+   ============================================================ */
+
+.welcome-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Soft moving blobs give the page gentle life without distraction */
+.welcome-blob {
+  position: absolute;
+  width: 55vw;
+  height: 55vw;
+  max-width: 620px;
+  max-height: 620px;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.55;
+  will-change: transform;
+}
+
+.welcome-blob-1 {
+  background: #22c55e;
+  top: -18%;
+  left: -12%;
+  animation: blobDrift1 22s ease-in-out infinite;
+}
+
+.welcome-blob-2 {
+  background: #facc15;
+  bottom: -22%;
+  right: -14%;
+  opacity: 0.35;
+  animation: blobDrift2 26s ease-in-out infinite;
+}
+
+.welcome-blob-3 {
+  background: #0ea5e9;
+  top: 30%;
+  left: 40%;
+  opacity: 0.30;
+  animation: blobDrift3 30s ease-in-out infinite;
+}
+
+@keyframes blobDrift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(8%, 6%) scale(1.08); }
+}
+@keyframes blobDrift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-6%, -8%) scale(1.12); }
+}
+@keyframes blobDrift3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-10%, 5%) scale(1.05); }
+}
+
+/* Orbiting rings — each dot revolves around a shared center */
+.welcome-orbits {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+}
+
+.orbit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1px dashed rgba(250, 204, 21, 0.25);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: orbitSpin linear infinite;
+}
+
+.orbit-1 { width: 260px; height: 260px; animation-duration: 18s; }
+.orbit-2 { width: 380px; height: 380px; animation-duration: 26s; animation-direction: reverse; }
+.orbit-3 { width: 500px; height: 500px; animation-duration: 34s; }
+.orbit-4 { width: 620px; height: 620px; animation-duration: 42s; animation-direction: reverse; }
+.orbit-5 { width: 740px; height: 740px; animation-duration: 50s; }
+
+@keyframes orbitSpin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to   { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.orbit-dot {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-size: 1rem;
+  backdrop-filter: blur(6px);
+}
+
+/* Counter-rotate the emoji so it stays upright while the ring spins */
+.orbit-dot {
+  animation: orbitDotCounter linear infinite;
+}
+.orbit-1 .orbit-dot { animation-duration: 18s; }
+.orbit-2 .orbit-dot { animation-duration: 26s; animation-direction: reverse; }
+.orbit-3 .orbit-dot { animation-duration: 34s; }
+.orbit-4 .orbit-dot { animation-duration: 42s; animation-direction: reverse; }
+.orbit-5 .orbit-dot { animation-duration: 50s; }
+
+@keyframes orbitDotCounter {
+  from { transform: translateX(-50%) rotate(0deg); }
+  to   { transform: translateX(-50%) rotate(-360deg); }
+}
+
+/* ============================================================
+   Main card
+   ============================================================ */
+
+.welcome-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 720px;
+  padding: 40px 36px 34px;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(250, 204, 21, 0.10), transparent 40%),
+    linear-gradient(155deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.92));
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px);
+  text-align: center;
+  animation: cardRise 900ms cubic-bezier(0.2, 0.8, 0.2, 1) 150ms both;
+}
+
+@keyframes cardRise {
+  from { opacity: 0; transform: translateY(24px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Logo */
+.welcome-logo {
+  font-size: 3.4rem;
+  line-height: 1;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 6px 18px rgba(250, 204, 21, 0.35));
+  animation: logoFloat 4s ease-in-out infinite;
+}
+
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+/* Title — animated moving gradient */
+.welcome-title {
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, #16a34a, #4ade80, #facc15, #4ade80, #16a34a);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: welcomeTitleFlow 8s ease infinite;
+}
+
+.welcome-title span {
+  display: inline-block;
+}
+
+@keyframes welcomeTitleFlow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Tagline */
+.welcome-tagline {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+  max-width: 520px;
+  margin: 0 auto 22px;
+}
+
+/* Divider */
+.welcome-divider {
+  height: 1px;
+  width: 72%;
+  margin: 22px auto;
+  background: linear-gradient(90deg, transparent, rgba(250, 204, 21, 0.5), transparent);
+}
+
+/* Mission & Vision */
+.welcome-mv {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  text-align: left;
+}
+
+.welcome-mv-card {
+  padding: 18px 18px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-left: 4px solid #22c55e;
+  transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+
+.welcome-mv-card:nth-child(2) {
+  border-left-color: #facc15;
+}
+
+.welcome-mv-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(250, 204, 21, 0.35);
+}
+
+.welcome-mv-icon {
+  font-size: 1.4rem;
+  margin-bottom: 6px;
+}
+
+.welcome-mv-card h2 {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fde68a;
+  margin-bottom: 6px;
+}
+
+.welcome-mv-card p {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #cbd5e1;
+}
+
+/* Feature bullets */
+.welcome-features {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 18px;
+  text-align: left;
+  margin: 0 auto 26px;
+  max-width: 560px;
+}
+
+.welcome-features li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  padding: 6px 4px;
+}
+
+.welcome-features li i {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+/* Continue button */
+.welcome-continue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 15px 34px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #16a34a, #15803d 55%, #0f766e);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow:
+    0 12px 26px rgba(22, 163, 74, 0.35),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.welcome-continue::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.35), transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+
+.welcome-continue:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow:
+    0 16px 34px rgba(22, 163, 74, 0.45),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.15);
+  filter: brightness(1.05);
+}
+
+.welcome-continue:hover::after {
+  transform: translateX(120%);
+}
+
+.welcome-continue:active {
+  transform: scale(0.98);
+}
+
+.welcome-continue i {
+  transition: transform 0.25s ease;
+}
+
+.welcome-continue:hover i {
+  transform: translateX(4px);
+}
+
+/* Small print under the button */
+.welcome-hint {
+  margin-top: 14px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  letter-spacing: 0.02em;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 620px) {
+  .welcome-card {
+    padding: 30px 20px 26px;
+    border-radius: 18px;
+  }
+
+  .welcome-logo {
+    font-size: 2.8rem;
+  }
+
+  .welcome-tagline {
+    font-size: 0.9rem;
+  }
+
+  .welcome-mv {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome-features {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .welcome-continue {
+    width: 100%;
+    padding: 14px 22px;
+    font-size: 0.95rem;
+  }
+
+  .orbit-4,
+  .orbit-5 {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .welcome-title {
+    font-size: 1.8rem;
+  }
+
+  .welcome-blob {
+    filter: blur(60px);
+  }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .welcome-body,
+  .welcome-card,
+  .welcome-title,
+  .welcome-logo,
+  .welcome-blob,
+  .orbit,
+  .orbit-dot,
+  .welcome-continue::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

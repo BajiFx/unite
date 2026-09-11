@@ -46,12 +46,14 @@
 //        not wiped when slides are re-rendered.
 //
 //  J.5d — Image liveness:
-//        Image slides carry a blurred, slowly-drifting background
-//        copy of the same image. The sharp image on top uses
-//        object-fit: contain so nothing is cropped. The blurred
-//        background uses object-fit: cover and runs Ken Burns so
-//        the small square frame still feels alive. Video slides
-//        keep their single element and play normally.
+//        Image slides carry a colourful brand gradient backdrop
+//        that fills the whole square frame so nothing looks empty.
+//        The gradient pair comes from renderAdSlide() via the
+//        --ad-bg-a and --ad-bg-b CSS variables, picked
+//        deterministically per ad id from a small vibrant palette.
+//        The sharp image on top uses object-fit: contain, so
+//        nothing is cropped. Video slides keep their single
+//        element and play normally.
 //
 //  MERGED BAR — Search + location
 //        The search input and the location controls have been
@@ -125,6 +127,20 @@ const AD_DEFAULTS = Object.freeze({
   imageSeconds: 6,
   videoSeconds: 60
 });
+
+/* Palette used for the image-slide backdrop. Each ad deterministically
+   picks one pair based on its id, so the same ad always looks the same
+   every time the slider loads. All pairs are vibrant and warm, matching
+   the BidhaaLink brand — green, gold, teal, coral, violet, etc. */
+const AD_BACKDROP_PALETTE = [
+  ['#16a34a', '#facc15'],  // green → gold
+  ['#0ea5e9', '#22c55e'],  // sky → emerald
+  ['#f97316', '#facc15'],  // orange → gold
+  ['#8b5cf6', '#ec4899'],  // violet → pink
+  ['#0f766e', '#4ade80'],  // deep teal → mint
+  ['#e11d48', '#fb923c'],  // rose → orange
+  ['#2563eb', '#06b6d4']   // blue → cyan
+];
 
 let adsList = [];
 let adsCurrentIndex = 0;
@@ -813,11 +829,12 @@ async function loadCategories() {
 //         the progress bar also live inside #adsMediaFrame, so
 //         they survive a slide re-render.
 //
-//  J.5d — Image liveness: image slides carry a blurred, drifting
-//         background copy of the same image. The sharp image on
-//         top uses object-fit: contain, so nothing is cropped.
-//         The blurred copy fills the frame, so nothing looks
-//         empty. Video slides stay single-element.
+//  J.5d — Image liveness: image slides carry a colourful brand
+//         gradient backdrop behind the sharp image. The gradient
+//         pair comes from AD_BACKDROP_PALETTE, chosen per ad id,
+//         so every slide feels warm and branded instead of grey.
+//         The sharp image uses object-fit: contain, so nothing
+//         is cropped. Video slides stay single-element.
 // ============================================================
 
 async function loadAds() {
@@ -897,27 +914,35 @@ function renderAdsSlider() {
   });
 }
 
+/* Deterministic backdrop picker: the same ad id always produces the
+   same gradient pair, so the slider looks stable across refreshes. */
+function pickAdBackdrop(ad) {
+  const id = Number(ad && ad.id) || 0;
+  return AD_BACKDROP_PALETTE[Math.abs(id) % AD_BACKDROP_PALETTE.length];
+}
+
 function renderAdSlide(ad, index) {
   const isVideo = ad.media_type === 'video';
   const title = ad.title ? `<h3 class="ads-title">${escapeAdsText(ad.title)}</h3>` : '';
   const description = ad.description ? `<p class="ads-description">${escapeAdsText(ad.description)}</p>` : '';
   const businessName = ad.business_name ? `<span class="ads-business">${escapeAdsText(ad.business_name)}</span>` : '';
 
-  // J.5d — Image slides get a blurred, cover-cropped copy of the
-  // same image behind the sharp image. The blurred copy fills the
-  // square frame (object-fit: cover + blur) so the frame never
-  // looks empty. The sharp image on top uses object-fit: contain
-  // so the whole picture stays visible and is never cropped.
+  // J.5d — Image slides get a colourful brand gradient behind the
+  // sharp image. The gradient pair is seeded per ad id, so every
+  // slide gets its own attractive colours instead of one flat grey.
+  // The sharp image on top uses object-fit: contain so the whole
+  // picture stays visible and is never cropped.
   //
   // Video slides stay single-element: a <video> already moves, so
-  // it does not need the "alive" treatment.
+  // it does not need the gradient treatment.
   const mediaSrc = escapeAdsAttr(ad.media_url);
   const mediaAlt = escapeAdsAttr(ad.title || ad.business_name || 'Sponsored');
+  const [bgA, bgB] = pickAdBackdrop(ad);
 
   const media = isVideo
     ? `<video class="ads-media" src="${mediaSrc}" muted playsinline preload="metadata"></video>`
     : `
-        <img class="ads-media-bg" src="${mediaSrc}" alt="" aria-hidden="true" loading="lazy">
+        <div class="ads-media-bg" aria-hidden="true" style="--ad-bg-a:${bgA}; --ad-bg-b:${bgB};"></div>
         <img class="ads-media" src="${mediaSrc}" alt="${mediaAlt}" loading="lazy">
       `;
 

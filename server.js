@@ -95,6 +95,31 @@ if (!JWT_SECRET) {
 }
 
 // ============================================================
+//  WELCOME SPLASH — CONFIG
+// ============================================================
+
+// The name of the cookie that tracks whether the visitor has
+// already seen the welcome splash in this browser.
+const WELCOME_COOKIE = 'bidhaalink_welcomed';
+
+// How long the welcome cookie survives. 12 hours means a visitor
+// sees the splash once per working session, but not on every refresh.
+const WELCOME_COOKIE_MS = 1000 * 60 * 60 * 12;
+
+// Cached result of "does welcome.html exist on disk?" so we do not
+// hit the filesystem on every request to '/'.
+let welcomeFileExistsCache = null;
+function welcomeFileExists() {
+  if (welcomeFileExistsCache !== null) return welcomeFileExistsCache;
+  const welcomePath = path.join(__dirname, 'public/html/welcome.html');
+  welcomeFileExistsCache = fs.existsSync(welcomePath);
+  if (!welcomeFileExistsCache) {
+    console.warn('⚠️  public/html/welcome.html not found — the splash gate is disabled.');
+  }
+  return welcomeFileExistsCache;
+}
+
+// ============================================================
 //  SECURITY MIDDLEWARE
 // ============================================================
 
@@ -177,6 +202,8 @@ app.use(cookieParser());
 function csrfProtection(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) ||
       req.path === '/csrf-token' ||
+      req.path === '/welcome/ack' ||
+      req.path === '/welcome/reset' ||
       req.path === '/payments/mpesa-callback' ||
       req.path === '/payments/airtel-callback') {
     return next();
@@ -216,8 +243,55 @@ app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 //  ROUTE HANDLER FOR HTML PAGES
 // ============================================================
 
+// Root route:
+//   - First-time visitors (no `bidhaalink_welcomed` cookie) get
+//     welcome.html so they see the splash screen.
+//   - Anyone who has already acknowledged the welcome in this
+//     browser session goes straight to the marketplace.
+//   - The welcome page's Continue button calls POST /api/welcome/ack
+//     (see below) to set the cookie, then navigates to '/'.
+//   - If welcome.html is missing from disk for any reason, we fall
+//     back to index.html so the marketplace never 404s.
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public/html/index.html'));
+  const welcomed = req.cookies && req.cookies[WELCOME_COOKIE] === '1';
+
+  if (welcomed || !welcomeFileExists()) {
+    return res.sendFile(path.join(__dirname, 'public/html/index.html'));
+  }
+
+  res.sendFile(path.join(__dirname, 'public/html/welcome.html'));
+});
+
+// Endpoint hit once when the visitor clicks Continue on the welcome
+// page. It sets a session cookie and returns 204. The welcome page
+// then navigates to '/'.
+//
+// Accepts both POST (canonical) and GET (fallback so a stale tab that
+// still fires a GET does not 404). The route is CSRF-exempt because
+// the visitor has no CSRF token yet at this point.
+function handleWelcomeAck(req, res) {
+  res.cookie(WELCOME_COOKIE, '1', {
+    httpOnly: false,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: WELCOME_COOKIE_MS
+  });
+  res.status(204).end();
+}
+
+app.post('/api/welcome/ack', handleWelcomeAck);
+app.get('/api/welcome/ack', handleWelcomeAck);
+
+// Development helper: clears the welcome cookie so you can re-test
+// the splash without clearing your whole browser cookie jar.
+// Safe to leave enabled in production — it only unsets a display flag.
+app.post('/api/welcome/reset', (req, res) => {
+  res.clearCookie(WELCOME_COOKIE, {
+    httpOnly: false,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production'
+  });
+  res.status(204).end();
 });
 
 app.get('/business/:slug', (req, res) => {
@@ -634,6 +708,10 @@ async function startServer() {
     validateEnv();
     initPaypalClient();
 
+    // Warn at startup if welcome.html is missing so it is obvious
+    // in the logs before the first visitor arrives.
+    welcomeFileExists();
+
     server.listen(PORT, () => {
       console.log('\n🚀 ========================================');
       console.log(`🚀  SERVER RUNNING AT http://localhost:${PORT}`);
@@ -648,6 +726,7 @@ async function startServer() {
       console.log(`📊 Redis: ${process.env.REDIS_URL ? '✅ Enabled' : '⚠️ Disabled (using memory cache)'}`);
       console.log(`🔒 Security: ${helmet ? '✅ Enabled' : '⚠️ Disabled'}`);
       console.log(`⏰ Cron Jobs: ${cron ? '✅ Enabled' : '⚠️ Disabled'}`);
+      console.log(`👋 Welcome splash: ${welcomeFileExists() ? '✅ Enabled' : '⚠️ Disabled (welcome.html not found)'}`);
       console.log(`🌐 Base URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
       console.log(`\n📋 Admin Panel: http://localhost:${PORT}/admin.html`);
       console.log(`📋 Business Admin: http://localhost:${PORT}/business-admin.html`);
