@@ -1,6 +1,11 @@
 /* ============================================================
    BUSINESS PROFILE CSS - COMPLETE VERSION
    Location: public/css/business-profile.css
+
+   Section H additions:
+    H.4 — styles for #ordersPausedBanner and #ordersPausedMessage
+    H.5 — styles for #ordersPausedContactBlock, its icon row,
+          the empty-state hint, and the per-icon anchors
    ============================================================ */
 
 /* ===== BACK LINK TO MARKETPLACE ===== */
@@ -227,6 +232,123 @@
 
   .hero-content h1 {
     font-size: 1.1rem;
+  }
+}
+
+/* ============================================================
+   Section H.4 — Orders paused banner
+   The HTML element carries inline styles too, but this layer
+   keeps the banner readable across browsers and gives it a
+   clean mobile stacking behaviour.
+   ============================================================ */
+#ordersPausedBanner {
+  display: none;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+#ordersPausedBanner > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+#ordersPausedMessage {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #7f1d1d;
+  margin: 0;
+  word-break: break-word;
+}
+
+/* ============================================================
+   Section H.5 — Contact-only block
+   Shown in place of the cart-enabled flow when orders are off.
+   ============================================================ */
+#ordersPausedContactBlock {
+  display: none;
+}
+
+#ordersPausedContactBlock h3 {
+  line-height: 1.3;
+}
+
+#ordersPausedContactIcons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+#ordersPausedContactIcons a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 30px;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+#ordersPausedContactIcons a:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+  opacity: 0.95;
+}
+
+#ordersPausedContactIcons a i {
+  font-size: 0.9rem;
+}
+
+#ordersPausedContactEmpty {
+  display: none;
+  font-size: 0.8rem;
+  color: #65a30d;
+  margin: 10px 0 0 0;
+  font-style: italic;
+}
+
+/* Mobile — the contact icons stack and fill the row so they stay
+   easy to tap, and the banner's inner content reflows cleanly. */
+@media (max-width: 640px) {
+  #ordersPausedBanner {
+    padding: 14px 16px !important;
+    margin: 10px 8px 0 !important;
+  }
+
+  #ordersPausedBanner > div {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  #ordersPausedContactBlock {
+    margin: 10px 8px !important;
+    padding: 16px !important;
+  }
+
+  #ordersPausedContactIcons {
+    gap: 8px;
+  }
+
+  #ordersPausedContactIcons a {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+    font-size: 0.75rem;
+    padding: 9px 12px;
+  }
+}
+
+@media (max-width: 400px) {
+  #ordersPausedContactIcons a {
+    flex: 1 1 100%;
+    font-size: 0.72rem;
   }
 }
 

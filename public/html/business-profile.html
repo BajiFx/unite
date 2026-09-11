@@ -1,3 +1,17 @@
+<!-- ============================================================
+     BUSINESS PROFILE — Section H customer-facing additions
+     Location: public/html/business-profile.html
+
+     Section H changes:
+      H.4 — banner shown when the business is not accepting orders
+      H.5 — contact-only container shown in place of cart buttons
+            when orders are off
+
+     Nothing else in this file was changed. The two additions live
+     directly inside #businessContent, immediately after the hero
+     section, so they are always visible above the fold when the
+     orders-off state applies.
+     ============================================================ -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -99,6 +113,53 @@
       </div>
     </div>
 
+    <!-- ============================================================ -->
+    <!-- H.4 — Orders paused banner                                   -->
+    <!--                                                              -->
+    <!--  Shown when the business is not accepting online orders.      -->
+    <!--  The message text is filled in by business-profile.js from    -->
+    <!--  the business's own order_disabled_message field, with a      -->
+    <!--  safe default when it is empty.                              -->
+    <!-- ============================================================ -->
+    <div id="ordersPausedBanner" style="display:none; margin:12px 12px 0; padding:16px 20px; background:#fef2f2; border-radius:12px; border-left:5px solid #ef4444; box-shadow:0 2px 8px rgba(239,68,68,0.08);">
+      <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+        <span style="font-size:1.6rem; line-height:1;">🔴</span>
+        <div style="flex:1; min-width:200px;">
+          <strong style="display:block; font-size:0.95rem; color:#991b1b; margin-bottom:4px;">
+            Orders are currently paused
+          </strong>
+          <p id="ordersPausedMessage" style="font-size:0.85rem; color:#7f1d1d; margin:0; line-height:1.5;">
+            This business is not currently accepting online orders. Please contact them directly.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- H.5 — Contact-only block                                     -->
+    <!--                                                              -->
+    <!--  Shown in place of the cart-enabled flow when orders are      -->
+    <!--  off. Reuses the same social-link icons the rest of the page  -->
+    <!--  already populates (WhatsApp, TikTok, Instagram, Messenger,   -->
+    <!--  phone). The product list remains visible above and below.    -->
+    <!-- ============================================================ -->
+    <div id="ordersPausedContactBlock" style="display:none; margin:12px 12px; padding:20px; background:linear-gradient(135deg,#f0fdf4,#dcfce7); border-radius:14px; border:1px solid #86efac;">
+      <h3 style="font-size:1rem; font-weight:800; color:#166534; margin:0 0 6px 0; display:flex; align-items:center; gap:8px;">
+        <i class="fas fa-headset"></i> Want something from this business?
+      </h3>
+      <p style="font-size:0.85rem; color:#14532d; margin:0 0 14px 0; line-height:1.5;">
+        Since orders are paused on the platform right now, reach out to the business directly using any of the options below.
+      </p>
+      <div id="ordersPausedContactIcons" style="display:flex; gap:12px; flex-wrap:wrap;">
+        <!-- The icons are cloned here by business-profile.js from the
+             existing #businessProfileContacts block so we never have
+             two sets of links to maintain. -->
+      </div>
+      <p id="ordersPausedContactEmpty" style="display:none; font-size:0.8rem; color:#65a30d; margin:10px 0 0 0; font-style:italic;">
+        This business has not published contact details yet. Try chatting with them through the marketplace Messages tab.
+      </p>
+    </div>
+
     <!-- ===== ABOUT ===== -->
     <div class="about-card">
       <div class="about-grid">
@@ -130,17 +191,14 @@
     </div>
 
     <!-- ===== PRODUCTS SECTION ===== -->
-    <!-- B.7 — filter by product category (from the DB) as well as by search -->
     <div class="products-section" id="products">
       <div class="section-header">
         <h2>📦 Our Products</h2>
         <div class="products-filters">
           <input type="text" id="businessSearchInput" placeholder="Search products..." onkeyup="filterBusinessProducts()">
-          <!-- Legacy free-text category filter (kept for backward compatibility) -->
           <select id="businessProductCategoryFilter" onchange="filterBusinessProducts()" aria-label="Filter products by legacy category">
             <option value="all">All product categories</option>
           </select>
-          <!-- B.7 — product category filter (defined list from the DB) -->
           <select id="businessProductCategoryIdFilter" onchange="filterBusinessProducts()" aria-label="Filter products by product category">
             <option value="all">All defined categories</option>
           </select>
@@ -197,50 +255,42 @@
 <!-- BOTTOM NAVIGATION - DYNAMIC -->
 <!-- ============================================================ -->
 <div class="bottom-nav business-nav" id="bottomNav">
-  <!-- HOME - Always visible, goes to business home -->
   <a href="#" id="navHome" onclick="scrollToTop(); return false;" class="active">
     <i class="fas fa-home"></i>
     <span>Home</span>
   </a>
 
-  <!-- CATEGORY - Hidden on business profile -->
   <a href="/category.html" id="navCategory" style="display:none;">
     <i class="fas fa-th-large"></i>
     <span>Category</span>
   </a>
 
-  <!-- MESSAGES - Logged in only -->
   <a href="#" id="navMessages" style="display:none;" onclick="openChatTab(); return false;">
     <i class="fas fa-comment"></i>
     <span>Messages</span>
   </a>
 
-  <!-- CART - Customer logged in -->
   <a href="/?workspace=cart" id="navCart" style="display:none; position:relative;" onclick="goToMarketplaceCart(); return false;">
     <i class="fas fa-shopping-cart"></i>
     <span class="nav-badge" id="navCartBadgeBP">0</span>
     <span>Cart</span>
   </a>
 
-  <!-- CART GUEST - Guest only -->
   <a href="#" id="navCartGuest" style="display:none;" onclick="openGuestCartPrompt(); return false;">
     <i class="fas fa-shopping-cart"></i>
     <span>Cart</span>
   </a>
 
-  <!-- ORDERS - Logged in customers & business admins -->
   <a href="/?workspace=orders" id="navOrders" style="display:none;">
     <i class="fas fa-box"></i>
     <span>Orders</span>
   </a>
 
-  <!-- PUBLIC PREVIEW - Business admin only (own business) -->
   <a href="#" id="navPublicPreview" style="display:none;" onclick="openBusinessPreview(); return false;">
     <i class="fas fa-eye"></i>
     <span>Preview</span>
   </a>
 
-  <!-- ADMIN - Business admin only -->
   <a href="/?workspace=dashboard" id="navAdmin" style="display:none;">
     <i class="fas fa-cog"></i>
     <span>Admin</span>

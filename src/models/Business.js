@@ -1,15 +1,48 @@
 // ============================================================
 //  BUSINESS MODEL - Complete with Delivery System
 //  Location: src/models/Business.js
+//
+//  Section C — Business location activation
+//  C.4 — create() records the location_activated flag and
+//        timestamps whenever coordinates are supplied.
+//  C.4 / C.6 — new updateLocation() method persists browser
+//        coordinates and marks the business as activated.
+//  C.5 — new updateLocationPin() method persists the adjusted
+//        map pin and records pin_updated_at.
+//  C.7 — update() now accepts the human-readable location
+//        name fields (continent, country, county, sub_county,
+//        ward, town, specific_area, postal_code).
+//  C.8 — new getLocationStatus() method returns the activation
+//        state for the badge.
+//  C.9 — getLocationStatus() also returns location_complete so
+//        the panel can show the "not findable" warning.
 // ============================================================
 
 const { pool } = require('../config/database');
 const { generateSlug } = require('../utils/helpers');
 const { getDistance } = require('../utils/helpers');
 
+// Section C — shared validator for coordinate strings/numbers.
+// Kept local so the model never trusts a caller-supplied value.
+function isValidCoordinateString(value) {
+    if (value === null || value === undefined) return false;
+    const str = String(value).trim();
+    if (str === '') return false;
+    return /^-?[0-9]+(\.[0-9]+)?$/.test(str);
+}
+
+function toCoordinate(value) {
+    if (!isValidCoordinateString(value)) return null;
+    return String(value).trim();
+}
+
 class Business {
     /**
      * Create a new business
+     *
+     * Section C.4 — If latitude/longitude are provided at creation
+     * time, the business is marked as activated with the source
+     * "geocode" and the activated_at timestamp is set to NOW().
      */
     static async create(data) {
         const {
@@ -21,7 +54,9 @@ class Business {
             bank_enabled, bank_name, bank_account, bank_account_name,
             paypal_enabled, paypal_email,
             shipping_policy, return_policy, terms_policy, privacy_policy,
-            delivery_enabled, online_orders_enabled
+            delivery_enabled, online_orders_enabled,
+            // C.7 — human-readable location names
+            continent, country, county, sub_county, ward, town, specific_area, postal_code
         } = data;
 
         // Generate slug from business name
@@ -37,6 +72,11 @@ class Business {
             slug = `${slug}-${Date.now().toString().slice(-4)}`;
         }
 
+        // C.4 — derive activation state from the presence of coordinates
+        const safeLat = toCoordinate(latitude);
+        const safeLng = toCoordinate(longitude);
+        const locationActivated = Boolean(safeLat && safeLng);
+
         const result = await pool.query(`
             INSERT INTO businesses (
                 business_name, slug, owner_id, location, address,
@@ -47,13 +87,27 @@ class Business {
                 bank_enabled, bank_name, bank_account, bank_account_name,
                 paypal_enabled, paypal_email,
                 shipping_policy, return_policy, terms_policy, privacy_policy,
-                delivery_enabled, online_orders_enabled
+                delivery_enabled, online_orders_enabled,
+                continent, country, county, sub_county, ward, town, specific_area, postal_code,
+                location_activated, location_activated_at, location_source
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
+            VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16,
+                $17, $18, $19,
+                $20, $21, $22, $23,
+                $24, $25, $26, $27,
+                $28, $29,
+                $30, $31, $32, $33,
+                $34, $35,
+                $36, $37, $38, $39, $40, $41, $42, $43,
+                $44, $45, $46
+            )
             RETURNING *
         `, [
             business_name, slug, owner_id, location, address,
-            latitude, longitude, description, mission, vision,
+            safeLat, safeLng, description, mission, vision,
             logo, heroImage, whatsapp, tiktok, instagram, facebook,
             phone, email, website,
             mpesa_enabled || false, mpesa_number || null,
@@ -61,7 +115,12 @@ class Business {
             bank_enabled || false, bank_name || null, bank_account || null, bank_account_name || null,
             paypal_enabled || false, paypal_email || null,
             shipping_policy || null, return_policy || null, terms_policy || null, privacy_policy || null,
-            delivery_enabled !== false, online_orders_enabled !== false
+            delivery_enabled !== false, online_orders_enabled !== false,
+            continent || null, country || null, county || null, sub_county || null,
+            ward || null, town || null, specific_area || null, postal_code || null,
+            locationActivated,
+            locationActivated ? new Date() : null,
+            locationActivated ? 'geocode' : null
         ]);
 
         const business = result.rows[0];
@@ -188,6 +247,11 @@ class Business {
 
     /**
      * Update business
+     *
+     * Section C.7 — accepts all human-readable location name fields.
+     * Section C.4 — if lat/lng come through here, activation is set
+     * automatically (source stays as whatever was previously set, or
+     * defaults to "geocode" if none was recorded).
      */
     static async update(id, data) {
         const allowedFields = [
@@ -200,7 +264,10 @@ class Business {
             'shipping_policy', 'return_policy', 'terms_policy', 'privacy_policy',
             'delivery_enabled', 'online_orders_enabled',
             'is_active', 'is_verified', 'is_featured',
-            'location_sharing_enabled', 'admin_lat', 'admin_lng'
+            'location_sharing_enabled', 'admin_lat', 'admin_lng',
+            // C.7 — location names
+            'continent', 'country', 'county', 'sub_county', 'ward',
+            'town', 'specific_area', 'postal_code'
         ];
 
         const fields = [];
@@ -230,6 +297,28 @@ class Business {
                 fields.push(`${field} = $${paramIndex}`);
                 values.push(data[field]);
                 paramIndex++;
+            }
+        }
+
+        // C.4 — if either coordinate is supplied here, treat as an
+        // activation (fall back to source "geocode" only when none exists).
+        const hasLat = data.latitude !== undefined && data.latitude !== '';
+        const hasLng = data.longitude !== undefined && data.longitude !== '';
+        if (hasLat && hasLng) {
+            const parsedLat = toCoordinate(data.latitude);
+            const parsedLng = toCoordinate(data.longitude);
+            if (parsedLat && parsedLng) {
+                fields.push(`latitude = $${paramIndex}`);
+                values.push(parsedLat);
+                paramIndex++;
+
+                fields.push(`longitude = $${paramIndex}`);
+                values.push(parsedLng);
+                paramIndex++;
+
+                fields.push(`location_activated = TRUE`);
+                fields.push(`location_activated_at = COALESCE(location_activated_at, NOW())`);
+                fields.push(`location_source = COALESCE(location_source, 'geocode')`);
             }
         }
 
@@ -486,6 +575,139 @@ class Business {
 
         const result = await pool.query(query, params);
         return result.rows;
+    }
+
+    // ============================================================
+    //  SECTION C — LOCATION ACTIVATION
+    // ============================================================
+
+    /**
+     * C.4 / C.6 — Persist browser-fetched coordinates and mark the
+     * business as activated. Safe to call repeatedly; each call
+     * refreshes coordinates and the activated_at timestamp.
+     *
+     * @param {number} businessId
+     * @param {{ latitude: string|number, longitude: string|number, accuracy?: string|number }} input
+     * @returns {Promise<object|null>} Updated business row or null when coordinates are invalid.
+     */
+    static async updateLocation(businessId, input = {}) {
+        const lat = toCoordinate(input.latitude);
+        const lng = toCoordinate(input.longitude);
+
+        if (!lat || !lng) return null;
+
+        // Range sanity (numeric)
+        const numLat = Number(lat);
+        const numLng = Number(lng);
+        if (!Number.isFinite(numLat) || numLat < -90 || numLat > 90) return null;
+        if (!Number.isFinite(numLng) || numLng < -180 || numLng > 180) return null;
+
+        const accuracy = input.accuracy !== undefined && input.accuracy !== null && input.accuracy !== ''
+            ? String(input.accuracy)
+            : null;
+
+        const result = await pool.query(`
+            UPDATE businesses
+            SET latitude = $1,
+                longitude = $2,
+                location_accuracy = COALESCE($3, location_accuracy),
+                location_activated = TRUE,
+                location_activated_at = NOW(),
+                location_source = 'browser',
+                updated_at = NOW()
+            WHERE id = $4
+            RETURNING *
+        `, [lat, lng, accuracy, businessId]);
+
+        return result.rows[0] || null;
+    }
+
+    /**
+     * C.5 — Persist an adjusted map pin. Records pin_updated_at so
+     * the panel can show "Pin updated X minutes ago".
+     *
+     * @param {number} businessId
+     * @param {{ latitude: string|number, longitude: string|number }} input
+     * @returns {Promise<object|null>}
+     */
+    static async updateLocationPin(businessId, input = {}) {
+        const lat = toCoordinate(input.latitude);
+        const lng = toCoordinate(input.longitude);
+
+        if (!lat || !lng) return null;
+
+        const numLat = Number(lat);
+        const numLng = Number(lng);
+        if (!Number.isFinite(numLat) || numLat < -90 || numLat > 90) return null;
+        if (!Number.isFinite(numLng) || numLng < -180 || numLng > 180) return null;
+
+        const result = await pool.query(`
+            UPDATE businesses
+            SET latitude = $1,
+                longitude = $2,
+                location_pin_updated_at = NOW(),
+                location_activated = TRUE,
+                location_activated_at = COALESCE(location_activated_at, NOW()),
+                location_source = 'pin',
+                updated_at = NOW()
+            WHERE id = $3
+            RETURNING *
+        `, [lat, lng, businessId]);
+
+        return result.rows[0] || null;
+    }
+
+    /**
+     * C.8 / C.9 — Return the full location state for a business so
+     * the admin panel can render the activation badge and the
+     * "not findable" warning without loading the whole profile.
+     *
+     * @param {number} businessId
+     * @returns {Promise<object|null>}
+     */
+    static async getLocationStatus(businessId) {
+        const result = await pool.query(`
+            SELECT
+                id,
+                latitude,
+                longitude,
+                location_accuracy,
+                location_activated,
+                location_activated_at,
+                location_pin_updated_at,
+                location_source,
+                location_complete,
+                continent, country, county, sub_county, ward,
+                town, specific_area, postal_code
+            FROM businesses
+            WHERE id = $1
+        `, [businessId]);
+
+        if (result.rows.length === 0) return null;
+
+        const row = result.rows[0];
+
+        return {
+            business_id: row.id,
+            activated: row.location_activated === true,
+            complete: row.location_complete === true,
+            activated_at: row.location_activated_at || null,
+            pin_updated_at: row.location_pin_updated_at || null,
+            source: row.location_source || null,
+            accuracy: row.location_accuracy || null,
+            latitude: row.latitude || null,
+            longitude: row.longitude || null,
+            names: {
+                continent: row.continent || null,
+                country: row.country || null,
+                county: row.county || null,
+                sub_county: row.sub_county || null,
+                ward: row.ward || null,
+                town: row.town || null,
+                specific_area: row.specific_area || null,
+                postal_code: row.postal_code || null
+            }
+        };
     }
 
     // ============================================================

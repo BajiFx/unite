@@ -6,6 +6,15 @@
 //  B.5 — Save blocked without a valid product category
 //  B.7 — Category returned on product detail (and related items)
 //  B.8 — Joined category name/slug returned on every product list
+//
+//  Section H — Product detail now returns the two business fields
+//  the frontend needs to honour the paused-orders state:
+//    • b.online_orders_enabled
+//    • b.order_disabled_message
+//  These are added to the joined SELECT in GET /:id/detail only.
+//  The marketplace list and related-products queries intentionally
+//  stay as-is so the change is surgical and the list payloads
+//  remain lean.
 // ============================================================
 
 const express = require('express');
@@ -149,6 +158,11 @@ router.get('/variants/batch', async (req, res) => {
 // ============================================================
 //  GET PRODUCT DETAIL (Public)
 //  B.7 — returned product carries its category
+//  H  — returned product also carries the business's order-
+//       visibility fields (online_orders_enabled and
+//       order_disabled_message) so the product detail page can
+//       render the paused-orders banner and disable the cart
+//       controls when the business has paused orders.
 // ============================================================
 
 router.get('/:id/detail', async (req, res) => {
@@ -167,7 +181,9 @@ router.get('/:id/detail', async (req, res) => {
              b.whatsapp AS business_whatsapp, b.tiktok AS business_tiktok,
              b.instagram AS business_instagram, b.facebook AS business_facebook,
              b.phone AS business_phone, b.email AS business_email,
-             b.website AS business_website, b.online_orders_enabled
+             b.website AS business_website,
+             b.online_orders_enabled,
+             b.order_disabled_message
       FROM products p
       LEFT JOIN product_categories pc ON pc.id = p.product_category_id
       LEFT JOIN businesses b ON p.business_id = b.id

@@ -15,6 +15,35 @@
 //   dot on the Business Profile sidebar item are shown until the
 //   admin assigns a category. This catches businesses that
 //   registered before Section B and still have no category.
+//
+//  Section C — Business location activation
+//  C.1 — manual latitude/longitude inputs removed from the form
+//  C.2 — "Make people find you by your location" section driven
+//        by this file
+//  C.3 — activateBusinessLocation() requests browser geolocation
+//  C.4 — coordinates are posted to /api/business-admin/location/activate
+//  C.5 — renderBusinessLocationMap() draws the pin; the admin can
+//        drag it and saveAdjustedBusinessPin() persists the change
+//  C.6 — the same Activate button re-runs to refresh coordinates
+//  C.7 — location name fields (continent → postal_code) are read
+//        and written by loadBusinessProfile / the profile submit
+//  C.8 — updateLocationStatusBadge() shows the green "Activated"
+//        badge
+//  C.9 — renderLocationWarning() shows the "not findable" warning
+//
+//  Section H — Cart and order visibility
+//  H.1 — read/write show_cart_when_disabled
+//  H.2 — read/write order_disabled_message
+//  H.3 — updateOrderDeliveryWarning() flags delivery-off + orders-on
+//  H.7 — updateOrderPreview() reflects the customer-facing state
+//
+//  Section I — M-Pesa payment types
+//  I.1 / I.2 — reads/writes mpesa_payment_type + per-type fields
+//  I.3 — validateMpesaSettings() blocks save when required fields
+//        are missing for the selected type
+//  I.5 — every save sends all the type-specific fields so the
+//        backend stores the whole record
+//  I.6 — read-only environment label from the server
 // ============================================================
 
 // Check if running in embedded mode (inside dashboard panel)
@@ -53,6 +82,19 @@ let statsInterval = null;
 let currentFilterStatus = null;
 let variantCounter = 0;
 
+// Section C — map + location state
+let businessLocationMap = null;
+let businessLocationMarker = null;
+let currentLocationState = {
+    activated: false,
+    complete: false,
+    latitude: null,
+    longitude: null
+};
+
+// Section I.6 — read-only environment label value from the server
+let currentMpesaEnvironment = 'sandbox';
+
 function escapeHtml(value) {
     const element = document.createElement('div');
     element.textContent = String(value ?? '');
@@ -65,6 +107,8 @@ function escapeHtml(value) {
 
 let orderSettings = {
     online_orders_enabled: true,
+    show_cart_when_disabled: false,
+    order_disabled_message: '',
     order_regions: 'Anywhere in Kenya',
     order_cutoff_time: '14:00',
     order_processing_time: '1-2 hours',
@@ -80,8 +124,14 @@ let orderSettings = {
     status_cancelled: '❌ This order has been cancelled.',
     status_completed: '✅ Order completed. Thank you for shopping!',
     return_policy: 'Returns accepted within 14 days of delivery. Products must be in original condition.',
-    return_window_days: 14
+    return_window_days: 14,
+    online_payment_enabled: true,
+    payment_on_delivery_enabled: false,
+    require_pod_agreement: true,
+    pod_agreement_text: ''
 };
+
+const DEFAULT_ORDER_DISABLED_MESSAGE = 'This business is not currently accepting online orders. Please contact us directly.';
 
 // ============================================================
 //  DELIVERY SETTINGS STATE
@@ -198,13 +248,18 @@ async function verifyBusinessAccess() {
         if (productBadge) productBadge.textContent = businessData.product_count || 0;
 
         // Section B — warn / prompt if the business has no business category yet.
-        // This catches businesses that registered before Section B and never
-        // got a category assigned.
         applyCategoryWarning(data.has_business_category === true);
 
+        // Section C — reflect location state on load so the badge and
+        // warning are correct even before the profile section is opened.
+        applyLocationState({
+            activated: data.business.location_activated === true,
+            complete: data.business.location_complete === true,
+            latitude: data.business.latitude || null,
+            longitude: data.business.longitude || null
+        });
+
         initSocket();
-        // Load business categories (for the multi-select) and product categories
-        // (for the searchable picker) in parallel.
         await Promise.all([
             loadBusinessCategories(),
             loadProductCategories()
@@ -224,9 +279,6 @@ async function verifyBusinessAccess() {
 
 // ============================================================
 //  Section B — missing business-category warning
-//  Renders a red banner at the top of the panel and a red dot on
-//  the Business Profile sidebar item when the business has no
-//  business category assigned. Removes both once one is set.
 // ============================================================
 
 function applyCategoryWarning(hasCategory) {
@@ -242,7 +294,6 @@ function applyCategoryWarning(hasCategory) {
         return;
     }
 
-    // Red dot on the sidebar "Business Profile" item
     if (profileItem && !profileItem.querySelector('.menu-red-dot')) {
         const dot = document.createElement('span');
         dot.className = 'menu-red-dot';
@@ -250,7 +301,6 @@ function applyCategoryWarning(hasCategory) {
         profileItem.appendChild(dot);
     }
 
-    // Banner at the top of the main content
     if (!existing) {
         const banner = document.createElement('div');
         banner.id = 'missingCategoryBanner';
@@ -286,6 +336,273 @@ function applyCategoryWarning(hasCategory) {
         if (mainContent) {
             mainContent.insertBefore(banner, mainContent.firstChild);
         }
+    }
+}
+
+// ============================================================
+//  Section C — location state helpers
+// ============================================================
+
+/**
+ * Central place that turns "what we know about the business location"
+ * into visible UI: the status badge (C.8) and the warning (C.9).
+ */
+function applyLocationState(state) {
+    if (!state) return;
+    currentLocationState = {
+        activated: state.activated === true,
+        complete: state.complete === true,
+        latitude: state.latitude || null,
+        longitude: state.longitude || null
+    };
+
+    updateLocationStatusBadge(currentLocationState);
+    renderLocationWarning(currentLocationState);
+}
+
+/**
+ * C.8 — Show the green "✅ Location Activated" badge when the business
+ * has an activated location, and the amber "Not Activated" badge
+ * otherwise.
+ */
+function updateLocationStatusBadge(state = currentLocationState) {
+    const activatedBadge = document.getElementById('locationStatusBadge');
+    const inactiveBadge = document.getElementById('locationStatusBadgeInactive');
+    const refreshBtn = document.getElementById('refreshLocationBtn');
+    const activateBtn = document.getElementById('activateLocationBtn');
+
+    if (state.activated) {
+        if (activatedBadge) activatedBadge.style.display = 'inline-block';
+        if (inactiveBadge) inactiveBadge.style.display = 'none';
+        if (refreshBtn) refreshBtn.style.display = 'inline-flex';
+        if (activateBtn) activateBtn.style.display = 'none';
+    } else {
+        if (activatedBadge) activatedBadge.style.display = 'none';
+        if (inactiveBadge) inactiveBadge.style.display = 'inline-block';
+        if (refreshBtn) refreshBtn.style.display = 'none';
+        if (activateBtn) activateBtn.style.display = 'inline-flex';
+    }
+}
+
+/**
+ * C.9 — Show the warning banner when the business has no coordinates
+ * and no town/county. Hide it otherwise.
+ */
+function renderLocationWarning(state = currentLocationState) {
+    const warning = document.getElementById('businessLocationWarning');
+    if (!warning) return;
+
+    const hasCoordinates = Boolean(state.latitude && state.longitude);
+    const hasName = Boolean(
+        document.getElementById('bTown')?.value?.trim() ||
+        document.getElementById('bCounty')?.value?.trim()
+    );
+
+    if (!hasCoordinates && !hasName) {
+        warning.style.display = 'block';
+    } else {
+        warning.style.display = 'none';
+    }
+}
+
+/**
+ * C.5 — Lazily initialise (or refresh) the Leaflet map for the location
+ * preview. The marker is draggable so the admin can adjust the pin.
+ */
+function renderBusinessLocationMap(latitude, longitude) {
+    const wrapper = document.getElementById('businessLocationMapWrapper');
+    const mapContainer = document.getElementById('businessLocationMap');
+    if (!wrapper || !mapContainer) return;
+    if (typeof L === 'undefined') return;
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    wrapper.style.display = 'block';
+
+    if (!businessLocationMap) {
+        businessLocationMap = L.map(mapContainer).setView([lat, lng], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap',
+            maxZoom: 19
+        }).addTo(businessLocationMap);
+    } else {
+        businessLocationMap.setView([lat, lng], 15);
+    }
+
+    if (businessLocationMarker) {
+        businessLocationMarker.setLatLng([lat, lng]);
+    } else {
+        businessLocationMarker = L.marker([lat, lng], { draggable: true }).addTo(businessLocationMap);
+    }
+
+    // Defer the size recalculation until the map element is visible.
+    setTimeout(() => {
+        try { businessLocationMap.invalidateSize(); } catch (err) { /* noop */ }
+    }, 250);
+}
+
+/**
+ * C.3 / C.4 / C.6 — Ask the browser for the current position, then post
+ * the coordinates to the server. Re-calling this function refreshes the
+ * coordinates (C.6).
+ */
+async function activateBusinessLocation() {
+    const statusEl = document.getElementById('locationActivationStatus');
+    const activateBtn = document.getElementById('activateLocationBtn');
+    const refreshBtn = document.getElementById('refreshLocationBtn');
+
+    if (!navigator.geolocation) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Your browser does not support location. Please use a modern browser.';
+            statusEl.style.color = '#ef4444';
+        }
+        return;
+    }
+
+    if (statusEl) {
+        statusEl.textContent = '⏳ Getting your location...';
+        statusEl.style.color = '#2563eb';
+    }
+    if (activateBtn) activateBtn.disabled = true;
+    if (refreshBtn) refreshBtn.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+        async (position) => {
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+
+            try {
+                const res = await fetch('/api/business-admin/location/activate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ latitude, longitude, accuracy })
+                });
+                const data = await res.json();
+
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || 'Failed to save location');
+                }
+
+                if (statusEl) {
+                    statusEl.textContent = '✅ Location activated successfully!';
+                    statusEl.style.color = '#16a34a';
+                }
+                showToast('✅ Location activated!', 'success');
+
+                applyLocationState({
+                    activated: true,
+                    complete: data.location?.complete === true,
+                    latitude: data.location?.latitude || latitude,
+                    longitude: data.location?.longitude || longitude
+                });
+
+                renderBusinessLocationMap(latitude, longitude);
+
+                // Persist the coordinates in the underlying businessData
+                // so other sections stay consistent.
+                if (businessData) {
+                    businessData.latitude = String(latitude);
+                    businessData.longitude = String(longitude);
+                    businessData.location_activated = true;
+                    businessData.location_complete = data.location?.complete === true;
+                }
+            } catch (err) {
+                console.error('Activate location error:', err);
+                if (statusEl) {
+                    statusEl.textContent = '❌ ' + err.message;
+                    statusEl.style.color = '#ef4444';
+                }
+                showToast('❌ ' + err.message, 'error');
+            } finally {
+                if (activateBtn) activateBtn.disabled = false;
+                if (refreshBtn) refreshBtn.disabled = false;
+            }
+        },
+        (error) => {
+            console.warn('Geolocation error:', error);
+            let message = 'Unable to get your location.';
+            if (error.code === error.PERMISSION_DENIED) {
+                message = 'Location permission was denied. Please allow it in your browser settings, then try again.';
+            } else if (error.code === error.POSITION_UNAVAILABLE) {
+                message = 'Your location is currently unavailable. Please try again in a moment.';
+            } else if (error.code === error.TIMEOUT) {
+                message = 'Getting your location timed out. Please try again.';
+            }
+
+            if (statusEl) {
+                statusEl.textContent = '❌ ' + message;
+                statusEl.style.color = '#ef4444';
+            }
+            showToast('❌ ' + message, 'error');
+
+            if (activateBtn) activateBtn.disabled = false;
+            if (refreshBtn) refreshBtn.disabled = false;
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0
+        }
+    );
+}
+
+/**
+ * C.5 — Save the pin the admin has dragged on the map.
+ */
+async function saveAdjustedBusinessPin() {
+    if (!businessLocationMarker) {
+        showToast('Activate the location first, then drag the pin.', 'warning');
+        return;
+    }
+
+    const pos = businessLocationMarker.getLatLng();
+    const statusEl = document.getElementById('locationActivationStatus');
+
+    if (statusEl) {
+        statusEl.textContent = '⏳ Saving adjusted pin...';
+        statusEl.style.color = '#2563eb';
+    }
+
+    try {
+        const res = await fetch('/api/business-admin/location', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ latitude: pos.lat, longitude: pos.lng })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to save pin');
+        }
+
+        if (statusEl) {
+            statusEl.textContent = '✅ Pin updated successfully!';
+            statusEl.style.color = '#16a34a';
+        }
+        showToast('✅ Pin saved!', 'success');
+
+        applyLocationState({
+            activated: true,
+            complete: data.location?.complete === true,
+            latitude: data.location?.latitude || pos.lat,
+            longitude: data.location?.longitude || pos.lng
+        });
+    } catch (err) {
+        console.error('Save pin error:', err);
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + err.message;
+            statusEl.style.color = '#ef4444';
+        }
+        showToast('❌ ' + err.message, 'error');
     }
 }
 
@@ -487,7 +804,6 @@ async function loadBusinessCategories() {
         if (!response.ok) throw new Error('Unable to load categories');
         businessCategories = await response.json();
 
-        // Fill the business-category picker used by the product-category request form
         const requestCategorySelect = document.getElementById('requestCategoryBusinessCategory');
         if (requestCategorySelect) {
             requestCategorySelect.innerHTML = '<option value="">Leave blank for a generic category</option>' +
@@ -520,10 +836,8 @@ function filterBusinessCategoryOptions() {
 // ============================================================
 
 async function loadProductCategories(forceReload = false) {
-    // Reset the cache on force reload.
     if (forceReload) productCategories = [];
 
-    // If we already have the list, just refresh the UI.
     if (productCategories.length > 0) {
         populateProductCategoryPickers();
         renderProductCategoriesList();
@@ -563,22 +877,6 @@ function populateProductCategoryPickers() {
     });
 }
 
-/**
- * B.4 — Searchable picker.
- *
- * scope = 'single' (default) filters the single-product picker.
- * scope = 'bulk'             filters the bulk picker.
- *
- * Behaviour:
- *  - Filters productCategories by name / business_category_name / slug.
- *  - Rebuilds the option list in place.
- *  - Shows a status line as the first option while filtering
- *    (e.g. "5 matches — pick one below" or "No categories match your search"),
- *    so the user can SEE that the search is doing something.
- *  - Auto-selects the single match, if exactly one, so a keystroke is actionable.
- *  - Restores the previous value if it survives the filter.
- *  - Updates the helper text under the picker with the match count.
- */
 function filterProductCategoryOptions(scope = 'single') {
     const input = scope === 'bulk'
         ? document.getElementById('bulkProductCategorySearch')
@@ -597,8 +895,6 @@ function filterProductCategoryOptions(scope = 'single') {
         return haystack.includes(query);
     });
 
-    // Status line for the first <option>. This is what makes the search
-    // feel responsive — without it, filtering alone is invisible.
     let statusLabel = 'Select a product category...';
     if (query && filtered.length === 0) {
         statusLabel = 'No categories match your search';
@@ -616,14 +912,12 @@ function filterProductCategoryOptions(scope = 'single') {
 
     select.innerHTML = optionsHtml;
 
-    // If there's exactly one match and the user is searching, auto-select it.
     if (query && filtered.length === 1) {
         select.value = String(filtered[0].id);
     } else if (currentValue && filtered.some(c => String(c.id) === String(currentValue))) {
         select.value = currentValue;
     }
 
-    // Update the helper text under the single-product picker.
     if (scope === 'single') {
         const help = document.getElementById('pProductCategoryHelp');
         if (help) {
@@ -645,7 +939,6 @@ function renderProductCategoriesList() {
         return;
     }
 
-    // Group by business category so the list is easy to scan.
     const groups = new Map();
     productCategories.forEach(cat => {
         const key = cat.business_category_name || 'General';
@@ -673,11 +966,6 @@ function renderProductCategoriesList() {
     container.innerHTML = html;
 }
 
-/**
- * Called when the user navigates to the Product Categories section.
- * Refreshes the business-category dropdown in the request form and
- * re-renders the list.
- */
 function loadProductCategorySection() {
     if (!businessCategories.length) {
         loadBusinessCategories().then(loadProductCategorySection);
@@ -688,9 +976,6 @@ function loadProductCategorySection() {
     });
 }
 
-/**
- * B.6 — Submit a new product category request.
- */
 async function submitProductCategoryRequest() {
     const nameInput = document.getElementById('requestCategoryName');
     const descriptionInput = document.getElementById('requestCategoryDescription');
@@ -754,7 +1039,6 @@ async function submitProductCategoryRequest() {
         if (descriptionInput) descriptionInput.value = '';
         if (businessCategorySelect) businessCategorySelect.value = '';
 
-        // Force a fresh fetch so the pending row shows up right away.
         await loadProductCategories(true);
     } catch (err) {
         console.error('❌ Product category request error:', err);
@@ -1150,7 +1434,6 @@ async function loadProducts() {
 document.getElementById('productForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
 
-    // B.5 — Block the save when no product category is selected.
     const categorySelect = document.getElementById('pProductCategory');
     if (!categorySelect || !categorySelect.value) {
         showToast('❌ Please select a product category.', 'error');
@@ -1163,7 +1446,6 @@ document.getElementById('productForm')?.addEventListener('submit', async functio
     const url = editId ? `/api/business-admin/products/${editId}` : '/api/business-admin/products';
     const method = editId ? 'PUT' : 'POST';
 
-    // Send the product_category_id explicitly (the select already carries the name).
     formData.set('product_category_id', categorySelect.value);
 
     const variants = getVariantData();
@@ -1223,7 +1505,6 @@ async function submitProductBatch() {
     let products;
     try {
         products = lines.map((line, index) => {
-            // Format: name, price, stock, description
             const [name, price, stock, ...description] = line.split(',').map(value => value.trim());
             if (!name || !price) throw new Error(`Line ${index + 1} needs a name and price.`);
             return {
@@ -1328,7 +1609,6 @@ async function editProduct(id) {
             else el.value = fields[key];
         });
 
-        // B.1 — Preselect the product's category in the searchable picker.
         const categorySelect = document.getElementById('pProductCategory');
         const categorySearch = document.getElementById('pProductCategorySearch');
         if (categorySelect) {
@@ -1433,6 +1713,11 @@ async function loadCustomers() {
 
 // ============================================================
 //  BUSINESS PROFILE
+//  C.7 — location name fields are read here and written back
+//        by the profile submit handler.
+//  C.5 — once coordinates are known, the map preview is rendered.
+//  C.8 / C.9 — the badge and warning are refreshed from the
+//              profile response.
 // ============================================================
 
 async function loadBusinessProfile() {
@@ -1453,8 +1738,15 @@ async function loadBusinessProfile() {
             bDescription: business.description || '',
             bMission: business.mission || '',
             bVision: business.vision || '',
-            bLatitude: business.latitude || '',
-            bLongitude: business.longitude || '',
+            // C.7 — human-readable location names
+            bContinent: business.continent || '',
+            bCountry: business.country || '',
+            bCounty: business.county || '',
+            bSubCounty: business.sub_county || '',
+            bWard: business.ward || '',
+            bTown: business.town || '',
+            bSpecificArea: business.specific_area || '',
+            bPostalCode: business.postal_code || '',
             bWhatsapp: business.whatsapp || '',
             bTiktok: business.tiktok || '',
             bInstagram: business.instagram || '',
@@ -1481,6 +1773,21 @@ async function loadBusinessProfile() {
 
         const deliveryToggle = document.getElementById('deliveryEnabled');
         if (deliveryToggle) deliveryToggle.checked = business.delivery_enabled !== false;
+
+        // Section C — refresh badge, warning, and (if we have coordinates)
+        // the map preview. The public business response carries the
+        // activation state; the profile response carries the raw coords.
+        const publicLocation = publicBusiness.location || {};
+        applyLocationState({
+            activated: publicLocation.activated === true || business.location_activated === true,
+            complete: publicLocation.complete === true || business.location_complete === true,
+            latitude: business.latitude || publicLocation.latitude || null,
+            longitude: business.longitude || publicLocation.longitude || null
+        });
+
+        if (business.latitude && business.longitude) {
+            renderBusinessLocationMap(business.latitude, business.longitude);
+        }
 
     } catch (err) {
         console.error('❌ Profile error:', err);
@@ -1518,16 +1825,23 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
             businessData = data.business;
             document.getElementById('businessNameDisplay').textContent = businessData.business_name;
 
-            // Section B — re-evaluate the missing-category warning. If the
-            // admin just assigned a category, the banner and red dot disappear
-            // immediately. If they removed all categories, the warning returns.
+            // Section B — re-evaluate the missing-category warning.
             const afterSave = await fetch('/api/auth/my-business', {
                 headers: { 'Authorization': `Bearer ${token}` }
             }).then(r => r.ok ? r.json() : { has_business_category: false })
               .catch(() => ({ has_business_category: false }));
             applyCategoryWarning(afterSave.has_business_category === true);
 
-            // Business categories changed → the available product categories may have changed too.
+            // Section C — re-evaluate the location badge and warning
+            // after the human-readable names have been saved.
+            applyLocationState({
+                activated: businessData.location_activated === true,
+                complete: businessData.location_complete === true,
+                latitude: businessData.latitude || null,
+                longitude: businessData.longitude || null
+            });
+
+            // Business categories changed → product categories may have changed.
             await loadProductCategories(true);
         } else {
             if (status) { status.textContent = '❌ ' + (data.error || 'Failed to update'); status.style.color = '#ef4444'; }
@@ -1539,7 +1853,82 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
 
 // ============================================================
 //  PAYMENT SETTINGS
+//  Section I — M-Pesa type selector and per-type fields
 // ============================================================
+
+/**
+ * I.2 — Show the field group that matches the selected M-Pesa type.
+ * Called on load and whenever a radio changes.
+ */
+function updateMpesaFields() {
+    const selected = document.querySelector('input[name="mpesa_payment_type"]:checked');
+    const type = selected ? selected.value : '';
+
+    const paybillFields = document.getElementById('mpesaPaybillFields');
+    const tillFields = document.getElementById('mpesaTillFields');
+    const pochiFields = document.getElementById('mpesaPochiFields');
+
+    if (paybillFields) paybillFields.style.display = type === 'paybill' ? 'block' : 'none';
+    if (tillFields) tillFields.style.display = type === 'till' ? 'block' : 'none';
+    if (pochiFields) pochiFields.style.display = type === 'pochi' ? 'block' : 'none';
+}
+
+/**
+ * I.6 — Render the read-only environment label. The value comes from
+ * the server, not from the browser, and the admin cannot change it here.
+ */
+function renderMpesaEnvironmentLabel(environment) {
+    const label = document.getElementById('mpesaEnvironmentLabel');
+    if (!label) return;
+    const env = (environment || 'sandbox').toLowerCase();
+    const isProduction = env === 'production';
+    const color = isProduction ? '#b45309' : '#1e40af';
+    const bg = isProduction ? '#fef3c7' : '#dbeafe';
+    const icon = isProduction ? '🔴' : '🧪';
+    const labelText = isProduction ? 'Production (live)' : 'Sandbox (test)';
+    label.innerHTML = `
+        Environment: <span style="font-weight:700; color:${color}; background:${bg}; padding:2px 8px; border-radius:10px; font-size:0.7rem;">${icon} ${labelText}</span>
+    `;
+}
+
+/**
+ * I.3 — Validate the M-Pesa block based on the selected type.
+ * Returns { ok: true } when the record can be saved, or
+ * { ok: false, message: '...' } with a clear reason.
+ */
+function validateMpesaSettings() {
+    const enabled = document.getElementById('pMpesaEnabled')?.checked === true;
+    if (!enabled) return { ok: true };
+
+    const selected = document.querySelector('input[name="mpesa_payment_type"]:checked');
+    if (!selected) {
+        return { ok: false, message: 'Please choose an M-Pesa type (Paybill, Till, or Pochi).' };
+    }
+
+    const type = selected.value;
+
+    if (type === 'paybill') {
+        const number = document.getElementById('pMpesaPaybillNumber')?.value.trim() || '';
+        const account = document.getElementById('pMpesaPaybillAccount')?.value.trim() || '';
+        if (!number || !account) {
+            return { ok: false, message: 'Paybill requires both the Paybill number and an account number.' };
+        }
+    } else if (type === 'till') {
+        const till = document.getElementById('pMpesaTillNumber')?.value.trim() || '';
+        if (!till) {
+            return { ok: false, message: 'Till requires the Till number.' };
+        }
+    } else if (type === 'pochi') {
+        const pochi = document.getElementById('pPochiNumber')?.value.trim() || '';
+        if (!pochi) {
+            return { ok: false, message: 'Pochi la Biashara requires the Pochi number.' };
+        }
+    } else {
+        return { ok: false, message: 'Unknown M-Pesa type. Please pick Paybill, Till, or Pochi.' };
+    }
+
+    return { ok: true };
+}
 
 async function loadPaymentSettings() {
     if (!businessData) return;
@@ -1550,8 +1939,8 @@ async function loadPaymentSettings() {
         if (!res.ok) throw new Error('Failed to load payment settings');
         const settings = await res.json();
 
+        // Existing providers
         document.getElementById('pMpesaEnabled').checked = settings.mpesa_enabled || false;
-        document.getElementById('pMpesaNumber').value = settings.mpesa_number || '';
         document.getElementById('pAirtelEnabled').checked = settings.airtel_enabled || false;
         document.getElementById('pAirtelNumber').value = settings.airtel_number || '';
         document.getElementById('pBankEnabled').checked = settings.bank_enabled || false;
@@ -1560,6 +1949,31 @@ async function loadPaymentSettings() {
         document.getElementById('pBankHolder').value = settings.bank_account_name || '';
         document.getElementById('pPaypalEnabled').checked = settings.paypal_enabled || false;
         document.getElementById('pPaypalEmail').value = settings.paypal_email || '';
+
+        // Section I.1 / I.2 — M-Pesa type and per-type fields.
+        const paymentType = settings.mpesa_payment_type || 'paybill';
+        document.querySelectorAll('input[name="mpesa_payment_type"]').forEach(r => {
+            r.checked = r.value === paymentType;
+        });
+
+        const paybillNumber = document.getElementById('pMpesaPaybillNumber');
+        const paybillAccount = document.getElementById('pMpesaPaybillAccount');
+        const tillNumber = document.getElementById('pMpesaTillNumber');
+        const pochiNumber = document.getElementById('pPochiNumber');
+
+        if (paybillNumber) paybillNumber.value = settings.mpesa_paybill_number || '';
+        if (paybillAccount) paybillAccount.value = settings.mpesa_paybill_account || '';
+        if (tillNumber) tillNumber.value = settings.mpesa_till_number || '';
+        if (pochiNumber) pochiNumber.value = settings.pochi_la_biashara_number || '';
+
+        updateMpesaFields();
+
+        // I.6 — read-only environment label
+        if (settings.mpesa_environment) {
+            currentMpesaEnvironment = settings.mpesa_environment;
+        }
+        renderMpesaEnvironmentLabel(currentMpesaEnvironment);
+
     } catch (err) {
         console.error('❌ Payment settings error:', err);
         alert('Error loading payment settings');
@@ -1568,9 +1982,28 @@ async function loadPaymentSettings() {
 
 document.getElementById('paymentSettingsForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
+
+    // Section I.3 — block the save with a clear per-type message.
+    const mpesaCheck = validateMpesaSettings();
+    if (!mpesaCheck.ok) {
+        const status = document.getElementById('paymentStatus');
+        if (status) { status.textContent = '❌ ' + mpesaCheck.message; status.style.color = '#ef4444'; }
+        showToast('❌ ' + mpesaCheck.message, 'error');
+        return;
+    }
+
+    const selectedType = document.querySelector('input[name="mpesa_payment_type"]:checked');
+
     const data = {
+        // Section I — M-Pesa type and per-type fields.
         mpesa_enabled: document.getElementById('pMpesaEnabled').checked,
-        mpesa_number: document.getElementById('pMpesaNumber').value,
+        mpesa_payment_type: selectedType ? selectedType.value : null,
+        mpesa_paybill_number: document.getElementById('pMpesaPaybillNumber')?.value.trim() || null,
+        mpesa_paybill_account: document.getElementById('pMpesaPaybillAccount')?.value.trim() || null,
+        mpesa_till_number: document.getElementById('pMpesaTillNumber')?.value.trim() || null,
+        pochi_la_biashara_number: document.getElementById('pPochiNumber')?.value.trim() || null,
+
+        // Airtel / Bank / PayPal
         airtel_enabled: document.getElementById('pAirtelEnabled').checked,
         airtel_number: document.getElementById('pAirtelNumber').value,
         bank_enabled: document.getElementById('pBankEnabled').checked,
@@ -1580,6 +2013,7 @@ document.getElementById('paymentSettingsForm')?.addEventListener('submit', async
         paypal_enabled: document.getElementById('pPaypalEnabled').checked,
         paypal_email: document.getElementById('pPaypalEmail').value
     };
+
     const status = document.getElementById('paymentStatus');
     if (status) status.textContent = '⏳ Saving...';
 
@@ -1629,6 +2063,8 @@ function toggleDeliveryOffered(value) {
         if (freeValue) toggleDeliveryFree(freeValue);
         updateDeliveryPreview();
     }
+    // Section H.3 — if delivery changed, re-evaluate the orders warning.
+    updateOrderDeliveryWarning();
 }
 
 function toggleDeliveryFree(value) {
@@ -1795,6 +2231,9 @@ async function loadDeliverySettings() {
             updateDeliveryPreview();
             loadDeliveryOrders();
         }
+
+        // Section H.3 — refresh the orders warning after delivery loads.
+        updateOrderDeliveryWarning();
     } catch (err) {
         console.error('❌ Delivery settings error:', err);
         const status = document.getElementById('deliveryStatus');
@@ -1846,6 +2285,8 @@ document.getElementById('deliveryForm')?.addEventListener('submit', async functi
             showToast('✅ Delivery settings saved!', 'success');
             updateDeliveryPreview();
             loadDeliveryOrders();
+            // Section H.3 — re-evaluate the orders warning after save.
+            updateOrderDeliveryWarning();
         } else {
             status.textContent = '❌ ' + (result.error || 'Failed to save');
             status.style.color = '#ef4444';
@@ -1899,7 +2340,38 @@ async function loadDeliveryOrders() {
 
 // ============================================================
 //  ORDER SETTINGS
+//  H.1 — show_cart_when_disabled
+//  H.2 — order_disabled_message
+//  H.3 — updateOrderDeliveryWarning()
+//  H.7 — updateOrderPreview() reflects the customer-facing state
 // ============================================================
+
+/**
+ * H.3 — Warn the admin when online orders are on but delivery is off.
+ * The policy is "warn only": we never silently flip a setting.
+ */
+function updateOrderDeliveryWarning() {
+    const warning = document.getElementById('orderDeliveryWarning');
+    if (!warning) return;
+
+    // The delivery state we trust here is whatever the delivery form
+    // currently shows as selected. If the form has not been loaded yet,
+    // fall back to businessData.
+    const offeredRadio = document.querySelector('input[name="delivery_offered"]:checked');
+    const deliveryOff = offeredRadio
+        ? offeredRadio.value === 'no'
+        : businessData
+            ? businessData.delivery_offered === 'no'
+            : false;
+
+    const ordersOn = document.getElementById('orderOnlineEnabled')?.checked === true;
+
+    if (deliveryOff && ordersOn) {
+        warning.style.display = 'block';
+    } else {
+        warning.style.display = 'none';
+    }
+}
 
 async function loadOrderSettings() {
     if (!businessData) return;
@@ -1933,8 +2405,17 @@ async function loadOrderSettings() {
         document.getElementById('orderReturnPolicy').value = settings.return_policy || 'Returns accepted within 14 days of delivery. Products must be in original condition.';
         document.getElementById('orderReturnWindow').value = settings.return_window_days || 14;
 
+        // Section H.1 — cart visibility when orders are off
+        const showCartEl = document.getElementById('showCartWhenDisabled');
+        if (showCartEl) showCartEl.checked = settings.show_cart_when_disabled === true;
+
+        // Section H.2 — custom message when orders are off
+        const disabledMessageEl = document.getElementById('orderDisabledMessageText');
+        if (disabledMessageEl) disabledMessageEl.value = settings.order_disabled_message || '';
+
         toggleOrderSettingsVisibility(settings.online_orders_enabled !== false);
         updateOrderPreview();
+        updateOrderDeliveryWarning();
     } catch (err) {
         console.error('❌ Order settings error:', err);
         showToast('Error loading order settings', 'error');
@@ -1948,6 +2429,11 @@ function toggleOrderSettingsVisibility(enabled) {
     if (disabledMessage) disabledMessage.style.display = enabled ? 'none' : 'block';
 }
 
+/**
+ * H.7 — Preview that reflects the H.4 / H.5 customer-facing state.
+ * When orders are off, the preview shows exactly what the customer will
+ * see, including the custom message and the cart visibility choice.
+ */
 function updateOrderPreview() {
     const container = document.getElementById('orderPreviewContent');
     if (!container) return;
@@ -1959,6 +2445,11 @@ function updateOrderPreview() {
     const autoComplete = document.getElementById('orderAutoCompleteDays').value || 7;
     const replacementHours = document.getElementById('orderReplacementHours').value || 6;
     const returnWindow = document.getElementById('orderReturnWindow').value || 14;
+
+    // Section H.1 / H.2 — read the new fields for the preview.
+    const showCartWhenDisabled = document.getElementById('showCartWhenDisabled')?.checked === true;
+    const customMessage = (document.getElementById('orderDisabledMessageText')?.value || '').trim();
+    const effectiveMessage = customMessage || DEFAULT_ORDER_DISABLED_MESSAGE;
 
     let html = `
         <div style="background:white; border-radius:8px; padding:16px; border:1px solid #e2e8f0;">
@@ -1996,11 +2487,23 @@ function updateOrderPreview() {
             </div>
         `;
     } else {
+        // Section H.4 / H.5 — exact customer-facing state when orders are off.
         html += `
             <div style="margin-top:8px; padding:8px 12px; background:#fef2f2; border-radius:6px; border-left:3px solid #ef4444;">
-                <p style="font-size:0.8rem; color:#991b1b; margin:0;">
-                    <strong>⚠️ Customers will see:</strong><br>
-                    "This business is not currently accepting online orders. Please contact the business directly."
+                <p style="font-size:0.8rem; color:#991b1b; margin:0 0 6px 0;">
+                    <strong>⚠️ Customers will see this banner:</strong>
+                </p>
+                <div style="background:#fff; border:1px solid #fecaca; border-radius:6px; padding:10px 12px;">
+                    <div style="font-size:0.75rem; font-weight:700; color:#991b1b; margin-bottom:2px;">Orders are currently paused</div>
+                    <div style="font-size:0.8rem; color:#7f1d1d;">${escapeHtml(effectiveMessage)}</div>
+                </div>
+            </div>
+            <div style="margin-top:8px; padding:8px 12px; background:#f8fafc; border-radius:6px; border-left:3px solid #64748b;">
+                <p style="font-size:0.75rem; color:#475569; margin:0;">
+                    <strong>🛒 Cart buttons:</strong>
+                    ${showCartWhenDisabled
+                        ? 'Visible but disabled — customers see the cart and a "currently unavailable" state.'
+                        : 'Hidden completely — customers see contact options instead.'}
                 </p>
             </div>
         `;
@@ -2010,12 +2513,21 @@ function updateOrderPreview() {
 }
 
 async function saveOrderSettings() {
+    // Section H.1 / H.2 — read the two new fields.
+    const showCartEl = document.getElementById('showCartWhenDisabled');
+    const disabledMessageEl = document.getElementById('orderDisabledMessageText');
+
     const data = {
         online_orders_enabled: document.getElementById('orderOnlineEnabled').checked,
         online_payment_enabled: document.getElementById('onlinePaymentEnabled').checked,
         payment_on_delivery_enabled: document.getElementById('paymentOnDeliveryEnabled').checked,
         require_pod_agreement: document.getElementById('requirePodAgreement').checked,
         pod_agreement_text: document.getElementById('podAgreementText').value.trim(),
+
+        // Section H.1 / H.2
+        show_cart_when_disabled: showCartEl ? showCartEl.checked : false,
+        order_disabled_message: disabledMessageEl ? disabledMessageEl.value.trim() : '',
+
         order_regions: document.getElementById('orderRegions').value.trim(),
         order_cutoff_time: document.getElementById('orderCutoffTime').value,
         order_processing_time: document.getElementById('orderProcessingTime').value.trim(),
@@ -2050,6 +2562,7 @@ async function saveOrderSettings() {
             businessData.online_orders_enabled = data.online_orders_enabled;
             toggleOrderSettingsVisibility(data.online_orders_enabled);
             updateOrderPreview();
+            updateOrderDeliveryWarning();
         } else {
             if (status) { status.textContent = '❌ ' + (result.error || 'Failed to save'); status.style.color = '#ef4444'; }
             showToast('❌ Failed to save order settings', 'error');
@@ -2064,6 +2577,8 @@ function updateOrderSettingsUI() {
     const enabled = document.getElementById('orderOnlineEnabled').checked;
     toggleOrderSettingsVisibility(enabled);
     updateOrderPreview();
+    // Section H.3 — re-evaluate the delivery-vs-orders warning.
+    updateOrderDeliveryWarning();
 }
 
 // ============================================================
@@ -2328,5 +2843,21 @@ window.showToast = showToast;
 
 // Section B — expose the missing-category warning helper
 window.applyCategoryWarning = applyCategoryWarning;
+
+// Section C — expose location helpers
+window.activateBusinessLocation = activateBusinessLocation;
+window.saveAdjustedBusinessPin = saveAdjustedBusinessPin;
+window.applyLocationState = applyLocationState;
+window.updateLocationStatusBadge = updateLocationStatusBadge;
+window.renderLocationWarning = renderLocationWarning;
+window.renderBusinessLocationMap = renderBusinessLocationMap;
+
+// Section H — expose order-visibility helpers
+window.updateOrderDeliveryWarning = updateOrderDeliveryWarning;
+
+// Section I — expose M-Pesa helpers
+window.updateMpesaFields = updateMpesaFields;
+window.validateMpesaSettings = validateMpesaSettings;
+window.renderMpesaEnvironmentLabel = renderMpesaEnvironmentLabel;
 
 console.log('✅ Business Admin JS loaded successfully');

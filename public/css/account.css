@@ -246,6 +246,124 @@
 }
 
 /* ============================================================
+   SECTION D — CUSTOMER LOCATION CARD
+   Shown inside the profile panel. Lets a signed-in customer
+   activate, refresh, or turn off location sharing.
+   ============================================================ */
+
+.customer-location-card {
+  background: #f0f7f0;
+  border: 1px solid #c8e6c8;
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.customer-location-card:hover {
+  border-color: #a5d6a5;
+}
+
+.customer-location-card h3 {
+  margin: 0 0 4px 0;
+  color: #163b21;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.customer-location-card p {
+  color: #475569;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* Status badges — only one is visible at a time.
+   The JS toggles `display: inline-block` / `none`. */
+#customerLocationStatusBadge {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+#customerLocationStatusBadgeInactive {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* Action buttons inside the card */
+#customerActivateLocationBtn,
+#customerRefreshLocationBtn,
+#customerDeactivateLocationBtn {
+  min-height: 40px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#customerActivateLocationBtn {
+  background: #16a34a;
+  color: #ffffff;
+  border: none;
+}
+
+#customerActivateLocationBtn:hover:not(:disabled) {
+  background: #15803d;
+  transform: translateY(-1px);
+}
+
+#customerRefreshLocationBtn {
+  background: #e2e8f0;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+}
+
+#customerRefreshLocationBtn:hover:not(:disabled) {
+  background: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+#customerDeactivateLocationBtn {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+#customerDeactivateLocationBtn:hover:not(:disabled) {
+  background: #fecaca;
+  transform: translateY(-1px);
+}
+
+#customerActivateLocationBtn:disabled,
+#customerRefreshLocationBtn:disabled,
+#customerDeactivateLocationBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#customerLocationStatus {
+  min-height: 18px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #475569;
+}
+
+/* ============================================================
    MARKETPLACE SECTION - ALWAYS VISIBLE
    ============================================================ */
 
@@ -1127,6 +1245,27 @@
     font-size: 1.1rem;
   }
 
+  /* Location card collapses to a single column on narrow screens. */
+  .customer-location-card {
+    padding: 14px;
+  }
+
+  .customer-location-card h3 {
+    font-size: 0.95rem;
+  }
+
+  .customer-location-card > div:last-child {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #customerActivateLocationBtn,
+  #customerRefreshLocationBtn,
+  #customerDeactivateLocationBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
   .marketplace-section-account {
     padding: 12px 12px 80px;
   }
@@ -1255,6 +1394,21 @@
     width: 14px;
     height: 14px;
     font-size: 0.5rem;
+  }
+
+  /* Customer location card — compact mode */
+  .customer-location-card {
+    padding: 12px;
+  }
+
+  .customer-location-card p {
+    font-size: 0.75rem;
+  }
+
+  #customerLocationStatusBadge,
+  #customerLocationStatusBadgeInactive {
+    font-size: 0.7rem;
+    padding: 3px 10px;
   }
 }
 

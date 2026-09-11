@@ -7,6 +7,33 @@
 //  B.5 — Required on create, update, and batch
 //  B.6 — Business admins can request new product categories
 //  B.8 — Joined category name returned on every product
+//
+//  Section C — Business location activation
+//  C.1 — Manual latitude/longitude are no longer required.
+//  C.2 — The profile response now reports activation state so
+//        the panel can render the "Make people find you by your
+//        location" section correctly.
+//  C.3 — New /location/activate endpoint receives coordinates
+//        already fetched by the browser.
+//  C.4 — Coordinates + activation flag are saved together.
+//  C.5 — New /location endpoint saves an adjusted pin.
+//  C.6 — Re-activation simply calls /location/activate again.
+//  C.7 — Address name fields remain on the normal profile update.
+//  C.8 — activation flag is returned on GET /profile.
+//  C.9 — location_complete flag is returned on GET /profile so
+//        the panel can show a warning when incomplete.
+//
+//  FIX LOG — C.3 / C.5 validation
+//  The original validation used
+//      body('accuracy').optional().isString()
+//  but the browser always sends `accuracy` as a NUMBER (metres).
+//  That made express-validator return 400 on every activation
+//  request, even when latitude and longitude were perfectly fine.
+//
+//  Both /location/activate and PUT /location now validate manually
+//  instead of using express-validator. This is more robust, accepts
+//  numeric strings and numbers interchangeably, and treats 0 as a
+//  valid coordinate (which notEmpty() would reject).
 // ============================================================
 
 const express = require('express');
@@ -20,6 +47,44 @@ const Business = require('../models/Business');
 const router = express.Router();
 
 const LOCATION_FIELDS = ['continent', 'country', 'county', 'sub_county', 'ward', 'town', 'specific_area', 'postal_code'];
+
+// Sections C.3 – C.6 — helpers -------------------------------------------------
+
+/**
+ * Parse and validate a latitude/longitude pair coming from the client.
+ * Accepts numbers or numeric strings. Rejects NaN, empty, or out of range.
+ * Returns { ok: true, lat, lng } or { ok: false, error }.
+ */
+function parseCoordinates(inputLat, inputLng) {
+    if (inputLat === undefined || inputLat === null || inputLat === '') {
+        return { ok: false, error: 'Latitude is required' };
+    }
+    if (inputLng === undefined || inputLng === null || inputLng === '') {
+        return { ok: false, error: 'Longitude is required' };
+    }
+
+    const lat = Number.parseFloat(inputLat);
+    const lng = Number.parseFloat(inputLng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return { ok: false, error: 'Valid latitude and longitude are required' };
+    }
+    if (lat < -90 || lat > 90) {
+        return { ok: false, error: 'Latitude must be between -90 and 90' };
+    }
+    if (lng < -180 || lng > 180) {
+        return { ok: false, error: 'Longitude must be between -180 and 180' };
+    }
+    return { ok: true, lat, lng };
+}
+
+/**
+ * Normalise a location source value.
+ */
+function normaliseLocationSource(source) {
+    const allowed = ['browser', 'pin', 'geocode'];
+    return allowed.includes(source) ? source : 'browser';
+}
 
 async function geocodeLocation(location) {
     const address = LOCATION_FIELDS.map(field => location[field]).filter(Boolean).join(', ');
@@ -155,6 +220,11 @@ router.post('/product-categories/request', authMiddleware, businessAdminOnly, ge
 
 // ============================================================
 //  GET BUSINESS PROFILE
+//
+//  C.2 / C.8 / C.9 — now returns the full location state so
+//  the admin panel can render the "Make people find you by
+//  your location" section, the "✅ Location Activated" badge,
+//  and the "your business cannot be found" warning.
 // ============================================================
 
 router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -187,8 +257,29 @@ router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
             ORDER BY c.name
         `, [req.businessId]);
 
+        const business = result.rows[0];
+
+        // C.8 / C.9 — expose activation + completeness flags explicitly
+        // so the frontend does not have to re-derive them.
+        const locationActivated = business.location_activated === true;
+        const locationComplete = business.location_complete === true;
+
         res.json({
-            business: result.rows[0],
+            business: {
+                ...business,
+                location_activated: locationActivated,
+                location_complete: locationComplete
+            },
+            location: {
+                activated: locationActivated,
+                complete: locationComplete,
+                activated_at: business.location_activated_at || null,
+                pin_updated_at: business.location_pin_updated_at || null,
+                source: business.location_source || null,
+                accuracy: business.location_accuracy || null,
+                latitude: business.latitude || null,
+                longitude: business.longitude || null
+            },
             stats: stats.rows[0] || {},
             categories: categories.rows
         });
@@ -201,6 +292,16 @@ router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
 
 // ============================================================
 //  UPDATE BUSINESS PROFILE
+//
+//  C.1 — latitude / longitude remain accepted but are no
+//        longer required. They are kept in the allowedFields
+//        list so other flows (pin adjust fallback) still work.
+//  C.7 — continent, country, county, sub-county, ward, town,
+//        specific_area and postal_code are accepted here.
+//
+//  C.4 — When coordinates come in via the profile form, the
+//        activation flag is set automatically and the source
+//        defaults to "geocode" unless already set.
 // ============================================================
 
 router.put('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
@@ -232,6 +333,10 @@ router.put('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
                 'mission', 'vision', 'whatsapp', 'tiktok', 'instagram',
                 'facebook', 'linkedin', 'phone', 'website', 'email',
                 'phone_numbers', 'email_addresses',
+                // C.7 — human-readable location names
+                'continent', 'country', 'county', 'sub_county', 'ward',
+                'town', 'specific_area', 'postal_code',
+                // C.1 — manual coordinates remain optional
                 'latitude', 'longitude'
             ];
 
@@ -249,6 +354,19 @@ router.put('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
                         values.push(req.body[field]);
                     }
                     paramIndex++;
+                }
+            }
+
+            // C.4 — If the admin supplied coordinates via this form,
+            // mark the location as activated automatically.
+            const hasLat = req.body.latitude !== undefined && req.body.latitude !== '';
+            const hasLng = req.body.longitude !== undefined && req.body.longitude !== '';
+            if (hasLat && hasLng) {
+                const parsed = parseCoordinates(req.body.latitude, req.body.longitude);
+                if (parsed.ok) {
+                    fields.push(`location_activated = TRUE`);
+                    fields.push(`location_activated_at = COALESCE(location_activated_at, NOW())`);
+                    fields.push(`location_source = COALESCE(location_source, 'geocode')`);
                 }
             }
 
@@ -287,6 +405,237 @@ router.put('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
         }
     }
 );
+
+// ============================================================
+//  SECTION C — LOCATION ACTIVATION
+//
+//  C.3 / C.4 / C.6
+//  The browser fetches coordinates and POSTs them here.
+//  This is the ONLY write path that marks a business as
+//  "activated by the browser", and re-calling it simply
+//  refreshes the coordinates (C.6).
+//
+//  Manual validation (no express-validator) because the browser
+//  sends `accuracy` as a NUMBER and `notEmpty()` treats 0 as empty.
+// ============================================================
+
+router.post('/location/activate',
+    authMiddleware,
+    businessAdminOnly,
+    getBusinessIdFromToken,
+    async (req, res) => {
+        try {
+            const { latitude, longitude, accuracy } = req.body || {};
+
+            console.log('📍 Activate location request:', {
+                businessId: req.businessId,
+                latitude,
+                longitude,
+                accuracy
+            });
+
+            const parsed = parseCoordinates(latitude, longitude);
+            if (!parsed.ok) {
+                return res.status(400).json({ error: parsed.error });
+            }
+
+            // C.4 — persist coordinates and set the activation flag.
+            const result = await pool.query(`
+                UPDATE businesses
+                SET latitude = $1,
+                    longitude = $2,
+                    location_accuracy = COALESCE($3, location_accuracy),
+                    location_activated = TRUE,
+                    location_activated_at = NOW(),
+                    location_source = 'browser',
+                    updated_at = NOW()
+                WHERE id = $4
+                RETURNING
+                    id, business_name,
+                    latitude, longitude,
+                    location_accuracy,
+                    location_activated,
+                    location_activated_at,
+                    location_source,
+                    location_complete
+            `, [
+                parsed.lat.toString(),
+                parsed.lng.toString(),
+                accuracy !== undefined && accuracy !== null && accuracy !== ''
+                    ? String(accuracy)
+                    : null,
+                req.businessId
+            ]);
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Business not found' });
+            }
+
+            await logAdminActivity(req.userId, 'ACTIVATE_BUSINESS_LOCATION', {
+                businessId: req.businessId,
+                latitude: parsed.lat,
+                longitude: parsed.lng
+            });
+
+            res.json({
+                success: true,
+                message: 'Location activated successfully.',
+                location: {
+                    latitude: result.rows[0].latitude,
+                    longitude: result.rows[0].longitude,
+                    accuracy: result.rows[0].location_accuracy,
+                    activated: result.rows[0].location_activated === true,
+                    activated_at: result.rows[0].location_activated_at,
+                    source: result.rows[0].location_source,
+                    complete: result.rows[0].location_complete === true
+                }
+            });
+        } catch (err) {
+            console.error('❌ Activate business location error:', err);
+            logError(err, 'Activate business location');
+            res.status(500).json({
+                error: 'Unable to save business location',
+                detail: process.env.NODE_ENV !== 'production' ? err.message : undefined
+            });
+        }
+    }
+);
+
+// ============================================================
+//  SECTION C — ADJUSTED PIN
+//
+//  C.5 — After the map preview shows the pin, the admin can
+//  drag it and confirm. The adjusted coordinates are saved
+//  here with source = 'pin'.
+//
+//  C.6 — The same endpoint is used again if the business moves.
+// ============================================================
+
+router.put('/location',
+    authMiddleware,
+    businessAdminOnly,
+    getBusinessIdFromToken,
+    async (req, res) => {
+        try {
+            const { latitude, longitude } = req.body || {};
+
+            const parsed = parseCoordinates(latitude, longitude);
+            if (!parsed.ok) {
+                return res.status(400).json({ error: parsed.error });
+            }
+
+            const result = await pool.query(`
+                UPDATE businesses
+                SET latitude = $1,
+                    longitude = $2,
+                    location_pin_updated_at = NOW(),
+                    location_activated = TRUE,
+                    location_activated_at = COALESCE(location_activated_at, NOW()),
+                    location_source = 'pin',
+                    updated_at = NOW()
+                WHERE id = $3
+                RETURNING
+                    id, business_name,
+                    latitude, longitude,
+                    location_pin_updated_at,
+                    location_activated,
+                    location_activated_at,
+                    location_source,
+                    location_complete
+            `, [
+                parsed.lat.toString(),
+                parsed.lng.toString(),
+                req.businessId
+            ]);
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Business not found' });
+            }
+
+            await logAdminActivity(req.userId, 'ADJUST_BUSINESS_LOCATION_PIN', {
+                businessId: req.businessId,
+                latitude: parsed.lat,
+                longitude: parsed.lng
+            });
+
+            res.json({
+                success: true,
+                message: 'Location pin updated successfully.',
+                location: {
+                    latitude: result.rows[0].latitude,
+                    longitude: result.rows[0].longitude,
+                    pin_updated_at: result.rows[0].location_pin_updated_at,
+                    activated: result.rows[0].location_activated === true,
+                    activated_at: result.rows[0].location_activated_at,
+                    source: result.rows[0].location_source,
+                    complete: result.rows[0].location_complete === true
+                }
+            });
+        } catch (err) {
+            console.error('❌ Adjust business location pin error:', err);
+            logError(err, 'Adjust business location pin');
+            res.status(500).json({ error: 'Unable to update location pin' });
+        }
+    }
+);
+
+// ============================================================
+//  SECTION C — LOCATION STATUS
+//
+//  C.8 / C.9 — Lightweight endpoint the panel can poll to
+//  refresh the badge and warning without reloading the whole
+//  profile.
+// ============================================================
+
+router.get('/location', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                latitude, longitude,
+                location_accuracy,
+                location_activated,
+                location_activated_at,
+                location_pin_updated_at,
+                location_source,
+                location_complete,
+                continent, country, county, sub_county, ward,
+                town, specific_area, postal_code
+            FROM businesses
+            WHERE id = $1
+        `, [req.businessId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Business not found' });
+        }
+
+        const row = result.rows[0];
+
+        res.json({
+            activated: row.location_activated === true,
+            complete: row.location_complete === true,
+            activated_at: row.location_activated_at || null,
+            pin_updated_at: row.location_pin_updated_at || null,
+            source: row.location_source || null,
+            accuracy: row.location_accuracy || null,
+            latitude: row.latitude || null,
+            longitude: row.longitude || null,
+            names: {
+                continent: row.continent || null,
+                country: row.country || null,
+                county: row.county || null,
+                sub_county: row.sub_county || null,
+                ward: row.ward || null,
+                town: row.town || null,
+                specific_area: row.specific_area || null,
+                postal_code: row.postal_code || null
+            }
+        });
+    } catch (err) {
+        console.error('❌ Get business location error:', err);
+        logError(err, 'Get business location');
+        res.status(500).json({ error: 'Unable to load business location' });
+    }
+});
 
 // ============================================================
 //  GET BUSINESS PRODUCTS

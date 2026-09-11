@@ -1,6 +1,31 @@
 // ============================================================
 //  CART PAGE JAVASCRIPT - COMPLETE VERSION WITH BUSINESS SUPPORT
 //  Location: public/js/cart.js
+//
+//  Section I — M-Pesa payment types:
+//   I.1 — the M-Pesa entry in the payment modal reflects the
+//         business's chosen type (Paybill / Till / Pochi) and
+//         shows the correct shortcode / account reference.
+//   I.2 — the customer never sees a type selector; the type
+//         is fixed by what the business configured.
+//   I.5 — processPayment() forwards the chosen type and
+//         shortcode so the server stores the correct
+//         transaction type on the payment record.
+//   I.7 — getMpesaFallbackMessage() returns a clear message and
+//         placeOrder() blocks the order when M-Pesa is
+//         disabled and no alternative is configured.
+//
+//  Section H — Cart when the business pauses orders:
+//   - loadBusinessSettings() records online_orders_enabled and
+//     order_disabled_message for the cart's business.
+//   - applyCartPausedState() disables shipping options, promo,
+//     and the Place Order button, shows a red banner above the
+//     checkout area, and relabels the button to "Orders Paused".
+//   - Every action that could push a paused order through
+//     (applyPromo, selectShippingTier, processPayment,
+//     placeOrder) hard-blocks with a clear message.
+//   - Cart items stay visible and editable so the customer can
+//     still adjust what they have.
 // ============================================================
 
 // Check if running in embedded mode (inside dashboard panel)
@@ -42,6 +67,17 @@ let selectedDeliveryMethod = 'pickup';
 let businessDeliverySettings = null;
 let businessPaymentSettings = null;
 let currentBusinessId = null;
+
+// Section H — cached order-visibility state for the cart's business.
+// Defaults to "enabled" so a missing field never locks the customer
+// out of the checkout flow.
+let businessPausedState = {
+    onlineOrdersEnabled: true,
+    orderDisabledMessage: ''
+};
+
+const DEFAULT_ORDERS_PAUSED_MESSAGE =
+    'This business is not currently accepting online orders. Please contact them directly.';
 
 const FREE_SHIPPING_THRESHOLD = 40000;
 
@@ -119,19 +155,215 @@ async function loadBusinessSettings(businessId) {
             updatePaymentMethods();
         }
 
-        // Check if online orders are enabled
+        // Section H — check whether this business is accepting orders.
+        // The /status endpoint already returns online_orders_enabled
+        // and order_disabled_message (added in the H round), so we
+        // read both here and drive the cart's paused state from them.
         const statusRes = await fetch(`/api/businesses/${businessId}/status`);
         if (statusRes.ok) {
             const status = await statusRes.json();
-            if (status.online_orders_enabled === false) {
-                showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
-                document.getElementById('placeOrderBtn').disabled = true;
-                document.getElementById('placeOrderBtn').innerHTML = '<i class="fas fa-store-alt-slash"></i> Orders Paused';
-            }
+            businessPausedState.onlineOrdersEnabled = status.online_orders_enabled !== false;
+            businessPausedState.orderDisabledMessage = status.order_disabled_message || '';
         }
+
+        // Section H — apply the paused state to the whole checkout
+        // section in one shot.
+        applyCartPausedState();
     } catch (err) {
         console.error('Error loading business settings:', err);
     }
+}
+
+// ============================================================
+//  Section H — Cart paused state
+// ============================================================
+
+/**
+ * Apply the paused / active state to the whole checkout section.
+ *
+ * When the business is paused:
+ *   - a red banner appears above the checkout sections
+ *   - the promo input + Apply button are disabled
+ *   - every shipping option is greyed out and non-clickable
+ *   - the Place Order button is disabled and relabelled
+ * When the business is active, everything is restored.
+ */
+function applyCartPausedState() {
+    const paused = businessPausedState.onlineOrdersEnabled === false;
+
+    renderCartPausedBanner(paused);
+
+    const promoInput = document.getElementById('promoInput');
+    const promoBtn = promoInput ? promoInput.parentElement?.querySelector('button') : null;
+    if (promoInput) promoInput.disabled = paused;
+    if (promoBtn) {
+        promoBtn.disabled = paused;
+        promoBtn.style.opacity = paused ? '0.55' : '';
+        promoBtn.style.cursor = paused ? 'not-allowed' : '';
+    }
+
+    const shippingContainer = document.getElementById('shippingOptions');
+    if (shippingContainer) {
+        shippingContainer.querySelectorAll('.shipping-option').forEach(el => {
+            el.style.opacity = paused ? '0.55' : '';
+            el.style.pointerEvents = paused ? 'none' : '';
+        });
+    }
+
+    const placeBtn = document.getElementById('placeOrderBtn');
+    if (placeBtn) {
+        if (paused) {
+            placeBtn.disabled = true;
+            placeBtn.innerHTML = '<i class="fas fa-store-alt-slash"></i> Orders Paused';
+        } else {
+            placeBtn.disabled = false;
+            placeBtn.innerHTML = '<i class="fas fa-check-circle"></i> Place Order';
+        }
+    }
+
+    const payBtn = document.getElementById('payNowBtn');
+    if (payBtn && paused) {
+        payBtn.disabled = true;
+        payBtn.style.opacity = '0.55';
+        payBtn.style.cursor = 'not-allowed';
+    }
+}
+
+/**
+ * Insert (or remove) the H.4-style banner above the checkout sections.
+ */
+function renderCartPausedBanner(paused) {
+    const checkoutSections = document.getElementById('checkoutSections');
+    if (!checkoutSections) return;
+
+    const existing = document.getElementById('cartOrdersPausedBanner');
+
+    if (!paused) {
+        if (existing) existing.remove();
+        return;
+    }
+
+    const message = String(businessPausedState.orderDisabledMessage || '').trim() ||
+        DEFAULT_ORDERS_PAUSED_MESSAGE;
+
+    if (existing) {
+        const msgEl = existing.querySelector('#cartOrdersPausedMessage');
+        if (msgEl) msgEl.textContent = message;
+        return;
+    }
+
+    const banner = document.createElement('div');
+    banner.id = 'cartOrdersPausedBanner';
+    banner.style.cssText = [
+        'margin:0 0 12px;',
+        'padding:16px 20px;',
+        'background:#fef2f2;',
+        'border-radius:12px;',
+        'border-left:5px solid #ef4444;',
+        'box-shadow:0 2px 8px rgba(239,68,68,0.08);',
+        'display:flex;',
+        'align-items:flex-start;',
+        'gap:12px;',
+        'flex-wrap:wrap;'
+    ].join('');
+
+    banner.innerHTML = `
+        <span style="font-size:1.6rem; line-height:1;">🔴</span>
+        <div style="flex:1; min-width:220px;">
+            <strong style="display:block; font-size:0.95rem; color:#991b1b; margin-bottom:4px;">
+                Orders are currently paused
+            </strong>
+            <p id="cartOrdersPausedMessage"
+               style="font-size:0.85rem; color:#7f1d1d; margin:0; line-height:1.5; word-break:break-word;"></p>
+            <p style="font-size:0.75rem; color:#7f1d1d; margin:6px 0 0 0;">
+                You can still see your items and adjust quantities. When the business is ready to accept orders again, come back and press Place Order.
+            </p>
+        </div>
+    `;
+
+    // Assign through textContent so any user-typed characters are
+    // treated as plain text, never HTML.
+    const msgEl = banner.querySelector('#cartOrdersPausedMessage');
+    if (msgEl) msgEl.textContent = message;
+
+    checkoutSections.parentElement.insertBefore(banner, checkoutSections);
+}
+
+// ============================================================
+//  Section I — M-Pesa type labels and fallback message
+// ============================================================
+
+/**
+ * I.1 / I.2 — Build the label that describes the M-Pesa payment
+ * entry for the customer. The label reflects the business's chosen
+ * type (Paybill / Till / Pochi) and the matching shortcode.
+ */
+function getMpesaLabel(settings) {
+    if (!settings || !settings.mpesa_enabled) return null;
+
+    const type = (settings.mpesa_payment_type || 'paybill').toLowerCase();
+
+    if (type === 'paybill') {
+        const number = settings.mpesa_paybill_number || '';
+        const account = settings.mpesa_paybill_account || '';
+        return {
+            type: 'paybill',
+            title: 'M-Pesa (Paybill)',
+            shortcode: number,
+            accountReference: account,
+            subtitle: number ? `Paybill: ${number}${account ? ' · A/C: ' + account : ''}` : ''
+        };
+    }
+
+    if (type === 'till') {
+        const number = settings.mpesa_till_number || '';
+        return {
+            type: 'till',
+            title: 'M-Pesa (Till)',
+            shortcode: number,
+            accountReference: '',
+            subtitle: number ? `Till: ${number}` : ''
+        };
+    }
+
+    if (type === 'pochi') {
+        const number = settings.pochi_la_biashara_number || '';
+        return {
+            type: 'pochi',
+            title: 'M-Pesa (Pochi la Biashara)',
+            shortcode: number,
+            accountReference: '',
+            subtitle: number ? `Pochi: ${number}` : ''
+        };
+    }
+
+    return {
+        type,
+        title: 'M-Pesa',
+        shortcode: '',
+        accountReference: '',
+        subtitle: ''
+    };
+}
+
+/**
+ * I.7 — Build the fallback message shown to the customer when
+ * M-Pesa is disabled for the current business.
+ */
+function getMpesaFallbackMessage(settings) {
+    const hasAlternative = Boolean(
+        settings && (
+            settings.airtel_enabled ||
+            settings.bank_enabled ||
+            settings.paypal_enabled
+        )
+    );
+
+    if (hasAlternative) {
+        return 'M-Pesa is not available for this business. Please use one of the alternative payment methods below.';
+    }
+
+    return 'M-Pesa is not configured by this business and no alternative payment method is available. Please contact the business directly to arrange payment.';
 }
 
 // ============================================================
@@ -145,12 +377,14 @@ function updatePaymentMethods() {
     let html = '';
     let hasMethods = false;
 
-    if (businessPaymentSettings.mpesa_enabled) {
+    const mpesaLabel = getMpesaLabel(businessPaymentSettings);
+
+    if (mpesaLabel) {
         hasMethods = true;
         html += `
             <div class="method" onclick="selectPaymentMethod('mpesa')">
-                <i class="fas fa-mobile-alt" style="color:#4CAF50;"></i> M-Pesa
-                ${businessPaymentSettings.mpesa_number ? `<span style="font-size:0.6rem; color:#64748b; margin-left:4px;">Paybill: ${businessPaymentSettings.mpesa_number}</span>` : ''}
+                <i class="fas fa-mobile-alt" style="color:#4CAF50;"></i> ${mpesaLabel.title}
+                ${mpesaLabel.subtitle ? `<span style="font-size:0.6rem; color:#64748b; margin-left:4px;">${mpesaLabel.subtitle}</span>` : ''}
             </div>
         `;
     }
@@ -184,7 +418,13 @@ function updatePaymentMethods() {
     }
 
     if (!hasMethods) {
-        html = `<p style="color:#94a3b8; font-size:0.85rem;">No payment methods available for this business.</p>`;
+        // I.7 — no payment method at all: show the fallback message
+        // so the customer knows exactly what to do next.
+        html = `<p style="color:#991b1b; background:#fef2f2; border-left:3px solid #ef4444; padding:10px 12px; border-radius:6px; font-size:0.85rem; margin:0;">${getMpesaFallbackMessage(businessPaymentSettings)}</p>`;
+    } else if (!mpesaLabel) {
+        // I.7 — M-Pesa is off but there are alternatives: add a soft
+        // notice above the methods so the customer is not surprised.
+        html = `<p style="color:#92400e; background:#fffbeb; border-left:3px solid #f59e0b; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin:0 0 8px 0;">${getMpesaFallbackMessage(businessPaymentSettings)}</p>` + html;
     }
 
     container.innerHTML = html;
@@ -273,6 +513,15 @@ function updateDeliveryOptions() {
     `;
 
     container.innerHTML = html;
+
+    // Section H — re-apply the paused state so newly rendered
+    // shipping options inherit the correct look.
+    if (businessPausedState.onlineOrdersEnabled === false) {
+        container.querySelectorAll('.shipping-option').forEach(el => {
+            el.style.opacity = '0.55';
+            el.style.pointerEvents = 'none';
+        });
+    }
 }
 
 // ============================================================
@@ -280,6 +529,9 @@ function updateDeliveryOptions() {
 // ============================================================
 
 function selectDeliveryMethod(method) {
+    // Section H — refuse to change the method when orders are paused.
+    if (businessPausedState.onlineOrdersEnabled === false) return;
+
     selectedDeliveryMethod = method;
     document.querySelectorAll('.shipping-option').forEach(el => el.classList.remove('selected'));
     const options = document.querySelectorAll('.shipping-option');
@@ -527,6 +779,12 @@ function renderCartPage() {
     updateShippingOptions(total);
     applyPromo();
     updateSummary(total);
+
+    // Section H — re-apply the paused state after the cart re-renders
+    // so the disabled look survives quantity changes.
+    if (businessPausedState.onlineOrdersEnabled === false) {
+        applyCartPausedState();
+    }
 }
 
 function updateSummary(total) {
@@ -619,6 +877,11 @@ function updateShippingOptions(subtotal) {
 }
 
 function selectShippingTier(tier, price) {
+    // Section H — refuse to change the tier when orders are paused.
+    if (businessPausedState.onlineOrdersEnabled === false) {
+        showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
+        return;
+    }
     selectedShippingTier = tier;
     shippingCost = price;
     updateSummary(calculateSubtotal());
@@ -630,6 +893,16 @@ function selectShippingTier(tier, price) {
 // ============================================================
 
 function applyPromo() {
+    // Section H — refuse to apply a promo when orders are paused.
+    if (businessPausedState.onlineOrdersEnabled === false) {
+        const msgEl = document.getElementById('promoMessage');
+        if (msgEl) {
+            msgEl.textContent = '⚠️ Orders are paused — promo cannot be applied right now.';
+            msgEl.style.color = '#f59e0b';
+        }
+        return;
+    }
+
     const input = document.getElementById('promoInput');
     const code = input.value.trim();
     const msgEl = document.getElementById('promoMessage');
@@ -711,18 +984,40 @@ async function placeOrder() {
         return;
     }
 
-    // Check if business accepts online orders
+    // Section H — check if the business is accepting online orders.
+    // The response now also carries the custom message, so we refresh
+    // the paused state and the UI in one go.
     try {
         const statusRes = await fetch(`/api/businesses/${businessId}/status`);
         if (statusRes.ok) {
             const status = await statusRes.json();
-            if (status.online_orders_enabled === false) {
-                showToast('❌ This business is not accepting online orders at the moment.', 'error');
+            businessPausedState.onlineOrdersEnabled = status.online_orders_enabled !== false;
+            businessPausedState.orderDisabledMessage = status.order_disabled_message || '';
+
+            if (businessPausedState.onlineOrdersEnabled === false) {
+                applyCartPausedState();
+                const message = String(businessPausedState.orderDisabledMessage || '').trim() ||
+                    DEFAULT_ORDERS_PAUSED_MESSAGE;
+                showToast('❌ ' + message, 'error');
                 return;
             }
         }
     } catch (err) {
         console.error('Error checking business status:', err);
+    }
+
+    // Section I.7 — if the business has no payment method configured
+    // at all, block the order with a clear message instead of leaving
+    // the customer stuck on the payment modal.
+    if (
+        businessPaymentSettings &&
+        !businessPaymentSettings.mpesa_enabled &&
+        !businessPaymentSettings.airtel_enabled &&
+        !businessPaymentSettings.bank_enabled &&
+        !businessPaymentSettings.paypal_enabled
+    ) {
+        showToast('❌ ' + getMpesaFallbackMessage(businessPaymentSettings), 'error');
+        return;
     }
 
     if (!validateAddress()) return;
@@ -858,6 +1153,12 @@ async function placeOrder() {
 // ============================================================
 
 function selectPaymentMethod(method) {
+    // Section H — refuse to open a payment method when paused.
+    if (businessPausedState.onlineOrdersEnabled === false) {
+        showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
+        return;
+    }
+
     selectedPaymentMethod = method;
     document.querySelectorAll('.method').forEach(el => el.classList.remove('selected'));
     const selectedEl = document.querySelector(`.method[onclick="selectPaymentMethod('${method}')"]`);
@@ -871,7 +1172,8 @@ function selectPaymentMethod(method) {
     const payBtn = document.getElementById('payNowBtn');
     if (payBtn) {
         if (method === 'mpesa') {
-            payBtn.textContent = '📱 Pay with M-Pesa';
+            const label = getMpesaLabel(businessPaymentSettings);
+            payBtn.textContent = label ? `📱 Pay with ${label.title}` : '📱 Pay with M-Pesa';
             payBtn.onclick = processPayment;
             payBtn.disabled = false;
         } else if (method === 'airtel') {
@@ -909,7 +1211,8 @@ function openPaymentModal(amount, orderId) {
     const payBtn = document.getElementById('payNowBtn');
     if (payBtn) {
         payBtn.disabled = false;
-        payBtn.innerHTML = '📱 Pay with M-Pesa';
+        const label = getMpesaLabel(businessPaymentSettings);
+        payBtn.innerHTML = label ? `📱 Pay with ${label.title}` : '📱 Pay with M-Pesa';
         payBtn.onclick = processPayment;
     }
     selectPaymentMethod('mpesa');
@@ -932,6 +1235,19 @@ function closePaymentModal() {
 // ============================================================
 
 function processPayment() {
+    // Section H — refuse to process a payment when the business
+    // has paused orders.
+    if (businessPausedState.onlineOrdersEnabled === false) {
+        const statusEl = document.getElementById('paymentStatus');
+        if (statusEl) {
+            statusEl.className = 'payment-status error';
+            statusEl.style.display = 'block';
+            statusEl.textContent = '❌ This business is not accepting online orders at the moment.';
+        }
+        showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
+        return;
+    }
+
     const method = selectedPaymentMethod;
     if (!method) {
         showToast('❌ Please select a payment method', 'error');
@@ -946,6 +1262,16 @@ function processPayment() {
     payBtn.disabled = true;
 
     if (method === 'mpesa') {
+        // Section I.7 — refuse to start a payment that cannot be
+        // completed, with a clear message.
+        const mpesaLabel = getMpesaLabel(businessPaymentSettings);
+        if (!mpesaLabel) {
+            statusEl.className = 'payment-status error';
+            statusEl.textContent = '❌ ' + getMpesaFallbackMessage(businessPaymentSettings);
+            payBtn.disabled = false;
+            return;
+        }
+
         const phone = document.getElementById('paymentPhone').value.trim();
         if (!phone) {
             statusEl.className = 'payment-status error';
@@ -972,7 +1298,13 @@ function processPayment() {
             body: JSON.stringify({
                 phone: cleanPhone,
                 amount: paymentTotal,
-                orderId: pendingOrderId
+                orderId: pendingOrderId,
+                // Section I.5 — forward the business's chosen type and
+                // shortcode so the payment record carries the correct
+                // transaction type, shortcode, and account reference.
+                payment_type: mpesaLabel.type,
+                shortcode: mpesaLabel.shortcode || null,
+                account_reference: mpesaLabel.accountReference || null
             })
         })
         .then(res => res.json())
@@ -1397,5 +1729,14 @@ window.startAirtelPolling = startAirtelPolling;
 window.loadShopProfile = loadShopProfile;
 window.selectDeliveryMethod = selectDeliveryMethod;
 window.loadBusinessSettings = loadBusinessSettings;
+
+// Section I exposures so any future UI (e.g. tracking page) can
+// reuse the same label and fallback logic without duplicating it.
+window.getMpesaLabel = getMpesaLabel;
+window.getMpesaFallbackMessage = getMpesaFallbackMessage;
+
+// Section H exposure so other surfaces (e.g. tracking) can reuse
+// the same paused-state helper.
+window.applyCartPausedState = applyCartPausedState;
 
 console.log('✅ Cart page initialized successfully');

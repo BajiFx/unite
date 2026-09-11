@@ -196,6 +196,9 @@
   </div>
 
   <!-- ===== PROFILE PANEL ===== -->
+  <!-- D.1 — Customer location activation lives here.
+       The block is visible to any signed-in customer and lets them
+       activate, see status, refresh, or turn off their location. -->
   <div class="account-content-panel" id="panel-profile">
     <div class="panel-title">
       <i class="fas fa-user"></i> My Profile
@@ -220,6 +223,116 @@
       </button>
       <div id="profileStatus" style="margin-top:8px; font-size:0.9rem;"></div>
     </div>
+
+    <!-- ============================================================ -->
+    <!-- D.1 / D.2 / D.10 / D.12 — Customer location activation       -->
+    <!--                                                              -->
+    <!--  - Activate Your Location       → requests GPS once and saves -->
+    <!--  - Refresh Location             → same action, shown after     -->
+    <!--                                    activation in case the      -->
+    <!--                                    customer has moved          -->
+    <!--  - Turn off location sharing    → clears coordinates          -->
+    <!--  - Status badge                 → activated / not activated   -->
+    <!-- ============================================================ -->
+    <div class="customer-location-card" id="customerLocationSection" style="margin-top:16px; padding:16px; background:#f0f7f0; border:1px solid #c8e6c8; border-radius:12px;">
+      <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
+        📍 Activate your location to find businesses near you
+      </h3>
+      <p style="font-size:0.8rem; color:#475569; margin:0 0 10px 0;">
+        When you activate your location, we use it only to sort nearby businesses nearest-first.
+        Your coordinates are never shared with any business.
+      </p>
+
+      <!-- Status badge -->
+      <div id="customerLocationStatusBadge"
+           style="display:none; font-size:0.8rem; font-weight:600; color:#166534; background:#dcfce7; padding:4px 12px; border-radius:20px; display:inline-block;">
+        ✅ Location active
+      </div>
+      <div id="customerLocationStatusBadgeInactive"
+           style="font-size:0.8rem; font-weight:600; color:#92400e; background:#fef3c7; padding:4px 12px; border-radius:20px; display:inline-block;">
+        ⏳ Location not activated
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <button type="button" class="btn-quick primary" id="customerActivateLocationBtn" onclick="activateCustomerLocation()" style="padding:10px 18px;">
+          <i class="fas fa-location-crosshairs"></i> Activate Your Location
+        </button>
+        <button type="button" class="btn-quick" id="customerRefreshLocationBtn" onclick="activateCustomerLocation()" style="display:none; padding:10px 18px; background:#e2e8f0; color:#1e293b;">
+          <i class="fas fa-sync-alt"></i> Refresh Location
+        </button>
+        <button type="button" class="btn-quick" id="customerDeactivateLocationBtn" onclick="deactivateCustomerLocation()" style="display:none; padding:10px 18px; background:#fee2e2; color:#991b1b;">
+          <i class="fas fa-location-arrow"></i> Turn off location sharing
+        </button>
+      </div>
+
+      <div id="customerLocationStatus" style="margin-top:8px; font-size:0.85rem;"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- E.2 / G.3 — Preferred area (optional)                        -->
+    <!--                                                              -->
+    <!--  A customer who chooses not to share GPS can still tell the  -->
+    <!--  marketplace which area they want to shop in. The search     -->
+    <!--  handler (E.4) uses these names as a soft anchor when the    -->
+    <!--  customer has no coordinates.                                -->
+    <!--                                                              -->
+    <!--  All six fields are optional. Save replaces the stored       -->
+    <!--  preferred area; Clear removes it.                           -->
+    <!-- ============================================================ -->
+    <div class="customer-preferred-area-card" id="customerPreferredAreaSection" style="margin-top:16px; padding:16px; background:#f0f7ff; border:1px solid #c7d9f0; border-radius:12px;">
+      <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
+        🗺️ Preferred area (optional)
+      </h3>
+      <p style="font-size:0.8rem; color:#475569; margin:0 0 10px 0;">
+        If you prefer not to share your GPS location, you can set a preferred area instead.
+        We use it only to rank nearby results towards the area you choose. It is never shared with any business.
+      </p>
+
+      <div id="customerPreferredAreaBadge"
+           style="display:none; font-size:0.8rem; font-weight:600; color:#1e40af; background:#dbeafe; padding:4px 12px; border-radius:20px; display:inline-block; margin-bottom:8px;">
+        ✅ Preferred area set
+      </div>
+
+      <div class="preferred-area-fields" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+        <div class="form-group">
+          <label style="font-size:0.75rem;">Continent</label>
+          <input type="text" id="preferredContinent" placeholder="e.g., Africa">
+        </div>
+        <div class="form-group">
+          <label style="font-size:0.75rem;">Country</label>
+          <input type="text" id="preferredCountry" placeholder="e.g., Kenya">
+        </div>
+        <div class="form-group">
+          <label style="font-size:0.75rem;">County</label>
+          <input type="text" id="preferredCounty" placeholder="e.g., Nairobi">
+        </div>
+        <div class="form-group">
+          <label style="font-size:0.75rem;">Sub-County</label>
+          <input type="text" id="preferredSubCounty" placeholder="e.g., Westlands">
+        </div>
+        <div class="form-group">
+          <label style="font-size:0.75rem;">Ward</label>
+          <input type="text" id="preferredWard" placeholder="e.g., Parklands">
+        </div>
+        <div class="form-group">
+          <label style="font-size:0.75rem;">Town / City</label>
+          <input type="text" id="preferredTown" placeholder="e.g., Nairobi">
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <button type="button" class="btn-quick primary" id="savePreferredAreaBtn" onclick="saveCustomerPreferredArea()" style="padding:10px 18px;">
+          <i class="fas fa-save"></i> Save preferred area
+        </button>
+        <button type="button" class="btn-quick" id="clearPreferredAreaBtn" onclick="clearCustomerPreferredArea()" style="padding:10px 18px; background:#fee2e2; color:#991b1b;">
+          <i class="fas fa-times"></i> Clear preferred area
+        </button>
+      </div>
+
+      <div id="customerPreferredAreaStatus" style="margin-top:8px; font-size:0.85rem;"></div>
+    </div>
+
   </div>
 
   <!-- ===== ORDERS PANEL ===== -->

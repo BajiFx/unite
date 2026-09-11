@@ -1,6 +1,39 @@
 // ============================================================
 //  INDEX.JS - COMPLETE FIXED VERSION
 //  Location: public/js/index.js
+//
+//  Section D — Smart customer search
+//  D.3 — Find Near Me button requests GPS once and re-runs the
+//        search sorted nearest-first.
+//  D.4 — distance_km is displayed on each card when an anchor
+//        was used.
+//  D.5 — When an anchor is used, the server already returns the
+//        list sorted nearest-first.
+//  D.7 — Location filters (typed search + dropdowns) combine with
+//        the free-text business search and category filter.
+//  D.8 — Location filters combine with search + category filter.
+//  D.9 — Urgent toggle sends sort=urgent so the server ranks
+//        strictly by distance.
+//  D.10 — Turn off location clears the customer's own coordinates.
+//  D.11 — Customer coordinates are sent to the server only as
+//        query parameters. Never persisted from the client.
+//  D.12 — Find Near Me also acts as refresh when already active.
+//
+//  Section H — Cart and order visibility
+//  H.6 — createBusinessCard() now renders a 🟢 / 🔴 status badge
+//        that tells customers whether the business is currently
+//        accepting online orders. The badge is driven by the
+//        business's own online_orders_enabled flag, so the
+//        marketplace list stays truthful at a glance.
+//
+//  Autofill hardening:
+//   Chromium (Edge and Chrome) writes autofilled values directly
+//   into the input's `value` property using native bindings that
+//   bypass the JS prototype setter. The only reliable intercept
+//   is an INSTANCE-LEVEL property descriptor installed on each
+//   specific input element. clearSpuriousSearchAutofill() below
+//   does exactly that — and also guards defaultValue and the
+//   `value` attribute path that some Chromium builds take.
 // ============================================================
 
 // ============================================================
@@ -20,11 +53,174 @@ let currentUser = null;
 let isLoggedIn = false;
 let currentLoginType = 'customer';
 let currentRegisterType = 'customer';
+
+// Two independent flags so the autofill guard for one input never
+// suppresses the guard for the other.
 let marketplaceSearchWasTyped = false;
+let locationSearchWasTyped = false;
 
 // Cache of business categories loaded once from the API.
-// Set to null after a successful registration so the next visit refetches.
 let businessCategoriesCache = null;
+
+// Section D — per-page customer coordinates. Never persisted.
+let marketplaceCustomerCoords = {
+  latitude: null,
+  longitude: null,
+  source: null          // 'ip' | 'gps' | 'account' | null
+};
+
+// Has the customer already been asked for GPS on this page?
+let gpsUpgradeAttempted = false;
+
+// Cache of distinct location values per field, fetched once per page.
+const locationValuesCache = {};
+
+// ------------------------------------------------------------
+// Typed location search state (Section D.7)
+// ------------------------------------------------------------
+let locationSearchText = '';
+let locationSearchDebounceTimer = null;
+const LOCATION_SEARCH_DEBOUNCE_MS = 350;
+
+// ============================================================
+//  AUTO-FILL GUARD
+// ============================================================
+
+/**
+ * Autofill guard.
+ *
+ * Chromium (Edge and Chrome) writes autofilled values directly to
+ * the `value` property of the input via native bindings, bypassing
+ * the JS setter on the prototype. The only reliable interception
+ * point is an instance-level property descriptor on the specific
+ * element.
+ *
+ * The interceptor:
+ *   - reads the real value through the original getter;
+ *   - on write, checks whether the user has actually typed (via the
+ *     `wasTyped` getter) and whether the incoming value looks like
+ *     an email address;
+ *   - if it is an email and the user has not typed, it swallows the
+ *     write and leaves the input empty;
+ *   - otherwise it allows the write.
+ *
+ * Additionally, it guards the `defaultValue` property and the
+ * `value` HTML attribute, and installs a MutationObserver on the
+ * element, because some Chromium builds write through those paths
+ * before touching the JS `value` setter.
+ */
+function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  const looksLikeEmail = (value) =>
+    typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+  // Grab the real descriptor from the prototype chain.
+  const realDescriptor = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(input),
+    'value'
+  );
+
+  // Fallback for very old browsers or unexpected prototypes.
+  if (!realDescriptor || !realDescriptor.get || !realDescriptor.set) {
+    const clearLoop = () => {
+      if (!wasTyped() && looksLikeEmail(input.value)) input.value = '';
+    };
+    clearLoop();
+    [50, 150, 350, 700, 1200, 2000].forEach(ms => setTimeout(clearLoop, ms));
+    return;
+  }
+
+  // If a spurious value is already there when we attach, purge it
+  // through the real setter, bypassing our own interceptor.
+  if (!wasTyped() && looksLikeEmail(input.value)) {
+    realDescriptor.set.call(input, '');
+  }
+
+  // Install the instance-level interceptor. This is what actually
+  // catches Chromium's native autofill write through the JS setter.
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get() {
+      return realDescriptor.get.call(input);
+    },
+    set(next) {
+      if (!wasTyped() && looksLikeEmail(next)) {
+        // Swallow the autofill write entirely.
+        return;
+      }
+      realDescriptor.set.call(input, next);
+    }
+  });
+
+  // Also intercept defaultValue. Some autofill paths write there
+  // first, then Chromium copies it into value via a code path that
+  // can fire before our value interceptor is installed.
+  try {
+    const defaultDescriptor = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(input),
+      'defaultValue'
+    );
+    if (defaultDescriptor && defaultDescriptor.get && defaultDescriptor.set) {
+      Object.defineProperty(input, 'defaultValue', {
+        configurable: true,
+        get() {
+          return defaultDescriptor.get.call(input);
+        },
+        set(next) {
+          if (!wasTyped() && looksLikeEmail(next)) {
+            return;
+          }
+          defaultDescriptor.set.call(input, next);
+        }
+      });
+    }
+  } catch (err) {
+    // Non-fatal — the value interceptor alone is usually enough.
+  }
+
+  // Watch the `value` HTML attribute. Some builds set the attribute
+  // directly, which does not go through the JS property setter.
+  try {
+    const observer = new MutationObserver(() => {
+      if (wasTyped()) return;
+      const attrValue = input.getAttribute('value');
+      if (looksLikeEmail(attrValue)) {
+        input.removeAttribute('value');
+        realDescriptor.set.call(input, '');
+      }
+    });
+    observer.observe(input, { attributes: true, attributeFilter: ['value'] });
+  } catch (err) {
+    // Non-fatal.
+  }
+
+  // Belt-and-braces purge on first real interaction. We deliberately
+  // do NOT use `focus` alone (some browsers fire focus on load), we
+  // gate on the first genuine keydown / paste / beforeinput.
+  const purgeIfAutofilled = () => {
+    if (!wasTyped() && looksLikeEmail(input.value)) {
+      realDescriptor.set.call(input, '');
+    }
+  };
+
+  input.addEventListener('keydown', purgeIfAutofilled);
+  input.addEventListener('paste', purgeIfAutofilled);
+  input.addEventListener('beforeinput', purgeIfAutofilled);
+
+  // Finally, one short polling window to catch very late autofill.
+  let ticks = 0;
+  const tick = setInterval(() => {
+    ticks += 1;
+    purgeIfAutofilled();
+    if (ticks >= 20) clearInterval(tick);   // ~10 seconds
+  }, 500);
+}
+
+// ============================================================
+//  SEARCH QUERY HELPERS (Section D)
+// ============================================================
 
 function getMarketplaceSearchQuery() {
   const input = document.getElementById('businessSearch');
@@ -36,33 +232,453 @@ function getMarketplaceSearchQuery() {
   return value;
 }
 
+function getLocationSearchQuery() {
+  const input = document.getElementById('locationSearchInput');
+  const value = input?.value?.trim() || '';
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    if (input) input.value = '';
+    return '';
+  }
+  return value;
+}
+
+function queryNeedsCustomerLocation(query) {
+  if (!query) return false;
+  const q = String(query).toLowerCase();
+
+  if (/\bwithin\s+\d+\s*k?m?s?\b/.test(q)) return true;
+
+  if (/\b(near|nearby|nearer|nearest|close|closer|closest)\b/.test(q)) return true;
+  if (/\b(near|close|closest|closer)\s+to\s+me\b/.test(q)) return true;
+  if (/\bnear\s+me\b/.test(q)) return true;
+  if (/\baround\s+me\b/.test(q)) return true;
+  if (/\baround\s+here\b/.test(q)) return true;
+  if (/\bnear\s+here\b/.test(q)) return true;
+  if (/\bin\s+my\s+(area|side)\b/.test(q)) return true;
+  if (/\bmy\s+(area|side|location)\b/.test(q)) return true;
+  if (/\bnear\s+my\s+(home|shop)\b/.test(q)) return true;
+  if (/\bnear\s+home\b/.test(q)) return true;
+  if (/\b(next|beside)\s+to\s+me\b/.test(q)) return true;
+
+  if (/\b(karibu|hapa|huku|mtaa|mtaani|kwetu|nyumbani)\b/.test(q)) return true;
+  if (/\bkaribu\s+(nami|na\s+mimi|nasi)\b/.test(q)) return true;
+  if (/\b(mtaa|area|side)\s+yangu\b/.test(q)) return true;
+  if (/\bhapa\s+karibu\b/.test(q)) return true;
+
+  return false;
+}
+
+function maybeSuggestNearKeyword(value) {
+  const hint = document.getElementById('searchNearHint');
+  const input = document.getElementById('businessSearch');
+  if (!input) return;
+  const v = String(value || '').trim().toLowerCase();
+
+  if (hint) hint.remove();
+
+  if (!v) return;
+  if (!/^n(e(a(r)?)?)?$/.test(v)) return;
+
+  const el = document.createElement('div');
+  el.id = 'searchNearHint';
+  el.className = 'search-near-hint';
+  el.innerHTML = `Press <strong>Enter</strong> to search <em>"${v} me"</em>`;
+  input.parentElement.appendChild(el);
+
+  setTimeout(() => { if (el.parentElement) el.remove(); }, 2500);
+}
+
+function requestCustomerCoordinates() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy
+      }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+    );
+  });
+}
+
+async function fetchApproximateLocationFromIp() {
+  try {
+    const res = await fetch('/api/location/ip-locate', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const latitude = Number(data?.latitude);
+    const longitude = Number(data?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    return {
+      latitude,
+      longitude,
+      city: data.city || null,
+      region: data.region || null,
+      country: data.country || null,
+      source: 'ip'
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+async function ensureCustomerCoordinates() {
+  if (marketplaceCustomerCoords.latitude !== null) return marketplaceCustomerCoords;
+
+  const approx = await fetchApproximateLocationFromIp();
+  if (approx) {
+    marketplaceCustomerCoords = approx;
+    updateLocationStatusChip();
+    return marketplaceCustomerCoords;
+  }
+
+  const coords = await requestCustomerCoordinates();
+  if (coords) {
+    marketplaceCustomerCoords = {
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      accuracy: coords.accuracy,
+      source: 'gps'
+    };
+    updateLocationStatusChip();
+  }
+  return marketplaceCustomerCoords;
+}
+
+function showLocationBanner() {
+  const banner = document.getElementById('locationBanner');
+  if (banner) banner.hidden = false;
+}
+
+function hideLocationBanner() {
+  const banner = document.getElementById('locationBanner');
+  if (banner) banner.hidden = true;
+}
+
+// ============================================================
+//  SECTION D — Location status chip + controls wiring
+// ============================================================
+
+function updateLocationStatusChip() {
+  const chip = document.getElementById('locationStatusChip');
+  const offBtn = document.getElementById('turnOffLocationBtn');
+  const findBtn = document.getElementById('findNearMeBtn');
+  const hasCoords = marketplaceCustomerCoords.latitude !== null;
+
+  if (chip) {
+    if (hasCoords) {
+      const src = marketplaceCustomerCoords.source === 'gps'
+        ? 'precise'
+        : marketplaceCustomerCoords.source === 'account'
+          ? 'saved'
+          : 'approximate';
+      chip.textContent = `📍 Location active (${src})`;
+      chip.hidden = false;
+    } else {
+      chip.hidden = true;
+    }
+  }
+
+  if (offBtn) offBtn.hidden = !hasCoords;
+  if (findBtn) {
+    findBtn.innerHTML = hasCoords
+      ? '<i class="fas fa-sync-alt"></i> <span>Refresh Near Me</span>'
+      : '<i class="fas fa-location-crosshairs"></i> <span>Find Near Me</span>';
+  }
+}
+
+function bindLocationControls() {
+  const findBtn = document.getElementById('findNearMeBtn');
+  const urgentToggle = document.getElementById('urgentToggle');
+  const offBtn = document.getElementById('turnOffLocationBtn');
+  const clearFiltersBtn = document.getElementById('clearLocationFiltersBtn');
+  const filtersToggle = document.getElementById('locationFiltersToggle');
+  const filtersPanel = document.getElementById('locationFilters');
+  const locationSearchInput = document.getElementById('locationSearchInput');
+  const locationSearchClearBtn = document.getElementById('locationSearchClearBtn');
+
+  // ---- D.3 / D.5 / D.12 — Find Near Me / Refresh Near Me ----
+  if (findBtn) {
+    findBtn.addEventListener('click', async () => {
+      const original = findBtn.innerHTML;
+      findBtn.disabled = true;
+      findBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Getting location...</span>';
+
+      const coords = await requestCustomerCoordinates();
+      findBtn.disabled = false;
+      findBtn.innerHTML = original;
+
+      if (!coords) {
+        showToast('We could not get your precise location. You can still type a place name, e.g. "in Nairobi".', 'warning');
+        return;
+      }
+
+      marketplaceCustomerCoords = {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy: coords.accuracy,
+        source: 'gps'
+      };
+      updateLocationStatusChip();
+      hideLocationBanner();
+
+      loadBusinesses(true, { forceNearest: true });
+    });
+  }
+
+  // ---- D.9 — Urgent toggle ----
+  if (urgentToggle) {
+    urgentToggle.addEventListener('change', () => {
+      loadBusinesses(true);
+    });
+  }
+
+  // ---- D.10 — Turn off location ----
+  if (offBtn) {
+    offBtn.addEventListener('click', async () => {
+      marketplaceCustomerCoords = { latitude: null, longitude: null, source: null };
+      gpsUpgradeAttempted = true;
+      updateLocationStatusChip();
+      showToast('Location sharing is off for this session.', 'info');
+
+      try {
+        await fetch('/api/location/customer/deactivate', {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+      } catch (err) {
+        // Non-fatal.
+      }
+
+      loadBusinesses(true);
+    });
+  }
+
+  // ---- D.7 — Typed location search ----
+  if (locationSearchInput) {
+    // Mark the field as "user touched" only on a genuine key, paste
+    // or IME event. Focus alone is not a reliable signal because
+    // some browsers fire focus on page load, which would silently
+    // disable the autofill guard.
+    const markLocationTyped = () => { locationSearchWasTyped = true; };
+
+    locationSearchInput.addEventListener('pointerdown', markLocationTyped, { once: true });
+    locationSearchInput.addEventListener('keydown', markLocationTyped, { once: true });
+    locationSearchInput.addEventListener('paste', markLocationTyped, { once: true });
+    locationSearchInput.addEventListener('beforeinput', markLocationTyped, { once: true });
+
+    locationSearchInput.addEventListener('input', () => {
+      locationSearchWasTyped = true;
+      locationSearchText = locationSearchInput.value.trim();
+      if (locationSearchClearBtn) {
+        locationSearchClearBtn.hidden = locationSearchText.length === 0;
+      }
+
+      if (locationSearchDebounceTimer) {
+        clearTimeout(locationSearchDebounceTimer);
+      }
+      locationSearchDebounceTimer = setTimeout(() => {
+        updateLocationFiltersCount();
+        loadBusinesses(true);
+      }, LOCATION_SEARCH_DEBOUNCE_MS);
+    });
+
+    locationSearchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (locationSearchDebounceTimer) clearTimeout(locationSearchDebounceTimer);
+        locationSearchWasTyped = true;
+        locationSearchText = locationSearchInput.value.trim();
+        updateLocationFiltersCount();
+        loadBusinesses(true);
+      }
+    });
+  }
+
+  if (locationSearchClearBtn) {
+    locationSearchClearBtn.addEventListener('click', () => {
+      if (locationSearchInput) locationSearchInput.value = '';
+      locationSearchText = '';
+      locationSearchWasTyped = true;
+      locationSearchClearBtn.hidden = true;
+      updateLocationFiltersCount();
+      loadBusinesses(true);
+    });
+  }
+
+  // ---- D.7 — Filters panel toggle (collapsed by default) ----
+  if (filtersToggle && filtersPanel) {
+    filtersToggle.addEventListener('click', () => {
+      const expanded = filtersToggle.getAttribute('aria-expanded') === 'true';
+      const next = !expanded;
+      filtersToggle.setAttribute('aria-expanded', String(next));
+      filtersPanel.hidden = !next;
+    });
+  }
+
+  // ---- D.7 — Clear all filters ----
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', () => {
+      document.querySelectorAll('#locationFilters select').forEach(sel => {
+        sel.value = '';
+      });
+      if (locationSearchInput) locationSearchInput.value = '';
+      locationSearchText = '';
+      locationSearchWasTyped = true;
+      if (locationSearchClearBtn) locationSearchClearBtn.hidden = true;
+      clearFiltersBtn.hidden = true;
+      updateLocationFiltersCount();
+      loadBusinesses(true);
+    });
+  }
+
+  // ---- D.7 — Dropdown change handlers ----
+  document.querySelectorAll('#locationFilters select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      updateLocationFiltersCount();
+      loadBusinesses(true);
+    });
+  });
+
+  populateLocationFilters();
+}
+
+function updateLocationFiltersCount() {
+  const countEl = document.getElementById('locationFiltersCount');
+  const clearBtn = document.getElementById('clearLocationFiltersBtn');
+  const anyDropdown = Array.from(document.querySelectorAll('#locationFilters select'))
+    .filter(s => s.value).length;
+  const hasText = locationSearchText.length > 0;
+  const total = anyDropdown + (hasText ? 1 : 0);
+
+  if (countEl) {
+    countEl.textContent = String(total);
+    countEl.hidden = total === 0;
+  }
+  if (clearBtn) clearBtn.hidden = total === 0;
+}
+
+function getCombinedSearchText() {
+  const businessSearch = getMarketplaceSearchQuery();
+  const locationSearch = getLocationSearchQuery();
+  if (locationSearch && !businessSearch) {
+    return locationSearch;
+  }
+  if (locationSearch && businessSearch) {
+    return `${businessSearch} ${locationSearch}`;
+  }
+  return businessSearch;
+}
+
+async function populateLocationFilters() {
+  const fields = ['continent', 'country', 'county', 'sub_county', 'town', 'ward'];
+
+  for (const field of fields) {
+    const select = document.querySelector(`#locationFilters select[data-location-field="${field}"]`);
+    if (!select) continue;
+
+    try {
+      let values = locationValuesCache[field];
+      if (!values) {
+        const res = await fetch(`/api/businesses/locations/distinct?field=${encodeURIComponent(field)}`, {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        if (!res.ok) {
+          select.disabled = true;
+          continue;
+        }
+        const data = await res.json();
+        values = Array.isArray(data.locations) ? data.locations : [];
+        locationValuesCache[field] = values;
+      }
+
+      if (!values.length) {
+        select.innerHTML = `<option value="">No ${field.replace('_', ' ')} data yet</option>`;
+        select.disabled = true;
+        continue;
+      }
+
+      const current = select.value;
+      select.innerHTML = `<option value="">All ${field.replace('_', ' ')}s</option>` +
+        values.map(v => {
+          const raw = String(v.value || '').trim();
+          if (!raw) return '';
+          return `<option value="${raw.replace(/"/g, '&quot;')}">${raw} (${v.business_count || 0})</option>`;
+        }).join('');
+
+      if (current) select.value = current;
+      select.disabled = false;
+    } catch (err) {
+      select.disabled = true;
+    }
+  }
+}
+
 // ============================================================
 //  INIT
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', function() {
-  // This file also supplies the shared auth modal on business-profile pages.
-  // Do not initialize marketplace-only state when that shell is absent.
   if (!document.getElementById('businessGrid')) return;
   console.log('📄 Index page loaded');
 
-  // Never use browser/password-manager autofill as a marketplace query.
+  // Install autofill guards FIRST, before any other JS touches the
+  // inputs and before any async work begins. The instance-level
+  // interceptor inside each guard is the only reliable way to stop
+  // Chromium's native autofill from writing an email into these
+  // search fields.
+  clearSpuriousSearchAutofill('businessSearch', () => marketplaceSearchWasTyped);
+  clearSpuriousSearchAutofill('locationSearchInput', () => locationSearchWasTyped);
+
   const businessSearch = document.getElementById('businessSearch');
   if (businessSearch) {
     businessSearch.value = '';
     businessSearch.defaultValue = '';
+
+    // Mark the field as typed the moment the user really interacts.
+    businessSearch.addEventListener('pointerdown', () => {
+      marketplaceSearchWasTyped = true;
+    }, { once: true });
+    businessSearch.addEventListener('keydown', () => {
+      marketplaceSearchWasTyped = true;
+    }, { once: true });
+    businessSearch.addEventListener('paste', () => {
+      marketplaceSearchWasTyped = true;
+    }, { once: true });
+    businessSearch.addEventListener('beforeinput', () => {
+      marketplaceSearchWasTyped = true;
+    }, { once: true });
+
     businessSearch.addEventListener('input', event => {
       marketplaceSearchWasTyped ||= ['insertText', 'insertFromPaste'].includes(event.inputType);
     });
+
     setTimeout(() => {
       if (!marketplaceSearchWasTyped) businessSearch.value = '';
     }, 500);
+
+    businessSearch.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        searchBusinesses();
+      }
+    });
   }
 
-  // Load marketplace data
-  loadMarketplace();
+  bindLocationBanner();
+  bindLocationControls();
+  updateLocationFiltersCount();
+  primeIpLocationOnLoad();
+  document.addEventListener('click', upgradeToPreciseLocationOnce, { once: true });
 
-  // Check auth state
+  loadMarketplace();
   checkAuthState();
 
   const requestedAuth = new URLSearchParams(window.location.search).get('auth');
@@ -70,16 +686,86 @@ document.addEventListener('DOMContentLoaded', function() {
     openAuthModal(requestedAuth);
   }
 
-  // Setup hamburger menu (workspace-aware)
   const hamburger = document.getElementById('hamburgerBtn');
   if (hamburger) {
     hamburger.addEventListener('click', toggleMobileSidebar);
   }
 
-  // A.1 — Load categories for the registration form on page load.
-  // The function is a no-op if the registration form is not in the DOM.
   loadBusinessCategoriesForRegistration();
 });
+
+// ============================================================
+//  LOCATION BANNER (Section D)
+// ============================================================
+
+function bindLocationBanner() {
+  const btn = document.getElementById('enableLocationBtn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Getting location...';
+    const coords = await requestCustomerCoordinates();
+    btn.disabled = false;
+    btn.innerHTML = original;
+
+    if (coords) {
+      marketplaceCustomerCoords = {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy: coords.accuracy,
+        source: 'gps'
+      };
+      updateLocationStatusChip();
+      hideLocationBanner();
+      searchBusinesses();
+    } else {
+      showToast('We could not get your location. You can still search by typing a place name, e.g. "in Nairobi".', 'warning');
+    }
+  });
+}
+
+// ============================================================
+//  SILENT IP LOCATION + FIRST-CLICK GPS UPGRADE
+// ============================================================
+
+async function primeIpLocationOnLoad() {
+  if (marketplaceCustomerCoords.latitude !== null) return;
+
+  const approx = await fetchApproximateLocationFromIp();
+  if (!approx) return;
+
+  if (marketplaceCustomerCoords.latitude === null) {
+    marketplaceCustomerCoords = approx;
+    updateLocationStatusChip();
+    console.log(`📍 Approximate location ready (${approx.city || approx.country || 'unknown'})`);
+  }
+}
+
+async function upgradeToPreciseLocationOnce() {
+  if (gpsUpgradeAttempted) return;
+  gpsUpgradeAttempted = true;
+
+  if (marketplaceCustomerCoords.source === 'gps') return;
+  if (!navigator.geolocation) return;
+
+  const coords = await requestCustomerCoordinates();
+  if (!coords) return;
+
+  marketplaceCustomerCoords = {
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+    accuracy: coords.accuracy,
+    source: 'gps'
+  };
+  updateLocationStatusChip();
+  console.log('📍 Upgraded to precise GPS location');
+
+  const activeQuery = getCombinedSearchText();
+  if (queryNeedsCustomerLocation(activeQuery)) {
+    loadBusinesses(true);
+  }
+}
 
 // ============================================================
 //  LOAD MARKETPLACE
@@ -126,22 +812,17 @@ async function loadCategories() {
 
 // ============================================================
 //  A.1–A.3  LOAD BUSINESS CATEGORIES FOR REGISTRATION
-//  Uses a cached list. Populates the register dropdown with
-//  proper loading, success, and error states.
-//  Pass forceReload = true to bypass the cache (A.7).
 // ============================================================
 
 async function loadBusinessCategoriesForRegistration(forceReload = false) {
   const primarySelect = document.getElementById('regBusinessPrimaryCategory');
   if (!primarySelect) return;
 
-  // If we already have a cached list and don't need to reload, use it
   if (businessCategoriesCache && !forceReload) {
     populateRegisterCategorySelect(businessCategoriesCache);
     return;
   }
 
-  // A.1 — Show loading state before the options are loaded
   primarySelect.innerHTML = '<option value="">⏳ Loading categories...</option>';
   primarySelect.disabled = true;
   const helpText = document.getElementById('regBusinessCategoryHelp');
@@ -166,7 +847,6 @@ async function loadBusinessCategoriesForRegistration(forceReload = false) {
     populateRegisterCategorySelect(categories);
   } catch (err) {
     console.error('Error loading business categories:', err);
-    // A.2 — Handle load failure gracefully
     primarySelect.innerHTML = '<option value="">❌ Categories could not be loaded</option>';
     primarySelect.disabled = true;
     if (helpText) {
@@ -178,18 +858,12 @@ async function loadBusinessCategoriesForRegistration(forceReload = false) {
   }
 }
 
-// ============================================================
-//  POPULATE THE REGISTER CATEGORY DROPDOWN + ADDITIONAL LIST
-//  A.3 — User can select. A.6 — Primary + additional categories.
-// ============================================================
-
 function populateRegisterCategorySelect(categories) {
   const primarySelect = document.getElementById('regBusinessPrimaryCategory');
   const additionalWrap = document.getElementById('regBusinessAdditionalCategoriesWrap');
   const additionalList = document.getElementById('regBusinessAdditionalCategories');
   if (!primarySelect) return;
 
-  // Build the options for the primary select — first option is a placeholder
   let html = '<option value="">Select a primary category...</option>';
   categories.forEach(cat => {
     const label = `${cat.icon || '📦'} ${cat.name}`;
@@ -198,7 +872,6 @@ function populateRegisterCategorySelect(categories) {
   primarySelect.innerHTML = html;
   primarySelect.disabled = false;
 
-  // Build the additional categories checkbox list
   if (additionalList && additionalWrap) {
     additionalList.innerHTML = categories.map(cat => {
       const label = `${cat.icon || '📦'} ${cat.name}`;
@@ -212,14 +885,12 @@ function populateRegisterCategorySelect(categories) {
     additionalWrap.style.display = 'block';
   }
 
-  // Restore help text
   const helpText = document.getElementById('regBusinessCategoryHelp');
   if (helpText) {
     helpText.textContent = 'Choose the category (or categories) that best describe what your business sells.';
     helpText.style.color = '#94a3b8';
   }
 
-  // Clear any previous selection error as soon as the user picks something
   primarySelect.onchange = () => {
     const errEl = document.getElementById('businessCategoryError');
     if (errEl) errEl.style.display = 'none';
@@ -228,12 +899,6 @@ function populateRegisterCategorySelect(categories) {
     handleAdditionalCategoryChange();
   };
 }
-
-// ============================================================
-//  SYNC ADDITIONAL CATEGORY OPTIONS
-//  Disable whichever category is chosen as the primary one
-//  so the same category is not selected twice.
-// ============================================================
 
 function syncAdditionalCategoryOptions() {
   const primarySelect = document.getElementById('regBusinessPrimaryCategory');
@@ -250,11 +915,6 @@ function syncAdditionalCategoryOptions() {
     }
   });
 }
-
-// ============================================================
-//  HANDLE ADDITIONAL CATEGORY CHANGES
-//  Clears the category error as soon as any category is picked.
-// ============================================================
 
 function handleAdditionalCategoryChange() {
   const errEl = document.getElementById('businessCategoryError');
@@ -308,31 +968,89 @@ function renderFeaturedBusinesses() {
 }
 
 // ============================================================
-//  LOAD BUSINESSES
+//  LOAD BUSINESSES (Section D — smart search)
 // ============================================================
 
-async function loadBusinesses(reset = true) {
+async function loadBusinesses(reset = true, options = {}) {
   if (reset) {
     currentPage = 1;
     hasMore = true;
     allBusinesses = [];
   }
   if (isLoading || !hasMore) return;
+
+  // Belt-and-braces: clear any autofill injection that slipped in
+  // between the guard installation and this async tick.
+  if (!marketplaceSearchWasTyped) {
+    const bs = document.getElementById('businessSearch');
+    if (bs && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bs.value.trim())) {
+      bs.value = '';
+    }
+  }
+  if (!locationSearchWasTyped) {
+    const ls = document.getElementById('locationSearchInput');
+    if (ls && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ls.value.trim())) {
+      ls.value = '';
+    }
+  }
+
   isLoading = true;
 
-  const search = getMarketplaceSearchQuery();
+  const search = getCombinedSearchText();
   const category = document.getElementById('businessCategoryFilter')?.value || 'all';
-  const sort = document.getElementById('sortFilter')?.value || 'newest';
+  let sort = document.getElementById('sortFilter')?.value || 'newest';
 
-  const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
+  const urgent = document.getElementById('urgentToggle')?.checked === true;
+  if (urgent) sort = 'urgent';
+
+  const forceNearest = options.forceNearest === true;
+
+  let coords = marketplaceCustomerCoords;
+  if (forceNearest || queryNeedsCustomerLocation(search)) {
+    if (coords.latitude === null) {
+      coords = await ensureCustomerCoordinates();
+    }
+    if (coords.latitude === null) {
+      showLocationBanner();
+    } else {
+      hideLocationBanner();
+    }
+  } else {
+    hideLocationBanner();
+  }
+
+  const params = new URLSearchParams();
+  params.set('page', String(currentPage));
+  params.set('limit', String(limit));
+  if (search) params.set('search', search);
+  if (category && category !== 'all') params.set('category', category);
+  if (sort) params.set('sort', sort);
+
+  document.querySelectorAll('#locationFilters select').forEach(sel => {
+    const field = sel.dataset.locationField;
+    const value = sel.value;
+    if (field && value) params.set(field, value);
+  });
+
+  const shouldSendCoords = forceNearest
+    || queryNeedsCustomerLocation(search)
+    || urgent;
+  if (shouldSendCoords && coords.latitude !== null && coords.longitude !== null) {
+    params.set('latitude', String(coords.latitude));
+    params.set('longitude', String(coords.longitude));
+  }
+
+  params.set('_', String(Date.now()));
 
   try {
-    const url = `/api/businesses?page=${currentPage}&limit=${limit}${searchParam}&category=${category}&sort=${sort}&_=${Date.now()}`;
+    const url = `/api/businesses?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to load businesses');
     const data = await res.json();
     const businesses = data.businesses || [];
     hasMore = data.pagination?.page < data.pagination?.pages;
+
+    window.__lastSearchAnchor = data.anchor || null;
 
     if (reset) {
       allBusinesses = businesses;
@@ -383,6 +1101,28 @@ function appendBusinesses() {
   container.innerHTML += newHtml;
 }
 
+// ============================================================
+//  BUSINESS CARD (Section D.4 — distance badge)
+//  Section H.6 — 🟢 / 🔴 order-status badge
+// ============================================================
+
+/**
+ * H.6 — Return the badge markup that tells the customer whether this
+ * business is currently accepting online orders.
+ *
+ * The badge is driven entirely by `business.online_orders_enabled`.
+ * Anything other than an explicit `false` is treated as accepting
+ * orders, matching the behaviour used everywhere else on the site
+ * (business profile, product grid, cart checkout).
+ */
+function getOrderStatusBadge(business) {
+  const accepting = !business || business.online_orders_enabled !== false;
+  if (accepting) {
+    return '<span class="badge accepting-orders" title="This business is accepting online orders">🟢 Accepting Orders</span>';
+  }
+  return '<span class="badge orders-paused" title="This business is not accepting online orders right now">🔴 Orders Paused</span>';
+}
+
 function createBusinessCard(business) {
   let slug = business.slug;
   if (!slug || slug === '' || slug === 'undefined' || slug === 'null') {
@@ -402,6 +1142,9 @@ function createBusinessCard(business) {
   if (business.is_verified) badges.push('<span class="badge verified">✅ Verified</span>');
   if (business.is_featured) badges.push('<span class="badge featured">⭐ Featured</span>');
 
+  // Section H.6 — order status badge.
+  badges.push(getOrderStatusBadge(business));
+
   const description = business.description || '';
   const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
   const productCount = business.product_count || 0;
@@ -409,6 +1152,13 @@ function createBusinessCard(business) {
   const reviewCount = business.review_count || 0;
 
   const escapedName = business.business_name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  const distanceKm = business.distance_km !== undefined && business.distance_km !== null
+    ? Number(business.distance_km)
+    : null;
+  const distanceBadge = distanceKm !== null && Number.isFinite(distanceKm)
+    ? `<div class="business-distance">📍 ${formatDistance(distanceKm)} away</div>`
+    : '';
 
   return `
     <div class="business-card" data-slug="${slug}" data-name="${escapedName}" onclick="window.location.href='/business/${encodeURIComponent(slug)}'">
@@ -421,6 +1171,7 @@ function createBusinessCard(business) {
       <div class="card-body">
         <div class="business-name">${business.business_name}</div>
         <div class="business-location">📍 ${business.location || 'Kenya'}</div>
+        ${distanceBadge}
         ${truncatedDesc ? `<div class="business-description">${truncatedDesc}</div>` : ''}
         <div class="business-stats">
           <span>🛍️ ${productCount} products</span>
@@ -431,6 +1182,13 @@ function createBusinessCard(business) {
       </div>
     </div>
   `;
+}
+
+function formatDistance(km) {
+  if (!Number.isFinite(km)) return '';
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  if (km < 10) return `${km.toFixed(1)} km`;
+  return `${Math.round(km)} km`;
 }
 
 // ============================================================
@@ -468,11 +1226,13 @@ async function loadPlatformStats() {
 
 function searchBusinesses() {
   getMarketplaceSearchQuery();
+  getLocationSearchQuery();
   loadBusinesses(true);
 }
 
 function filterBusinesses() {
   getMarketplaceSearchQuery();
+  getLocationSearchQuery();
   loadBusinesses(true);
 }
 
@@ -488,7 +1248,6 @@ function updateCartBadge() {
   const cart = typeof getCart === 'function' ? getCart() : [];
   const count = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Update sidebar badge
   const sidebarBadge = document.getElementById('sidebarCartBadge');
   if (sidebarBadge) {
     if (count > 0) {
@@ -508,7 +1267,6 @@ function openAuthModal(tab) {
   const modal = document.getElementById('authModal');
   if (!modal) return;
 
-  // Restore the normal role selector after a customer-only guest-cart prompt.
   const loginBusiness = document.getElementById('loginTypeBusiness');
   const registerBusiness = document.getElementById('registerTypeBusiness');
   const guestCartActions = document.getElementById('guestCartActions');
@@ -601,7 +1359,6 @@ function selectRegisterType(type) {
     document.getElementById('customerRegisterForm').style.display = 'none';
     document.getElementById('businessRegisterForm').style.display = 'block';
 
-    // A.1 — Make sure categories are loaded when the business form is shown
     loadBusinessCategoriesForRegistration();
   }
 }
@@ -875,10 +1632,6 @@ async function handleCustomerRegister() {
 
 // ============================================================
 //  HANDLE BUSINESS REGISTER
-//  A.4 — Validates at least one category
-//  A.5 — Sends primary + additional categories to the backend
-//  A.6 — Supports primary + additional categories
-//  A.7 — Invalidates the cached category list on success
 // ============================================================
 
 async function handleBusinessRegister() {
@@ -899,18 +1652,14 @@ async function handleBusinessRegister() {
   status.textContent = '';
   status.className = 'auth-status';
 
-  // Clear previous category error
   if (categoryError) categoryError.style.display = 'none';
   if (primarySelect) primarySelect.style.borderColor = '#d1d5db';
 
-  // Collect additional categories (anything checked that isn't the primary)
   const additionalCategories = [];
   document.querySelectorAll('.reg-additional-category:checked').forEach(cb => {
     if (cb.value !== primaryCategory) additionalCategories.push(cb.value);
   });
 
-  // A.4 — Category validation FIRST.
-  // At least one category must be selected — either primary OR an additional one.
   const hasAnyCategory = Boolean(primaryCategory) || additionalCategories.length > 0;
   if (!hasAnyCategory) {
     if (categoryError) categoryError.style.display = 'block';
@@ -923,14 +1672,11 @@ async function handleBusinessRegister() {
     return;
   }
 
-  // If the user only checked additional categories but did not pick a primary,
-  // promote the first checked one to primary so the backend always gets one.
   let finalPrimary = primaryCategory;
   if (!finalPrimary && additionalCategories.length > 0) {
     finalPrimary = additionalCategories.shift();
   }
 
-  // Check that the dropdown is actually usable (not still loading / errored)
   if (primarySelect && primarySelect.disabled && !finalPrimary) {
     status.textContent = '❌ Categories are still loading. Please wait a moment and try again.';
     status.className = 'auth-status error';
@@ -988,7 +1734,6 @@ async function handleBusinessRegister() {
   formData.append('password', password);
   formData.append('username', username);
 
-  // A.5 — Send the primary category and additional categories
   formData.append('category', finalPrimary);
   if (additionalCategories.length > 0) {
     formData.append('additional_categories', additionalCategories.join(','));
@@ -1021,11 +1766,8 @@ async function handleBusinessRegister() {
         business_id: data.business_id
       }));
 
-      // A.7 — Invalidate the cached category list so the next time the form is
-      // opened we refetch from the server instead of using a stale cache.
       businessCategoriesCache = null;
 
-      // Reset the dropdowns so the next visit shows a fresh loading state.
       if (primarySelect) {
         primarySelect.value = '';
         primarySelect.style.borderColor = '#d1d5db';
@@ -1156,10 +1898,14 @@ window.showToast = showToast;
 window.loadBusinessCategoriesForRegistration = loadBusinessCategoriesForRegistration;
 window.syncAdditionalCategoryOptions = syncAdditionalCategoryOptions;
 window.handleAdditionalCategoryChange = handleAdditionalCategoryChange;
+window.maybeSuggestNearKeyword = maybeSuggestNearKeyword;
+
+// Section H.6 exposure so other scripts (e.g. a future refresh) can
+// rebuild the badge without re-rendering the whole card.
+window.getOrderStatusBadge = getOrderStatusBadge;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
-//  Signed-in views stay on this page and are loaded as embedded panels.
 // ============================================================
 
 const MARKETPLACE_WORKSPACE = Object.freeze({
@@ -1247,14 +1993,42 @@ async function checkAuthState() {
       }
     }
   } catch (err) {
-    // Keep an existing session usable when the verification request is temporarily unavailable.
+    // Keep an existing session usable when verification is temporarily unavailable.
   }
 
   isLoggedIn = true;
   currentUser = user;
   showLoggedInState(user);
   if (requestedWorkspace) openDashboardPanel(requestedWorkspace);
+
+  hydrateLocationFromAccount();
   return true;
+}
+
+async function hydrateLocationFromAccount() {
+  if (!currentUser?.email) return;
+  if (isBusinessMarketplaceUser(currentUser)) return;
+  if (marketplaceCustomerCoords.source === 'gps') return;
+
+  try {
+    const res = await fetch('/api/location/customer/location', {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.activated && Number.isFinite(Number(data.latitude)) && Number.isFinite(Number(data.longitude))) {
+      marketplaceCustomerCoords = {
+        latitude: Number(data.latitude),
+        longitude: Number(data.longitude),
+        accuracy: data.accuracy ? Number(data.accuracy) : null,
+        source: 'account'
+      };
+      updateLocationStatusChip();
+    }
+  } catch (err) {
+    // Non-fatal.
+  }
 }
 
 function showLoggedInState(user) {
@@ -1526,6 +2300,16 @@ async function handleLogout() {
   workspaceSection = 'dashboard';
   workspaceSubsection = null;
   businessCategoriesCache = null;
+
+  marketplaceCustomerCoords = { latitude: null, longitude: null, source: null };
+  gpsUpgradeAttempted = false;
+  locationSearchText = '';
+  marketplaceSearchWasTyped = false;
+  locationSearchWasTyped = false;
+  hideLocationBanner();
+  updateLocationStatusChip();
+  updateLocationFiltersCount();
+
   showGuestState();
 
   const url = new URL(window.location.href);

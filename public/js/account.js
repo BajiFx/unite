@@ -1,6 +1,19 @@
 // ============================================================
 //  ACCOUNT PAGE JAVASCRIPT - HORIZONTAL LAYOUT
 //  Location: public/js/account.js
+//
+//  Section D — Customer location:
+//   D.1  — "Activate your location to find businesses near you"
+//          section lives in the profile panel; handlers here.
+//   D.2  — Coordinates are saved against the customer's own row.
+//   D.10 — "Turn off location sharing" clears coordinates.
+//   D.12 — "Refresh Location" re-activates with the current GPS.
+//
+//  Section E.2 / G.3 — Preferred area:
+//   A customer who chooses not to share GPS can set a preferred
+//   area instead. The block lives in the profile panel, next to
+//   the location card. These names are used by the search handler
+//   as a soft anchor (E.4) and are never shared with any business.
 // ============================================================
 
 // ============================================================
@@ -23,13 +36,33 @@ let hasMoreAccount = true;
 let isLoadingAccount = false;
 const limitAccount = 6;
 
+// Section D — cached location state for this page.
+let customerLocationState = {
+    activated: false,
+    latitude: null,
+    longitude: null,
+    accuracy: null,
+    activated_at: null,
+    source: null
+};
+
+// Section E.2 — cached preferred-area state for this page.
+let customerPreferredState = {
+    continent: null,
+    country: null,
+    county: null,
+    sub_county: null,
+    ward: null,
+    town: null,
+    updated_at: null,
+    has_any: false
+};
+
 // ============================================================
 //  PREVENT OLD LAYOUT FROM SHOWING
 // ============================================================
 
-// Immediately hide old sidebar elements when page loads
 (function() {
-    // Hide old sidebar
     const oldSidebar = document.querySelector('.sidebar');
     if (oldSidebar) oldSidebar.style.display = 'none';
 
@@ -42,7 +75,6 @@ const limitAccount = 6;
     const oldBottomNav = document.querySelector('.bottom-nav');
     if (oldBottomNav) oldBottomNav.style.display = 'none';
 
-    // Ensure account layout is visible
     const layout = document.getElementById('accountLayout');
     if (layout) layout.style.display = 'block';
 
@@ -56,14 +88,12 @@ const limitAccount = 6;
 function navigateToAccount(section) {
     console.log('🔍 Navigating to:', section);
 
-    // Update nav items
     document.querySelectorAll('.account-nav-horizontal .nav-item').forEach(el => {
         el.classList.remove('active');
     });
     const navItem = document.querySelector(`.account-nav-horizontal .nav-item[data-section="${section}"]`);
     if (navItem) navItem.classList.add('active');
 
-    // Update panels
     document.querySelectorAll('.account-content-panel').forEach(el => {
         el.classList.remove('active');
     });
@@ -72,7 +102,6 @@ function navigateToAccount(section) {
 
     currentSection = section;
 
-    // Load content based on section
     switch(section) {
         case 'dashboard':
             loadDashboardContent();
@@ -82,6 +111,8 @@ function navigateToAccount(section) {
             break;
         case 'profile':
             loadProfileContent();
+            loadCustomerLocationState();
+            loadCustomerPreferredAreaState();
             break;
         case 'addresses':
             loadAddressesContent();
@@ -141,7 +172,6 @@ function loadDashboardContent() {
 
     const user = window.currentUser || JSON.parse(localStorage.getItem('currentUser') || '{}');
 
-    // Update user info in header
     const userNameEl = document.getElementById('headerUserName');
     const userPhoneEl = document.getElementById('headerUserPhone');
 
@@ -152,7 +182,6 @@ function loadDashboardContent() {
         userPhoneEl.textContent = user.phone;
     }
 
-    // Update profile form
     const nameInput = document.getElementById('profileName');
     const emailInput = document.getElementById('profileEmail');
     const phoneInput = document.getElementById('profilePhone');
@@ -346,7 +375,6 @@ function updateCartBadge() {
 
 function filterOrdersByStatus(status) {
     currentFilterStatus = status;
-    // Keep all status tiles available while showing the selected order details.
     renderDashboardStats(allOrders);
     renderRecentOrders(allOrders);
 }
@@ -441,6 +469,12 @@ function loadProfileContent() {
     if (nameInput) nameInput.value = user.name || '';
     if (emailInput) emailInput.value = user.email || '';
     if (phoneInput) phoneInput.value = user.phone || '';
+
+    // Section D — refresh the customer location card state.
+    loadCustomerLocationState();
+
+    // Section E.2 — refresh the preferred-area card state.
+    loadCustomerPreferredAreaState();
 }
 
 function updateProfile() {
@@ -479,6 +513,454 @@ function updateProfile() {
         status.textContent = '❌ Network error.';
         status.style.color = '#ef4444';
     });
+}
+
+// ============================================================
+//  SECTION D — CUSTOMER LOCATION
+// ============================================================
+
+/**
+ * Render the current activation state on the profile card:
+ *   - green badge when active, amber when inactive
+ *   - swap between "Activate" and "Refresh" / "Turn off" buttons
+ */
+function renderCustomerLocationState() {
+    const badgeActive = document.getElementById('customerLocationStatusBadge');
+    const badgeInactive = document.getElementById('customerLocationStatusBadgeInactive');
+    const activateBtn = document.getElementById('customerActivateLocationBtn');
+    const refreshBtn = document.getElementById('customerRefreshLocationBtn');
+    const deactivateBtn = document.getElementById('customerDeactivateLocationBtn');
+    const statusEl = document.getElementById('customerLocationStatus');
+
+    if (badgeActive) badgeActive.style.display = customerLocationState.activated ? 'inline-block' : 'none';
+    if (badgeInactive) badgeInactive.style.display = customerLocationState.activated ? 'none' : 'inline-block';
+
+    if (activateBtn) activateBtn.style.display = customerLocationState.activated ? 'none' : 'inline-flex';
+    if (refreshBtn) refreshBtn.style.display = customerLocationState.activated ? 'inline-flex' : 'none';
+    if (deactivateBtn) deactivateBtn.style.display = customerLocationState.activated ? 'inline-flex' : 'none';
+
+    if (statusEl) {
+        if (customerLocationState.activated && customerLocationState.activated_at) {
+            const when = new Date(customerLocationState.activated_at).toLocaleString();
+            statusEl.textContent = `📍 Location active since ${when}.`;
+            statusEl.style.color = '#166534';
+        } else {
+            statusEl.textContent = '';
+        }
+    }
+}
+
+/**
+ * D.1 / D.2 / D.12 — Ask the browser for precise GPS and save the
+ * coordinates against the customer's own row.
+ *
+ * Used for both "Activate" and "Refresh" — the server treats the
+ * second call as a refresh.
+ */
+async function activateCustomerLocation() {
+    const statusEl = document.getElementById('customerLocationStatus');
+    const activateBtn = document.getElementById('customerActivateLocationBtn');
+    const refreshBtn = document.getElementById('customerRefreshLocationBtn');
+
+    if (!navigator.geolocation) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Your browser does not support location. Please use a modern browser.';
+            statusEl.style.color = '#ef4444';
+        }
+        return;
+    }
+
+    if (statusEl) {
+        statusEl.textContent = '⏳ Getting your location...';
+        statusEl.style.color = '#2563eb';
+    }
+    if (activateBtn) activateBtn.disabled = true;
+    if (refreshBtn) refreshBtn.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+        async (position) => {
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+
+            try {
+                const res = await fetch('/api/location/customer/activate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ latitude, longitude, accuracy })
+                });
+                const data = await res.json();
+
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || 'Failed to save location');
+                }
+
+                customerLocationState = {
+                    activated: true,
+                    latitude: data.location?.latitude || latitude,
+                    longitude: data.location?.longitude || longitude,
+                    accuracy: data.location?.accuracy || accuracy,
+                    activated_at: data.location?.activated_at || new Date().toISOString(),
+                    source: data.location?.source || 'browser'
+                };
+                renderCustomerLocationState();
+
+                if (statusEl) {
+                    statusEl.textContent = '✅ Location saved. Nearby searches will now use your current position.';
+                    statusEl.style.color = '#16a34a';
+                }
+
+                if (typeof window.showToast === 'function') {
+                    window.showToast('✅ Location activated!', 'success');
+                }
+            } catch (err) {
+                if (statusEl) {
+                    statusEl.textContent = '❌ ' + err.message;
+                    statusEl.style.color = '#ef4444';
+                }
+                if (typeof window.showToast === 'function') {
+                    window.showToast('❌ ' + err.message, 'error');
+                }
+            } finally {
+                if (activateBtn) activateBtn.disabled = false;
+                if (refreshBtn) refreshBtn.disabled = false;
+            }
+        },
+        (error) => {
+            let message = 'Unable to get your location.';
+            if (error.code === error.PERMISSION_DENIED) {
+                message = 'Location permission was denied. Please allow it in your browser settings, then try again.';
+            } else if (error.code === error.POSITION_UNAVAILABLE) {
+                message = 'Your location is currently unavailable. Please try again in a moment.';
+            } else if (error.code === error.TIMEOUT) {
+                message = 'Getting your location timed out. Please try again.';
+            }
+
+            if (statusEl) {
+                statusEl.textContent = '❌ ' + message;
+                statusEl.style.color = '#ef4444';
+            }
+            if (typeof window.showToast === 'function') {
+                window.showToast('❌ ' + message, 'error');
+            }
+
+            if (activateBtn) activateBtn.disabled = false;
+            if (refreshBtn) refreshBtn.disabled = false;
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+}
+
+/**
+ * D.10 — Turn off location sharing.
+ * Clears coordinates on the server and updates the card.
+ *
+ * Deliberately leaves the preferred area (E.2) untouched.
+ */
+async function deactivateCustomerLocation() {
+    if (!confirm('Turn off location sharing? Nearby searches will no longer use your position.')) {
+        return;
+    }
+
+    const statusEl = document.getElementById('customerLocationStatus');
+    const deactivateBtn = document.getElementById('customerDeactivateLocationBtn');
+    if (deactivateBtn) deactivateBtn.disabled = true;
+
+    try {
+        const res = await fetch('/api/location/customer/deactivate', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            credentials: 'same-origin'
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to turn off location sharing');
+        }
+
+        customerLocationState = {
+            activated: false,
+            latitude: null,
+            longitude: null,
+            accuracy: null,
+            activated_at: null,
+            source: null
+        };
+        renderCustomerLocationState();
+
+        if (statusEl) {
+            statusEl.textContent = 'Location sharing turned off.';
+            statusEl.style.color = '#64748b';
+        }
+        if (typeof window.showToast === 'function') {
+            window.showToast('Location sharing is off.', 'info');
+        }
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + err.message;
+            statusEl.style.color = '#ef4444';
+        }
+        if (typeof window.showToast === 'function') {
+            window.showToast('❌ ' + err.message, 'error');
+        }
+    } finally {
+        if (deactivateBtn) deactivateBtn.disabled = false;
+    }
+}
+
+/**
+ * Load the customer's own activation state from the server and
+ * render it. Safe to call on page load and on every profile visit.
+ */
+async function loadCustomerLocationState() {
+    try {
+        const res = await fetch('/api/location/customer/location', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            credentials: 'same-origin',
+            cache: 'no-store'
+        });
+        if (!res.ok) {
+            renderCustomerLocationState();
+            return;
+        }
+        const data = await res.json();
+
+        customerLocationState = {
+            activated: data.activated === true,
+            latitude: data.latitude || null,
+            longitude: data.longitude || null,
+            accuracy: data.accuracy || null,
+            activated_at: data.activated_at || null,
+            source: data.source || null
+        };
+        renderCustomerLocationState();
+    } catch (err) {
+        // Silent — leaving the card in its default state is fine.
+        renderCustomerLocationState();
+    }
+}
+
+// ============================================================
+//  SECTION E.2 / G.3 — CUSTOMER PREFERRED AREA
+// ============================================================
+
+/**
+ * Render the preferred-area card.
+ *  - Blue "Preferred area set" badge when at least one field is
+ *    populated.
+ *  - Inputs are populated from customerPreferredState.
+ *  - Status message shows the last updated timestamp.
+ */
+function renderCustomerPreferredAreaState() {
+    const badge = document.getElementById('customerPreferredAreaBadge');
+    const statusEl = document.getElementById('customerPreferredAreaStatus');
+
+    const fields = {
+        preferredContinent: customerPreferredState.continent,
+        preferredCountry: customerPreferredState.country,
+        preferredCounty: customerPreferredState.county,
+        preferredSubCounty: customerPreferredState.sub_county,
+        preferredWard: customerPreferredState.ward,
+        preferredTown: customerPreferredState.town
+    };
+
+    Object.keys(fields).forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = fields[id] || '';
+    });
+
+    if (badge) badge.style.display = customerPreferredState.has_any ? 'inline-block' : 'none';
+
+    if (statusEl) {
+        if (customerPreferredState.has_any && customerPreferredState.updated_at) {
+            const when = new Date(customerPreferredState.updated_at).toLocaleString();
+            statusEl.textContent = `Preferred area updated ${when}.`;
+            statusEl.style.color = '#1e40af';
+        } else if (customerPreferredState.has_any) {
+            statusEl.textContent = 'Preferred area is set.';
+            statusEl.style.color = '#1e40af';
+        } else {
+            statusEl.textContent = '';
+        }
+    }
+}
+
+/**
+ * E.2 — Save the preferred-area names.
+ * Reads the six inputs, posts them, and re-renders from the server
+ * response so the UI always reflects what is actually stored.
+ */
+async function saveCustomerPreferredArea() {
+    const statusEl = document.getElementById('customerPreferredAreaStatus');
+    const saveBtn = document.getElementById('savePreferredAreaBtn');
+
+    const payload = {
+        continent: document.getElementById('preferredContinent')?.value?.trim() || '',
+        country: document.getElementById('preferredCountry')?.value?.trim() || '',
+        county: document.getElementById('preferredCounty')?.value?.trim() || '',
+        sub_county: document.getElementById('preferredSubCounty')?.value?.trim() || '',
+        ward: document.getElementById('preferredWard')?.value?.trim() || '',
+        town: document.getElementById('preferredTown')?.value?.trim() || ''
+    };
+
+    const anyValue = Object.values(payload).some(v => v !== '');
+    if (!anyValue) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please fill in at least one field (county, town, etc.).';
+            statusEl.style.color = '#ef4444';
+        }
+        return;
+    }
+
+    if (saveBtn) saveBtn.disabled = true;
+    if (statusEl) {
+        statusEl.textContent = '⏳ Saving...';
+        statusEl.style.color = '#2563eb';
+    }
+
+    try {
+        const res = await fetch('/api/location/customer/preferred-locations', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to save preferred area');
+        }
+
+        const saved = data.preferred_locations || {};
+        customerPreferredState = {
+            continent: saved.continent || null,
+            country: saved.country || null,
+            county: saved.county || null,
+            sub_county: saved.sub_county || null,
+            ward: saved.ward || null,
+            town: saved.town || null,
+            updated_at: saved.updated_at || new Date().toISOString(),
+            has_any: saved.has_any === true
+        };
+        renderCustomerPreferredAreaState();
+
+        if (statusEl) {
+            statusEl.textContent = '✅ Preferred area saved.';
+            statusEl.style.color = '#16a34a';
+        }
+        if (typeof window.showToast === 'function') {
+            window.showToast('✅ Preferred area saved!', 'success');
+        }
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + err.message;
+            statusEl.style.color = '#ef4444';
+        }
+        if (typeof window.showToast === 'function') {
+            window.showToast('❌ ' + err.message, 'error');
+        }
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
+    }
+}
+
+/**
+ * E.2 — Clear the preferred-area names on the server and reset the
+ * card.
+ */
+async function clearCustomerPreferredArea() {
+    if (!confirm('Clear your preferred area?')) return;
+
+    const statusEl = document.getElementById('customerPreferredAreaStatus');
+    const clearBtn = document.getElementById('clearPreferredAreaBtn');
+    if (clearBtn) clearBtn.disabled = true;
+    if (statusEl) {
+        statusEl.textContent = '⏳ Clearing...';
+        statusEl.style.color = '#2563eb';
+    }
+
+    try {
+        const res = await fetch('/api/location/customer/preferred-locations', {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+            credentials: 'same-origin'
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to clear preferred area');
+        }
+
+        customerPreferredState = {
+            continent: null,
+            country: null,
+            county: null,
+            sub_county: null,
+            ward: null,
+            town: null,
+            updated_at: null,
+            has_any: false
+        };
+        renderCustomerPreferredAreaState();
+
+        if (statusEl) {
+            statusEl.textContent = 'Preferred area cleared.';
+            statusEl.style.color = '#64748b';
+        }
+        if (typeof window.showToast === 'function') {
+            window.showToast('Preferred area cleared.', 'info');
+        }
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + err.message;
+            statusEl.style.color = '#ef4444';
+        }
+        if (typeof window.showToast === 'function') {
+            window.showToast('❌ ' + err.message, 'error');
+        }
+    } finally {
+        if (clearBtn) clearBtn.disabled = false;
+    }
+}
+
+/**
+ * E.2 — Load the customer's own preferred area from the server.
+ * Safe to call on page load and on every profile visit.
+ */
+async function loadCustomerPreferredAreaState() {
+    try {
+        const res = await fetch('/api/location/customer/preferred-locations', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            credentials: 'same-origin',
+            cache: 'no-store'
+        });
+        if (!res.ok) {
+            renderCustomerPreferredAreaState();
+            return;
+        }
+        const data = await res.json();
+        customerPreferredState = {
+            continent: data.continent || null,
+            country: data.country || null,
+            county: data.county || null,
+            sub_county: data.sub_county || null,
+            ward: data.ward || null,
+            town: data.town || null,
+            updated_at: data.updated_at || null,
+            has_any: data.has_any === true
+        };
+        renderCustomerPreferredAreaState();
+    } catch (err) {
+        // Silent — leaving the card in its default state is fine.
+        renderCustomerPreferredAreaState();
+    }
 }
 
 // ============================================================
@@ -1020,7 +1502,6 @@ async function logout() {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('📄 Account page loaded - HORIZONTAL LAYOUT');
 
-    // Force hide old elements again (in case they appear after load)
     setTimeout(function() {
         const oldSidebar = document.querySelector('.sidebar');
         if (oldSidebar) oldSidebar.style.display = 'none';
@@ -1062,6 +1543,12 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
+    // Section D — prime the customer's location card state.
+    loadCustomerLocationState();
+
+    // Section E.2 — prime the preferred-area card state.
+    loadCustomerPreferredAreaState();
+
     // The outer Marketplace remains the only business discovery surface in embedded mode.
     if (!isEmbeddedAccount) loadMarketplaceAccount();
 
@@ -1102,5 +1589,15 @@ window.loadMoreBusinessesAccount = loadMoreBusinessesAccount;
 window.logout = logout;
 window.updateCartBadge = updateCartBadge;
 window.returnToMarketplace = returnToMarketplace;
+
+// Section D — expose location handlers so the HTML buttons can call them.
+window.activateCustomerLocation = activateCustomerLocation;
+window.deactivateCustomerLocation = deactivateCustomerLocation;
+window.loadCustomerLocationState = loadCustomerLocationState;
+
+// Section E.2 — expose preferred-area handlers so the HTML buttons can call them.
+window.saveCustomerPreferredArea = saveCustomerPreferredArea;
+window.clearCustomerPreferredArea = clearCustomerPreferredArea;
+window.loadCustomerPreferredAreaState = loadCustomerPreferredAreaState;
 
 console.log('✅ Account.js loaded with horizontal layout');

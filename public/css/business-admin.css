@@ -855,3 +855,141 @@ html.embedded .sidebar { display: none !important; }
   align-self: center;
   flex-shrink: 0;
 }
+
+/* ============================================================
+   Section C — Business location activation
+   Used by the "Make people find you by your location" section
+   in public/html/business-admin.html and the helpers in
+   public/js/business-admin.js.
+   - #locationStatusBadge         → C.8 "✅ Location Activated"
+   - #locationStatusBadgeInactive → C.8 "⏳ Not activated yet"
+   - #businessLocationWarning     → C.9 warning banner
+   - #businessLocationMapWrapper  → C.5 map preview container
+   ============================================================ */
+
+/* C.5 — the map preview needs an explicit height so Leaflet can
+   measure the container. Width is 100% of the parent card. */
+#businessLocationMap {
+  width: 100%;
+  height: 260px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+/* C.8 — the "Activated" badge is green and slightly bolder. The
+   "Not activated" badge is amber and lower-contrast so the visual
+   hierarchy makes the good state stand out. */
+#locationStatusBadge,
+#locationStatusBadgeInactive {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+#locationStatusBadge {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+#locationStatusBadgeInactive {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+/* C.3 — the "Activate Your Location" button is a green action
+   button. When it is disabled (during a geolocation request) it
+   drops opacity so the pending state is visible. */
+#activateLocationBtn {
+  background: #16a34a;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.2s;
+}
+
+#activateLocationBtn:hover:not(:disabled) {
+  background: #15803d;
+}
+
+#activateLocationBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* C.6 — the "Refresh Location" button reuses the same visual
+   language but is neutral so it doesn't compete with the primary
+   activation action. */
+#refreshLocationBtn {
+  background: #e2e8f0;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.2s;
+}
+
+#refreshLocationBtn:hover:not(:disabled) {
+  background: #cbd5e1;
+}
+
+#refreshLocationBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* C.2 — the activation card gets a subtle neutral background so it
+   is visually distinct from the surrounding form fields. */
+#locationActivationSection {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+/* C.9 — the warning banner is a soft red so it is noticeable but
+   not alarming. It has a thicker left border to catch the eye. */
+#businessLocationWarning {
+  border-left: 4px solid #ef4444;
+}
+
+/* C.5 — the map pin adjustment buttons are grouped so they wrap
+   cleanly on narrow screens. */
+#businessLocationMapWrapper > div:last-child {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Small screens — the map and the activation buttons stack
+   vertically and take the full width. */
+@media (max-width: 640px) {
+  #businessLocationMap {
+    height: 200px;
+  }
+
+  #activateLocationBtn,
+  #refreshLocationBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #locationActivationSection > div:first-child {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

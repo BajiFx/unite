@@ -150,11 +150,38 @@
         </div>
       </div>
 
-      <!-- Search & Filter Bar -->
+      <!-- ============================================================ -->
+      <!-- SEARCH & FILTER BAR                                          -->
+      <!--                                                              -->
+      <!-- Both search inputs are hardened against browser and password -->
+      <!-- manager autofill. The placeholder teaches the customer three  -->
+      <!-- patterns:                                                     -->
+      <!--   "<thing> near"       → nearest to the customer              -->
+      <!--   "<thing> in <place>" → nearest to a named place             -->
+      <!--   "<thing> <attr>"     → attribute filter (verified, etc.)    -->
+      <!-- ============================================================ -->
+
       <div class="search-filter-bar">
         <div class="search-wrapper">
-          <input type="search" id="businessSearch" name="business-search" placeholder="Search businesses..." autocomplete="off" data-lpignore="true" onkeyup="searchBusinesses()">
-          <button onclick="searchBusinesses()"><i class="fas fa-search"></i> Search</button>
+          <input
+            type="text"
+            id="businessSearch"
+            name="bidhaa-search-q"
+            placeholder='Search businesses... try "shoes near", "beddings in Nairobi", or "verified electronics nearby"'
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            data-lpignore="true"
+            data-1p-ignore
+            data-form-type="other"
+            aria-autocomplete="none"
+            onkeyup="searchBusinesses()"
+            oninput="maybeSuggestNearKeyword && maybeSuggestNearKeyword(this.value)"
+          >
+          <button onclick="searchBusinesses()" aria-label="Search">
+            <i class="fas fa-search"></i> Search
+          </button>
         </div>
         <select id="businessCategoryFilter" onchange="filterBusinesses()">
           <option value="all">All Business Categories</option>
@@ -164,6 +191,103 @@
           <option value="popular">Most Popular</option>
           <option value="rating">Highest Rated</option>
         </select>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- D.3 / D.7 / D.9 / D.10 — Location panel                       -->
+      <!--                                                              -->
+      <!-- Row 1 (Actions):  Find Near Me · Urgent toggle · Status chip · Turn off -->
+      <!-- Row 2 (Search):   Free-text location search with autocomplete -->
+      <!-- Row 3 (Filters):  Compact dropdowns, hidden by default,       -->
+      <!--                   toggled open via the "Filters" pill         -->
+      <!-- ============================================================ -->
+
+      <div class="location-panel" id="locationControls" role="region" aria-label="Location controls">
+
+        <!-- Row 1: action pills -->
+        <div class="location-actions">
+          <button type="button" class="loc-pill loc-primary" id="findNearMeBtn">
+            <i class="fas fa-location-crosshairs"></i> <span>Find Near Me</span>
+          </button>
+
+          <label class="loc-pill loc-urgent" for="urgentToggle" title="Show the closest businesses first">
+            <input type="checkbox" id="urgentToggle">
+            <span><i class="fas fa-bolt"></i> Urgent</span>
+          </label>
+
+          <span class="loc-pill loc-status" id="locationStatusChip" hidden></span>
+
+          <button type="button" class="loc-pill loc-off" id="turnOffLocationBtn" hidden>
+            <i class="fas fa-location-arrow"></i> <span>Turn off</span>
+          </button>
+        </div>
+
+        <!-- Row 2: free-text location search + filter toggle -->
+        <div class="location-search-row">
+          <div class="loc-search-wrapper">
+            <i class="fas fa-map-marker-alt loc-search-icon"></i>
+            <input
+              type="search"
+              id="locationSearchInput"
+              name="bidhaa-location-q"
+              placeholder="Search by town, county, sub-county, ward…"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              data-lpignore="true"
+              data-1p-ignore
+              data-form-type="other"
+              aria-autocomplete="none"
+            >
+            <button type="button" class="loc-search-clear" id="locationSearchClearBtn" hidden aria-label="Clear location search">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+
+          <button type="button" class="loc-filters-toggle" id="locationFiltersToggle" aria-expanded="false" aria-controls="locationFilters">
+            <i class="fas fa-sliders-h"></i> Filters
+            <span class="loc-filters-count" id="locationFiltersCount" hidden>0</span>
+          </button>
+        </div>
+
+        <!-- Row 3: dropdown filters, collapsed by default -->
+        <div class="location-filters" id="locationFilters" hidden>
+          <select id="locationFilterContinent" data-location-field="continent" aria-label="Filter by continent">
+            <option value="">All continents</option>
+          </select>
+          <select id="locationFilterCountry" data-location-field="country" aria-label="Filter by country">
+            <option value="">All countries</option>
+          </select>
+          <select id="locationFilterCounty" data-location-field="county" aria-label="Filter by county">
+            <option value="">All counties</option>
+          </select>
+          <select id="locationFilterSubCounty" data-location-field="sub_county" aria-label="Filter by sub-county">
+            <option value="">All sub-counties</option>
+          </select>
+          <select id="locationFilterTown" data-location-field="town" aria-label="Filter by town">
+            <option value="">All towns</option>
+          </select>
+          <select id="locationFilterWard" data-location-field="ward" aria-label="Filter by ward">
+            <option value="">All wards</option>
+          </select>
+          <button type="button" class="location-clear-btn" id="clearLocationFiltersBtn" hidden>
+            <i class="fas fa-times"></i> Clear all
+          </button>
+        </div>
+      </div>
+
+      <!-- Guest location banner — hidden by default. Shown by index.js
+           when a guest types `near` without having activated location. -->
+      <div class="location-banner" id="locationBanner" hidden role="status">
+        <span class="location-banner-icon" aria-hidden="true">📍</span>
+        <div class="location-banner-text">
+          <strong>Turn on location to see what's nearest to you.</strong>
+          <span class="location-banner-hint">Or try <code>in Nairobi</code> to search a specific area.</span>
+        </div>
+        <button type="button" class="location-banner-btn" id="enableLocationBtn">
+          <i class="fas fa-location-crosshairs"></i> Enable location
+        </button>
       </div>
 
       <!-- Featured Businesses -->

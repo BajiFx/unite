@@ -1,6 +1,11 @@
 /* ============================================================
    MARKETPLACE CSS - Multi-Vendor Platform with Dashboard Layout
    Location: public/css/marketplace.css
+
+   Section H additions:
+    H.6 — .badge.accepting-orders and .badge.orders-paused, the
+          two order-status badges rendered by index.js on each
+          business card.
    ============================================================ */
 
 /* ============================================================
@@ -404,6 +409,7 @@
   display: flex;
   gap: 8px;
   min-width: 200px;
+  position: relative;
 }
 
 .search-filter-bar .search-wrapper input {
@@ -534,6 +540,41 @@
 .business-card .card-badges .badge.featured {
   background: #facc15;
   color: #0f172a;
+}
+
+/* ============================================================
+   Section H.6 — Order-status badge on each business card
+   Rendered by getOrderStatusBadge() in public/js/index.js.
+   Both badges sit inside .card-badges and follow the same
+   layout as verified / featured.
+   ============================================================ */
+
+.business-card .card-badges .badge.accepting-orders {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+  box-shadow: 0 1px 3px rgba(22, 101, 52, 0.12);
+  letter-spacing: 0.02em;
+}
+
+.business-card .card-badges .badge.orders-paused {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  box-shadow: 0 1px 3px rgba(153, 27, 27, 0.15);
+  letter-spacing: 0.02em;
+}
+
+/* On hover, keep the badge colours stable so the card's hover
+   effect (lift + shadow) is the only thing that changes. */
+.business-card:hover .card-badges .badge.accepting-orders {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.business-card:hover .card-badges .badge.orders-paused {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .business-card .card-body {
@@ -730,6 +771,18 @@
     flex: 1;
     min-width: 100px;
   }
+
+  /* Section H.6 — keep the badge row compact on tablets. */
+  .business-card .card-badges {
+    gap: 3px;
+    top: 6px;
+    right: 6px;
+  }
+
+  .business-card .card-badges .badge {
+    font-size: 0.5rem;
+    padding: 2px 8px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -752,6 +805,25 @@
 
   .hero-banner {
     padding: 20px 12px;
+  }
+
+  /* Section H.6 — on very small cards, hide the longer labels
+     behind shorter equivalents so the badge row never overflows. */
+  .business-card .card-badges {
+    max-width: calc(100% - 12px);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .business-card .card-badges .badge {
+    font-size: 0.45rem;
+    padding: 1px 6px;
+  }
+
+  .business-card .card-badges .badge.accepting-orders,
+  .business-card .card-badges .badge.orders-paused {
+    font-size: 0.45rem;
+    padding: 1px 6px;
   }
 }
 
@@ -784,8 +856,6 @@
 }
 
 .integrated-workspace {
-  /* Override the retired fixed-overlay dashboard in index.css. The workspace
-     belongs in document flow so Marketplace remains directly beneath it. */
   position: relative;
   z-index: auto;
   top: auto;
@@ -1025,7 +1095,6 @@
   color: #175526;
 }
 
-/* The signed-in marketplace header deliberately exposes Logout only. */
 #userBadge {
   display: none !important;
 }
@@ -1034,7 +1103,6 @@ body.workspace-active .marketplace-container {
   padding-bottom: 108px;
 }
 
-/* A richer, friendlier account workspace without adding height. */
 .workspace-heading {
   border-color: #b7d7c0;
   background: radial-gradient(circle at 88% 5%, rgba(250, 204, 21, .35), transparent 28%), linear-gradient(125deg, #124a3a, #1c6a4f 58%, #287a66);
@@ -1111,5 +1179,563 @@ body.workspace-active .marketplace-container {
     flex: 1 0 auto;
     justify-content: center;
     min-width: 88px;
+  }
+}
+
+/* ============================================================
+   SECTION D — SMART CUSTOMER SEARCH AND LOCATION PANEL
+   Compact three-row layout:
+     Row 1 — action pills (Find Near Me · Urgent · Status · Turn off)
+     Row 2 — typed location search + Filters toggle
+     Row 3 — dropdown filters, collapsed until toggled
+   Vibrant, compact, mobile-friendly.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   The panel itself.
+   A single rounded card with a soft gradient and a fine border
+   that subtly stands out from the business grid below it.
+   ------------------------------------------------------------ */
+.location-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 0 0 12px 0;
+  border: 1px solid #c7e3c7;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(250, 204, 21, 0.10), transparent 40%),
+    linear-gradient(135deg, #f4fbf4 0%, #eaf6ec 100%);
+  box-shadow: 0 2px 10px rgba(22, 101, 52, 0.05);
+}
+
+/* ------------------------------------------------------------
+   Row 1 — action pills
+   ------------------------------------------------------------ */
+.location-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.loc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.loc-pill:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.loc-pill i {
+  font-size: 0.72rem;
+}
+
+/* Primary — Find Near Me / Refresh Near Me */
+.loc-pill.loc-primary {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.28);
+}
+
+.loc-pill.loc-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #15803d, #166534);
+  transform: translateY(-1px);
+}
+
+/* Urgent — nearest first */
+.loc-pill.loc-urgent {
+  background: #fff8e1;
+  color: #92400e;
+  border-color: #fcd34d;
+  user-select: none;
+}
+
+.loc-pill.loc-urgent input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #f59e0b;
+  border-radius: 4px;
+  background: #ffffff;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.loc-pill.loc-urgent input[type="checkbox"]:checked {
+  background: #f59e0b;
+  border-color: #d97706;
+}
+
+.loc-pill.loc-urgent input[type="checkbox"]:checked::after {
+  content: '';
+  width: 4px;
+  height: 7px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.loc-pill.loc-urgent:has(input:checked) {
+  background: #fde68a;
+  border-color: #f59e0b;
+  color: #78350f;
+}
+
+/* Status chip — location active */
+.loc-pill.loc-status {
+  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+  color: #166534;
+  border-color: #86efac;
+  font-weight: 800;
+  cursor: default;
+  letter-spacing: 0.01em;
+}
+
+.loc-pill.loc-status[hidden] {
+  display: none !important;
+}
+
+/* Turn off location */
+.loc-pill.loc-off {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+.loc-pill.loc-off:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #f87171;
+  transform: translateY(-1px);
+}
+
+.loc-pill.loc-off[hidden] {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------
+   Row 2 — typed location search + filter toggle
+   ------------------------------------------------------------ */
+.location-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loc-search-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.loc-search-icon {
+  position: absolute;
+  left: 12px;
+  color: #16a34a;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.loc-search-wrapper input {
+  width: 100%;
+  height: 38px;
+  padding: 0 34px 0 34px;
+  border: 1px solid #c7e3c7;
+  border-radius: 10px;
+  background: #ffffff;
+  font: inherit;
+  font-size: 0.85rem;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.loc-search-wrapper input::placeholder {
+  color: #94a3b8;
+}
+
+.loc-search-wrapper input:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.loc-search-clear {
+  position: absolute;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.65rem;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.loc-search-clear:hover {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+
+.loc-search-clear[hidden] {
+  display: none !important;
+}
+
+.loc-filters-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid #c7e3c7;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #166534;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.loc-filters-toggle:hover {
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+
+.loc-filters-toggle[aria-expanded="true"] {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #14532d;
+}
+
+.loc-filters-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.loc-filters-count[hidden] {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------
+   Row 3 — dropdown filters, collapsed by default
+   ------------------------------------------------------------ */
+.location-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.location-filters[hidden] {
+  display: none !important;
+}
+
+.location-filters select {
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid #c7e3c7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2316a34a' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  min-width: 120px;
+  max-width: 220px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.location-filters select:hover {
+  border-color: #86efac;
+}
+
+.location-filters select:focus {
+  outline: none;
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.location-filters select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.location-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.location-clear-btn:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+.location-clear-btn[hidden] {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------
+   Guest location banner
+   Hidden by default (the `hidden` attribute is set in the HTML),
+   revealed by index.js when the customer types a self-anchor
+   keyword without having activated their location.
+   ------------------------------------------------------------ */
+.location-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  border: 1px solid #fcd34d;
+  border-left: 4px solid #f59e0b;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #7c2d12;
+  font-size: 0.82rem;
+}
+
+.location-banner[hidden] {
+  display: none !important;
+}
+
+.location-banner-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.location-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.location-banner-text strong {
+  font-weight: 700;
+  color: #7c2d12;
+}
+
+.location-banner-hint {
+  font-size: 0.72rem;
+  color: #92400e;
+  opacity: 0.9;
+}
+
+.location-banner-hint code {
+  background: rgba(146, 64, 14, 0.1);
+  color: #7c2d12;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.location-banner-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #f59e0b;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.location-banner-btn:hover:not(:disabled) {
+  background: #d97706;
+  transform: translateY(-1px);
+}
+
+.location-banner-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------
+   Distance badge on business cards ("1.2 km away")
+   ------------------------------------------------------------ */
+.business-card .card-body .business-distance {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* ------------------------------------------------------------
+   Inline "near me" hint
+   ------------------------------------------------------------ */
+.search-near-hint {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.72rem;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+  animation: nearHintFadeIn 160ms ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.search-near-hint em {
+  font-style: normal;
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.search-near-hint strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+@keyframes nearHintFadeIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ------------------------------------------------------------
+   Responsive tweaks for the Section D elements
+   ------------------------------------------------------------ */
+@media (max-width: 720px) {
+  .location-banner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .location-banner-icon {
+    display: none;
+  }
+
+  .location-banner-btn {
+    align-self: flex-start;
+  }
+
+  .business-card .card-body .business-distance {
+    font-size: 0.62rem;
+    padding: 2px 8px;
+  }
+
+  /* Location panel collapses: action pills stay in one scrollable row,
+     the search field stretches, and the filters stack under it. */
+  .location-panel {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .location-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .location-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .loc-pill {
+    flex: 0 0 auto;
+  }
+
+  .location-search-row {
+    flex-wrap: wrap;
+  }
+
+  .loc-search-wrapper {
+    flex: 1 1 100%;
+  }
+
+  .loc-filters-toggle {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .location-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .location-filters select {
+    max-width: none;
+    width: 100%;
+  }
+
+  .location-clear-btn {
+    justify-content: center;
+    width: 100%;
   }
 }

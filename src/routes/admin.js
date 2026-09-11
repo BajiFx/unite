@@ -4,6 +4,24 @@
 //
 //  B.6 — Platform admin can list, create, approve, reject, update,
 //        and delete product categories.
+//
+//  F.4 — Platform admin can also list, create, update, deactivate,
+//        and delete business categories. Deletion policy (Q3):
+//        - If any business is assigned to the category, we
+//          deactivate it (is_active = false) and leave the
+//          assignments intact, mirroring the reject behaviour
+//          used for product categories.
+//        - If the category is unused, we hard-delete it.
+//
+//  NOTE on business_categories schema:
+//   The existing `business_categories` table has columns:
+//     id, name, slug, icon, description, created_at
+//   It does NOT currently have an `is_active` column. F.4 needs
+//   one so we can deactivate instead of hard-delete when the
+//   category is in use. The migration below is defensive: it runs
+//   once and adds the column if missing. It is safe to run on
+//   every admin boot, but ideally this should live in its own
+//   migration file (see note at the end of this file).
 // ============================================================
 
 const express = require('express');
@@ -13,6 +31,22 @@ const { pool } = require('../config/database');
 const { authMiddleware, adminOnly, businessAdminOnly, getBusinessIdFromToken } = require('../middleware/auth');
 const { appendOrderStatus, restockOrder, logAdminActivity } = require('../services/orderService');
 const router = express.Router();
+
+// ============================================================
+//  Ensure business_categories.is_active exists.
+//  Idempotent. Only adds the column; never changes data.
+// ============================================================
+async function ensureBusinessCategoryActiveColumn() {
+  try {
+    await pool.query(`
+      ALTER TABLE business_categories
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
+    `);
+  } catch (err) {
+    console.warn('⚠️ Could not ensure business_categories.is_active:', err.message);
+  }
+}
+ensureBusinessCategoryActiveColumn();
 
 // ============================================================
 //  ADMIN DASHBOARD STATS (Platform-wide)
@@ -451,6 +485,221 @@ router.delete('/product-categories/:id', authMiddleware, adminOnly, async (req, 
   } catch (err) {
     console.error('❌ Delete product category error:', err);
     res.status(500).json({ error: 'Unable to delete product category' });
+  }
+});
+
+// ============================================================
+//  BUSINESS CATEGORIES — list for super admin (F.4)
+//
+//  Returns every category with:
+//   - name, slug, icon, description
+//   - is_active flag (defaults to true)
+//   - business_count (how many businesses use it)
+//   - product_category_count (how many product categories are linked)
+//
+//  Filterable by is_active so the admin UI can hide / show
+//  deactivated categories.
+// ============================================================
+
+router.get('/business-categories', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { is_active } = req.query;
+
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (is_active !== undefined) {
+      conditions.push(`bc.is_active = $${paramIndex}`);
+      params.push(String(is_active) === 'true');
+      paramIndex++;
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await pool.query(`
+      SELECT
+        bc.id,
+        bc.name,
+        bc.slug,
+        bc.icon,
+        bc.description,
+        bc.created_at,
+        bc.is_active,
+        (SELECT COUNT(*)::int
+           FROM business_category_assignments bca
+           JOIN businesses b ON b.id = bca.business_id
+          WHERE bca.category_id = bc.id AND b.is_active = true) AS business_count,
+        (SELECT COUNT(*)::int
+           FROM product_categories pc
+          WHERE pc.business_category_id = bc.id) AS product_category_count
+      FROM business_categories bc
+      ${where}
+      ORDER BY bc.is_active DESC, bc.name ASC
+    `, params);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('❌ Get business categories error:', err);
+    res.status(500).json({ error: 'Unable to load business categories' });
+  }
+});
+
+// ============================================================
+//  BUSINESS CATEGORIES — create (F.4)
+// ============================================================
+
+router.post('/business-categories', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { name, icon, description } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Business category name is required' });
+    }
+
+    const trimmedName = String(name).trim();
+    const slugBase = trimmedName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const slug = slugBase || `business-category-${Date.now()}`;
+
+    const existing = await pool.query(
+      'SELECT id FROM business_categories WHERE LOWER(name) = LOWER($1)',
+      [trimmedName]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'That business category already exists.' });
+    }
+
+    const result = await pool.query(`
+      INSERT INTO business_categories (name, slug, icon, description, is_active)
+      VALUES ($1, $2, $3, $4, true)
+      RETURNING *
+    `, [trimmedName, slug, icon || null, description || null]);
+
+    await logAdminActivity(req.userId, 'CREATE_BUSINESS_CATEGORY', {
+      businessCategoryId: result.rows[0].id,
+      name: trimmedName
+    });
+
+    res.status(201).json({ success: true, business_category: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Create business category error:', err);
+    res.status(500).json({ error: 'Unable to create business category' });
+  }
+});
+
+// ============================================================
+//  BUSINESS CATEGORIES — update (F.4)
+// ============================================================
+
+router.put('/business-categories/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid business category ID' });
+    }
+
+    const permitted = ['name', 'icon', 'description', 'is_active'];
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const field of permitted) {
+      if (req.body[field] !== undefined) {
+        updates.push(`${field} = $${paramIndex}`);
+        values.push(req.body[field]);
+        paramIndex++;
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(id);
+    const result = await pool.query(
+      `UPDATE business_categories SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Business category not found' });
+    }
+
+    await logAdminActivity(req.userId, 'UPDATE_BUSINESS_CATEGORY', { businessCategoryId: id });
+    res.json({ success: true, business_category: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Update business category error:', err);
+    res.status(500).json({ error: 'Unable to update business category' });
+  }
+});
+
+// ============================================================
+//  BUSINESS CATEGORIES — delete (F.4, Q3)
+//
+//  Policy:
+//   - If any business is assigned to the category → deactivate
+//     (is_active = false). Existing assignments are kept intact.
+//     This mirrors the reject behaviour for product categories
+//     and means the customer never loses a category mid-flight.
+//   - If the category is unused → hard-delete.
+//
+//  Product categories linked to it are NOT touched by the
+//  deactivation path. On the hard-delete path, product_categories
+//  whose business_category_id references this row are set to NULL
+//  by the ON DELETE SET NULL constraint already declared in the
+//  product-categories migration.
+// ============================================================
+
+router.delete('/business-categories/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid business category ID' });
+    }
+
+    const exists = await pool.query('SELECT id, name FROM business_categories WHERE id = $1', [id]);
+    if (exists.rows.length === 0) {
+      return res.status(404).json({ error: 'Business category not found' });
+    }
+
+    const inUse = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM business_category_assignments WHERE category_id = $1',
+      [id]
+    );
+
+    if (inUse.rows[0].count > 0) {
+      const result = await pool.query(
+        'UPDATE business_categories SET is_active = false WHERE id = $1 RETURNING *',
+        [id]
+      );
+      await logAdminActivity(req.userId, 'DEACTIVATE_BUSINESS_CATEGORY', {
+        businessCategoryId: id,
+        assigned_businesses: inUse.rows[0].count
+      });
+      return res.json({
+        success: true,
+        deactivated: true,
+        business_category: result.rows[0],
+        message: `Category is used by ${inUse.rows[0].count} business(es); deactivated instead of deleted.`
+      });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM business_categories WHERE id = $1 RETURNING id',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Business category not found' });
+    }
+
+    await logAdminActivity(req.userId, 'DELETE_BUSINESS_CATEGORY', { businessCategoryId: id });
+    res.json({ success: true, deleted: true });
+  } catch (err) {
+    console.error('❌ Delete business category error:', err);
+    res.status(500).json({ error: 'Unable to delete business category' });
   }
 });
 

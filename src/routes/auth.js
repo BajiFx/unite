@@ -2,6 +2,29 @@
 //  AUTH ROUTES - COMPLETE MULTI-VENDOR VERSION
 //  WITH USERNAME SUPPORT & SMART LOGIN
 //  Location: src/routes/auth.js
+//
+//  Section A — Business registration category fix:
+//   A.4 — category validated before saving
+//   A.5 — primary category saved with the business record
+//   A.6 — primary + additional categories supported
+//
+//  Section D — Customer location (profile-bound):
+//   D.1 — PUT /customer/profile now accepts latitude/longitude and
+//         marks the customer's location as activated when supplied.
+//   D.2 — Coordinates are persisted on the customer's own row.
+//   D.10 — PUT /customer/profile accepts location_activated = false
+//          to turn off location sharing (clears the stored coords).
+//   D.11 — GET /customer/verify still does NOT return coordinates.
+//          No auth route exposes a customer's coordinates.
+//   D.12 — The same PUT endpoint is used to refresh coordinates.
+//
+//  Section E.2 / G.3 — Customer preferred locations:
+//   PUT /customer/profile now also accepts preferred area names
+//   (preferred_continent, preferred_country, preferred_county,
+//   preferred_sub_county, preferred_ward, preferred_town). Any
+//   value supplied is saved against the requesting customer's own
+//   row. Nothing is exposed on GET /customer/verify (D.11
+//   preserved).
 // ============================================================
 
 const express = require('express');
@@ -57,6 +80,56 @@ const upload = multer({
 });
 
 // ============================================================
+//  Section D — coordinate validation helpers
+//  Kept local so the auth route never trusts an unvalidated pair.
+// ============================================================
+
+function parseCoordinatePair(inputLat, inputLng) {
+    if (inputLat === undefined || inputLat === null || inputLat === '') {
+        return { ok: false, error: 'Latitude is required' };
+    }
+    if (inputLng === undefined || inputLng === null || inputLng === '') {
+        return { ok: false, error: 'Longitude is required' };
+    }
+
+    const lat = Number.parseFloat(inputLat);
+    const lng = Number.parseFloat(inputLng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return { ok: false, error: 'Valid latitude and longitude are required' };
+    }
+    if (lat < -90 || lat > 90) {
+        return { ok: false, error: 'Latitude must be between -90 and 90' };
+    }
+    if (lng < -180 || lng > 180) {
+        return { ok: false, error: 'Longitude must be between -180 and 180' };
+    }
+
+    return { ok: true, lat, lng };
+}
+
+function normaliseAccuracy(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const num = Number.parseFloat(value);
+    if (!Number.isFinite(num) || num < 0) return null;
+    return Math.round(num);
+}
+
+// ============================================================
+//  Section E.2 — preferred-location normaliser
+//  Accepts any scalar, trims it, caps the length at 100, and
+//  returns null for empty values so the caller can COALESCE or
+//  clear as required.
+// ============================================================
+
+function normalisePreferred(value) {
+    if (value === undefined || value === null) return undefined;   // "not sent"
+    const str = String(value).trim();
+    if (str === '') return null;                                    // "sent empty" → clear
+    return str.slice(0, 100);
+}
+
+// ============================================================
 //  CHECK USERNAME AVAILABILITY
 // ============================================================
 
@@ -68,7 +141,6 @@ router.get('/check-username', async (req, res) => {
             return res.status(400).json({ error: 'Username must be at least 3 characters' });
         }
 
-        // Check in customers table
         const customerResult = await pool.query(
             'SELECT id FROM customers WHERE username = $1',
             [username]
@@ -78,7 +150,6 @@ router.get('/check-username', async (req, res) => {
             return res.json({ available: false, message: 'Username already taken' });
         }
 
-        // Check in admin_users table (businesses)
         const adminResult = await pool.query(
             'SELECT id FROM admin_users WHERE username = $1',
             [username]
@@ -225,7 +296,6 @@ router.post('/customer/register', [
     const { username, name, email, phone, password } = req.body;
     const cleanPhone = phone.replace(/[^0-9]/g, '');
 
-    // Check if username already exists (in both customers and admin_users)
     const existingUsername = await pool.query(
       'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
       [username]
@@ -276,7 +346,6 @@ router.post('/customer/login', loginLimiter, [
   try {
     const { username, password } = req.body;
 
-    // Check if input is email or username
     const isEmail = username.includes('@');
 
     let result;
@@ -365,7 +434,6 @@ router.post('/business/register', upload.fields([
 
     const cleanPhone = phone.replace(/[^0-9]/g, '');
 
-    // Validate required fields
     if (!business_name || !business_name.trim()) {
       return res.status(400).json({ error: 'Business name is required' });
     }
@@ -388,19 +456,13 @@ router.post('/business/register', upload.fields([
       return res.status(400).json({ error: 'Business category is required' });
     }
 
-    // ------------------------------------------------------------
-    //  A.4 / A.5 — Resolve the primary category ID
-    // ------------------------------------------------------------
+    // A.4 / A.5 — primary category ID
     const primaryCategoryId = parseInt(category, 10);
     if (Number.isNaN(primaryCategoryId)) {
       return res.status(400).json({ error: 'Invalid business category' });
     }
 
-    // ------------------------------------------------------------
-    //  A.6 — Resolve and validate every additional category
-    //  Deduplicate, drop the primary from the additional list, and
-    //  cast every entry to an integer.
-    // ------------------------------------------------------------
+    // A.6 — additional categories
     const additionalCategoryIds = [
       ...new Set(
         String(additional_categories || '')
@@ -410,10 +472,6 @@ router.post('/business/register', upload.fields([
       )
     ].filter(id => id !== primaryCategoryId);
 
-    // ------------------------------------------------------------
-    //  A.5 — Verify every chosen category exists in the live
-    //  business_categories table BEFORE opening the transaction.
-    // ------------------------------------------------------------
     const allCategoryIds = [primaryCategoryId, ...additionalCategoryIds];
     const categoryCheck = await pool.query(
       'SELECT id FROM business_categories WHERE id = ANY($1::int[])',
@@ -430,7 +488,6 @@ router.post('/business/register', upload.fields([
       });
     }
 
-    // Check if username already exists (in both customers and admin_users)
     const existingUsername = await pool.query(
       'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
       [username]
@@ -439,14 +496,12 @@ router.post('/business/register', upload.fields([
       return res.status(409).json({ error: 'Username already taken. Please choose another.' });
     }
 
-    // Check existing admin
     const existingAdmin = await pool.query('SELECT * FROM admin_users WHERE email = $1', [email]);
     if (existingAdmin.rows.length > 0) {
       console.log('❌ Email already registered:', email);
       return res.status(409).json({ error: 'Email already registered as admin.' });
     }
 
-    // Generate unique slug
     let slug = business_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if (!slug) slug = 'business-' + Date.now();
     const slugCheck = await pool.query('SELECT id FROM businesses WHERE slug = $1', [slug]);
@@ -454,7 +509,6 @@ router.post('/business/register', upload.fields([
       slug = `${slug}-${Date.now().toString().slice(-4)}`;
     }
 
-    // Handle file uploads (optional)
     let logo = null, heroImage = null;
     if (req.files) {
       if (req.files.logo && req.files.logo[0]) {
@@ -471,13 +525,11 @@ router.post('/business/register', upload.fields([
       }
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     console.log('✅ Password hashed');
 
     await pool.query('BEGIN');
 
-    // 1. Create admin user with username
     const adminResult = await pool.query(
       `INSERT INTO admin_users (username, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id`,
       [username, email, hashedPassword, 'business_admin']
@@ -485,7 +537,6 @@ router.post('/business/register', upload.fields([
     const adminId = adminResult.rows[0].id;
     console.log('✅ Admin user created:', adminId);
 
-    // 2. Create business with all fields
     const businessResult = await pool.query(`
       INSERT INTO businesses (
         business_name, slug, owner_id, location, address,
@@ -526,9 +577,6 @@ router.post('/business/register', upload.fields([
     const businessId = businessResult.rows[0].id;
     console.log('✅ Business created:', businessId);
 
-    // 3. A.5 + A.6 — Save the primary category AND every additional category.
-    //    Use a single insert with UNNEST so duplicates are handled by the
-    //    ON CONFLICT clause of the primary key (business_id, category_id).
     await pool.query(
       `INSERT INTO business_category_assignments (business_id, category_id)
        SELECT $1, UNNEST($2::int[])
@@ -537,10 +585,8 @@ router.post('/business/register', upload.fields([
     );
     console.log('✅ Business categories assigned:', allCategoryIds.join(', '));
 
-    // 4. Update admin with business_id
     await pool.query('UPDATE admin_users SET business_id = $1 WHERE id = $2', [businessId, adminId]);
 
-    // 5. Create business stats
     await pool.query('INSERT INTO business_stats (business_id) VALUES ($1)', [businessId]);
 
     await pool.query('COMMIT');
@@ -591,7 +637,6 @@ router.post('/business/login', loginLimiter, [
     const { username, password } = req.body;
     console.log('🔑 Business login attempt:', username);
 
-    // Check if input is email or username
     const isEmail = username.includes('@');
 
     let result;
@@ -676,12 +721,9 @@ router.get('/verify', authMiddleware, (req, res) => {
 // ============================================================
 //  GET MY BUSINESS (For logged-in business admin)
 //
-//  Section B: this endpoint now also returns
-//  `has_business_category` so the admin UI can warn businesses
-//  that registered before Section B and have no business
-//  category assigned yet. The admin panel uses the flag to
-//  show a red banner + a red dot on the Business Profile
-//  sidebar item until a category is set.
+//  Section B: returns `has_business_category` so the admin UI can
+//  warn businesses that registered before Section B and have no
+//  business category assigned yet.
 // ============================================================
 
 router.get('/my-business', authMiddleware, async (req, res) => {
@@ -694,7 +736,6 @@ router.get('/my-business', authMiddleware, async (req, res) => {
     let userId = req.userId;
     let email = req.email;
 
-    // If userId is null but we have email, find user by email
     if (!userId && email) {
       console.log('🔍 Looking up user by email:', email);
       const userResult = await pool.query(
@@ -719,7 +760,6 @@ router.get('/my-business', authMiddleware, async (req, res) => {
       return res.json({ business: null });
     }
 
-    // Get user from database
     const userResult = await pool.query(
       'SELECT id, role, business_id, email FROM admin_users WHERE id = $1',
       [userId]
@@ -733,26 +773,21 @@ router.get('/my-business', authMiddleware, async (req, res) => {
     const user = userResult.rows[0];
     console.log('👤 User found:', user.email, 'Role:', user.role, 'Business ID:', user.business_id);
 
-    // If user is super admin or has no business
     if (user.role === 'super_admin') {
       console.log('ℹ️ Super admin - no business to return');
       return res.json({ business: null });
     }
 
-    // If user is not a business admin
     if (user.role !== 'business_admin') {
       console.log('ℹ️ Not a business admin - role:', user.role);
       return res.json({ business: null });
     }
 
-    // If user has no business_id
     if (!user.business_id) {
       console.log('ℹ️ User has no business_id');
       return res.json({ business: null });
     }
 
-    // Get business data — including the count of assigned
-    // business categories so the UI can prompt for a missing one.
     const businessResult = await pool.query(`
       SELECT b.*,
         (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
@@ -786,11 +821,22 @@ router.get('/my-business', authMiddleware, async (req, res) => {
 
 // ============================================================
 //  CUSTOMER VERIFY
+//
+//  D.11 — this endpoint deliberately does NOT return latitude,
+//  longitude, location_accuracy, or any other location field.
+//  No auth route exposes a customer's coordinates.
+//
+//  E.2 — preferred_* names are also omitted from this response.
+//  The customer's own preferred area is only readable via
+//  GET /api/location/customer/preferred-locations.
 // ============================================================
 
 router.get('/customer/verify', authMiddleware, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, username, email, phone, created_at FROM customers WHERE id = $1', [req.userId]);
+    const result = await pool.query(
+      'SELECT id, name, username, email, phone, created_at FROM customers WHERE id = $1',
+      [req.userId]
+    );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -803,25 +849,275 @@ router.get('/customer/verify', authMiddleware, async (req, res) => {
 
 // ============================================================
 //  CUSTOMER UPDATE PROFILE
+//
+//  Section D.1 / D.2 / D.10 / D.12 — the same endpoint now also
+//  accepts location fields so the profile UI can activate, refresh,
+//  or turn off location sharing without a separate page:
+//
+//    * body.latitude  + body.longitude  → save and mark activated
+//    * body.location_activated === false → clear coordinates and
+//                                          deactivate
+//    * body.accuracy (optional)          → store the browser accuracy
+//
+//  Section E.2 — the endpoint also accepts preferred area names:
+//
+//    * body.preferred_continent, preferred_country,
+//      preferred_county, preferred_sub_county,
+//      preferred_ward, preferred_town
+//
+//    A field that is not sent  → left unchanged.
+//    A field sent as "" or null → cleared.
+//
+//  Coordinates and preferred names are written only to the
+//  requesting customer's own row. The response echoes back the
+//  activation state and the saved preferred block so the UI can
+//  update without a second request.
 // ============================================================
 
 router.put('/customer/profile', authMiddleware, async (req, res) => {
-  const { name, phone, email } = req.body;
+  const {
+    name, phone, email,
+    latitude, longitude, accuracy, location_activated,
+    preferred_continent, preferred_country, preferred_county,
+    preferred_sub_county, preferred_ward, preferred_town
+  } = req.body;
+
   try {
     if (phone && !validateKenyanPhone(phone)) {
       return res.status(400).json({ error: 'Invalid phone number. Must be a valid Kenyan number.' });
     }
+
     const cleanPhone = phone ? phone.replace(/[^0-9]/g, '') : null;
+
+    // ----------------------------------------------------------
+    //  E.2 — Determine whether any preferred field was sent.
+    //  "Sent" means the key exists on req.body, even if empty.
+    //  This lets the caller clear a single field by passing ''.
+    // ----------------------------------------------------------
+    const preferredUpdates = {};
+    const preferredKeys = [
+      ['preferred_continent', preferred_continent],
+      ['preferred_country', preferred_country],
+      ['preferred_county', preferred_county],
+      ['preferred_sub_county', preferred_sub_county],
+      ['preferred_ward', preferred_ward],
+      ['preferred_town', preferred_town]
+    ];
+    let preferredSent = false;
+    let preferredHasValue = false;
+    for (const [column, raw] of preferredKeys) {
+      const normalised = normalisePreferred(raw);
+      if (normalised !== undefined) {
+        preferredUpdates[column] = normalised;
+        preferredSent = true;
+        if (normalised !== null) preferredHasValue = true;
+      }
+    }
+
+    // ----------------------------------------------------------
+    //  D.10 — explicit deactivation: clear stored coordinates
+    //  and turn the activation flag off.
+    // ----------------------------------------------------------
+    if (location_activated === false) {
+      const clearResult = await pool.query(`
+        UPDATE customers
+        SET name = COALESCE($1, name),
+            phone = COALESCE($2, phone),
+            email = COALESCE($3, email),
+            latitude = NULL,
+            longitude = NULL,
+            location_accuracy = NULL,
+            location_activated = FALSE,
+            location_activated_at = NULL,
+            location_source = NULL,
+            updated_at = NOW()
+        WHERE id = $4
+        RETURNING id, name, username, email, phone,
+                  latitude, longitude, location_accuracy,
+                  location_activated, location_activated_at, location_source
+      `, [name || null, cleanPhone, email || null, req.userId]);
+
+      if (clearResult.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Apply any preferred updates that were also sent in the
+      // same request.
+      let preferredBlock = null;
+      if (preferredSent) {
+        preferredBlock = await applyPreferredUpdates(req.userId, preferredUpdates, preferredHasValue);
+      }
+
+      return res.json({
+        user: clearResult.rows[0],
+        location: {
+          activated: false,
+          latitude: null,
+          longitude: null,
+          accuracy: null,
+          activated_at: null,
+          source: null
+        },
+        preferred_locations: preferredBlock
+      });
+    }
+
+    // ----------------------------------------------------------
+    //  D.1 / D.2 / D.12 — coordinate save (initial activation or
+    //  refresh). Only runs when both coordinates were supplied.
+    // ----------------------------------------------------------
+    const wantsLocationSave =
+      latitude !== undefined && latitude !== null && latitude !== '' &&
+      longitude !== undefined && longitude !== null && longitude !== '';
+
+    if (wantsLocationSave) {
+      const parsed = parseCoordinatePair(latitude, longitude);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: parsed.error });
+      }
+
+      const accuracyValue = normaliseAccuracy(accuracy);
+
+      const result = await pool.query(`
+        UPDATE customers
+        SET name = COALESCE($1, name),
+            phone = COALESCE($2, phone),
+            email = COALESCE($3, email),
+            latitude = $4,
+            longitude = $5,
+            location_accuracy = COALESCE($6, location_accuracy),
+            location_activated = TRUE,
+            location_activated_at = NOW(),
+            location_source = 'browser',
+            updated_at = NOW()
+        WHERE id = $7
+        RETURNING id, name, username, email, phone,
+                  latitude, longitude, location_accuracy,
+                  location_activated, location_activated_at, location_source
+      `, [
+        name || null,
+        cleanPhone,
+        email || null,
+        parsed.lat.toString(),
+        parsed.lng.toString(),
+        accuracyValue,
+        req.userId
+      ]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const row = result.rows[0];
+
+      let preferredBlock = null;
+      if (preferredSent) {
+        preferredBlock = await applyPreferredUpdates(req.userId, preferredUpdates, preferredHasValue);
+      }
+
+      return res.json({
+        user: row,
+        location: {
+          activated: row.location_activated === true,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          accuracy: row.location_accuracy,
+          activated_at: row.location_activated_at,
+          source: row.location_source
+        },
+        preferred_locations: preferredBlock
+      });
+    }
+
+    // ----------------------------------------------------------
+    //  Plain profile update — no location fields were sent.
+    //  Apply preferred updates separately if any were sent.
+    // ----------------------------------------------------------
     const result = await pool.query(
       'UPDATE customers SET name = COALESCE($1, name), phone = COALESCE($2, phone), email = COALESCE($3, email) WHERE id = $4 RETURNING id, name, username, email, phone',
       [name, cleanPhone, email, req.userId]
     );
-    res.json({ user: result.rows[0] });
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    let preferredBlock = null;
+    if (preferredSent) {
+      preferredBlock = await applyPreferredUpdates(req.userId, preferredUpdates, preferredHasValue);
+    }
+
+    res.json({
+      user: result.rows[0],
+      preferred_locations: preferredBlock
+    });
+
   } catch (err) {
     console.error('❌ Profile update error:', err);
     res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * Internal helper — apply a set of preferred_* updates to the
+ * customer's row. Any key present in `updates` is written, even if
+ * its value is null (which clears the column). If
+ * `hasValue` is false, every column ends up NULL and we also reset
+ * the updated_at marker, matching the "cleared" state.
+ */
+async function applyPreferredUpdates(customerId, updates, hasValue) {
+  const columns = [
+    'preferred_continent',
+    'preferred_country',
+    'preferred_county',
+    'preferred_sub_county',
+    'preferred_ward',
+    'preferred_town'
+  ];
+
+  const values = columns.map(col =>
+    Object.prototype.hasOwnProperty.call(updates, col) ? updates[col] : null
+  );
+
+  const result = await pool.query(`
+    UPDATE customers
+    SET preferred_continent = $1,
+        preferred_country = $2,
+        preferred_county = $3,
+        preferred_sub_county = $4,
+        preferred_ward = $5,
+        preferred_town = $6,
+        preferred_locations_updated_at = CASE WHEN $7 THEN NOW() ELSE NULL END,
+        updated_at = NOW()
+    WHERE id = $8
+    RETURNING
+      preferred_continent,
+      preferred_country,
+      preferred_county,
+      preferred_sub_county,
+      preferred_ward,
+      preferred_town,
+      preferred_locations_updated_at
+  `, [...values, hasValue, customerId]);
+
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  const block = {
+    continent: row.preferred_continent || null,
+    country: row.preferred_country || null,
+    county: row.preferred_county || null,
+    sub_county: row.preferred_sub_county || null,
+    ward: row.preferred_ward || null,
+    town: row.preferred_town || null,
+    updated_at: row.preferred_locations_updated_at || null
+  };
+  block.has_any = Boolean(
+    block.continent || block.country || block.county ||
+    block.sub_county || block.ward || block.town
+  );
+  return block;
+}
 
 // ============================================================
 //  CUSTOMER LOGOUT
@@ -887,7 +1183,6 @@ router.delete('/customer/delete', authMiddleware, async (req, res) => {
 //  PASSWORD RESET (Supports both admin and customer)
 // ============================================================
 
-// Forgot password
 router.post('/forgot-password', [
   body('email').isEmail().withMessage('Invalid email')
 ], async (req, res) => {
@@ -902,13 +1197,11 @@ router.post('/forgot-password', [
     let user = null;
     let userType = null;
 
-    // Check admin first
     const adminResult = await pool.query('SELECT id, email FROM admin_users WHERE email = $1', [email]);
     if (adminResult.rows.length > 0) {
       user = adminResult.rows[0];
       userType = 'admin';
     } else {
-      // Check customer
       const customerResult = await pool.query('SELECT id, email FROM customers WHERE email = $1', [email]);
       if (customerResult.rows.length > 0) {
         user = customerResult.rows[0];
@@ -946,7 +1239,6 @@ router.post('/forgot-password', [
   }
 });
 
-// Reset password
 router.post('/reset-password', [
   body('token').notEmpty().withMessage('Token required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')

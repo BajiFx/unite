@@ -8,6 +8,18 @@
 //   - Category chip on each product card (B.7).
 //   - Deterministic SVG fallback image, matching product-detail.js.
 //
+//  Section H (Cart and order visibility) additions:
+//   H.4 — renderOrdersPausedBanner() shows a clear banner on the
+//         business profile when the business is not accepting
+//         online orders, using the business's own
+//         order_disabled_message (fallback to a safe default).
+//   H.5 — renderOrdersPausedContactBlock() shows a contact-only
+//         block in place of the cart flow, reusing the same
+//         social links the page already renders.
+//   The single entry point is applyOrderVisibilityState(), which
+//   is called from renderBusinessProfile() so both blocks are in
+//   the correct state as soon as the business data is available.
+//
 //  Hardening:
 //   - businessFallbackImage() strips unpaired surrogates and control
 //     characters before encodeURIComponent, so a corrupted product
@@ -68,6 +80,10 @@ if (typeof window.nextProductPage === 'undefined') {
 if (typeof window.hasMoreProducts === 'undefined') {
     window.hasMoreProducts = true;
 }
+
+// Section H — safe default when the business has not customised
+// the orders-paused message yet.
+const DEFAULT_ORDERS_PAUSED_MESSAGE = 'This business is not currently accepting online orders. Please contact them directly.';
 
 // Use window-scoped variables to avoid conflicts
 let businessSlug = window.businessSlug;
@@ -342,6 +358,154 @@ function renderBusinessProfile() {
 
     renderSocialLinks(business);
     renderMap(business);
+
+    // Section H — reflect H.4 banner and H.5 contact-only block
+    // as soon as the business data is available. This is safe to
+    // call even when the blocks are already hidden.
+    applyOrderVisibilityState();
+}
+
+// ============================================================
+//  Section H — ORDER VISIBILITY (H.4 banner + H.5 contact-only)
+// ============================================================
+
+/**
+ * Single entry point for the H.4 / H.5 customer-facing state.
+ *
+ * - When `online_orders_enabled !== false`, both blocks are hidden.
+ * - When orders are off, the H.4 banner is shown with the business's
+ *   own `order_disabled_message` (or the safe default), and the H.5
+ *   contact-only block is shown with the same social links the page
+ *   already renders.
+ */
+function applyOrderVisibilityState() {
+    if (!businessData) return;
+
+    const ordersEnabled = businessData.online_orders_enabled !== false;
+
+    const banner = document.getElementById('ordersPausedBanner');
+    const contactBlock = document.getElementById('ordersPausedContactBlock');
+
+    if (ordersEnabled) {
+        if (banner) banner.style.display = 'none';
+        if (contactBlock) contactBlock.style.display = 'none';
+        return;
+    }
+
+    renderOrdersPausedBanner();
+    renderOrdersPausedContactBlock();
+}
+
+/**
+ * H.4 — Show the "Orders are currently paused" banner.
+ * Uses the business's own order_disabled_message when present,
+ * otherwise falls back to DEFAULT_ORDERS_PAUSED_MESSAGE.
+ */
+function renderOrdersPausedBanner() {
+    const banner = document.getElementById('ordersPausedBanner');
+    const messageEl = document.getElementById('ordersPausedMessage');
+    if (!banner || !messageEl) return;
+
+    const custom = (businessData && businessData.order_disabled_message) ? String(businessData.order_disabled_message).trim() : '';
+    messageEl.textContent = custom || DEFAULT_ORDERS_PAUSED_MESSAGE;
+
+    banner.style.display = 'block';
+}
+
+/**
+ * H.5 — Show the contact-only block when orders are off.
+ *
+ * The block reuses the same social links already rendered in
+ * #businessProfileContacts so there is only one place that knows
+ * how to build WhatsApp / TikTok / Instagram / Messenger / phone
+ * URLs. We clone the anchor elements so click handlers and styles
+ * stay identical without duplicating logic.
+ *
+ * When the business has published no contact channels at all, we
+ * show the empty-state hint so the customer still has a next step.
+ */
+function renderOrdersPausedContactBlock() {
+    const block = document.getElementById('ordersPausedContactBlock');
+    const iconsContainer = document.getElementById('ordersPausedContactIcons');
+    const emptyHint = document.getElementById('ordersPausedContactEmpty');
+    if (!block || !iconsContainer) return;
+
+    // Build a fresh set of icon anchors directly from businessData,
+    // so the block does not depend on the timing of the contact
+    // section render and cannot pick up a stale link.
+    const iconDefs = [];
+
+    if (businessData && businessData.whatsapp) {
+        const cleaned = String(businessData.whatsapp).replace(/[^0-9]/g, '');
+        iconDefs.push({
+            href: `https://wa.me/${cleaned}`,
+            className: 'whatsapp',
+            label: 'WhatsApp',
+            iconClass: 'fab fa-whatsapp',
+            color: '#25D366'
+        });
+    }
+
+    if (businessData && businessData.tiktok) {
+        const handle = String(businessData.tiktok).replace('@', '').trim();
+        iconDefs.push({
+            href: `https://tiktok.com/@${handle}`,
+            className: 'tiktok',
+            label: 'TikTok',
+            iconClass: 'fab fa-tiktok',
+            color: '#000000'
+        });
+    }
+
+    if (businessData && businessData.instagram) {
+        const handle = String(businessData.instagram).replace('@', '').trim();
+        iconDefs.push({
+            href: `https://instagram.com/${handle}`,
+            className: 'instagram',
+            label: 'Instagram',
+            iconClass: 'fab fa-instagram',
+            color: '#E4405F'
+        });
+    }
+
+    if (businessData && businessData.facebook) {
+        const handle = String(businessData.facebook).replace('@', '').trim();
+        iconDefs.push({
+            href: `https://facebook.com/messages/t/${handle}`,
+            className: 'messenger',
+            label: 'Messenger',
+            iconClass: 'fab fa-facebook-messenger',
+            color: '#1877F2'
+        });
+    }
+
+    if (businessData && businessData.phone) {
+        iconDefs.push({
+            href: `tel:${businessData.phone}`,
+            className: 'phone',
+            label: 'Call',
+            iconClass: 'fas fa-phone',
+            color: '#2563eb'
+        });
+    }
+
+    if (iconDefs.length === 0) {
+        iconsContainer.innerHTML = '';
+        if (emptyHint) emptyHint.style.display = 'block';
+    } else {
+        iconsContainer.innerHTML = iconDefs.map(icon => `
+            <a href="${icon.href}"
+               target="_blank"
+               rel="noopener"
+               class="${icon.className}"
+               style="display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:30px; background:${icon.color}; color:white; font-size:0.8rem; font-weight:600; text-decoration:none;">
+                <i class="${icon.iconClass}"></i> ${icon.label}
+            </a>
+        `).join('');
+        if (emptyHint) emptyHint.style.display = 'none';
+    }
+
+    block.style.display = 'block';
 }
 
 // ============================================================
@@ -1176,5 +1340,10 @@ window.checkIfOwnBusiness = checkIfOwnBusiness;
 window.renderBusinessProductGrid = renderBusinessProductGrid;
 window.populateDefinedProductCategories = populateDefinedProductCategories;
 window.businessFallbackImage = businessFallbackImage;
+
+// Section H exposures
+window.applyOrderVisibilityState = applyOrderVisibilityState;
+window.renderOrdersPausedBanner = renderOrdersPausedBanner;
+window.renderOrdersPausedContactBlock = renderOrdersPausedContactBlock;
 
 console.log('✅ Business Profile JS loaded successfully (FIXED - No circular dependency)');
