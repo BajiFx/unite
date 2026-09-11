@@ -125,30 +125,32 @@
       <!-- Admin Dot -->
       <a href="/admin.html" class="admin-dot" title="Super Admin Panel">•</a>
 
-      <!-- Hero Banner -->
-      <div class="hero-banner">
-        <div class="hero-content">
-          <h1 class="brand-title">BidhaaLink</h1>
-          <p class="brand-tagline">Connecting the world's Businesses with Customers and Customers to Businesses, One Order at a Time</p>
+      <!-- ============================================================ -->
+      <!-- SECTION J.4 — MARKETPLACE HERO AD SLIDER                      -->
+      <!-- Replaces the old static "Featured Businesses" block.          -->
+      <!-- Sits at the top of the marketplace, below the hero banner     -->
+      <!-- and above the search/filter bar.                              -->
+      <!-- Ads are loaded from /api/businesses/ads.                      -->
+      <!-- ============================================================ -->
 
-          <div class="brand-mission-vision">
-            <div class="mv-item">
-              <span class="mv-label">🎯 Mission</span>
-              <p>To empower every business — large or small — with a powerful digital storefront that connects them directly to customers, builds trust, and grows their reach across the world.</p>
-            </div>
-            <div class="mv-item">
-              <span class="mv-label">🌍 Vision</span>
-              <p>To become the most trusted and unified marketplace platform in the world, where every business has equal opportunity to thrive online and every customer finds exactly what they need — from anywhere, at any time.</p>
-            </div>
-          </div>
+      <section class="ads-slider-section" id="adsSliderSection" hidden aria-label="Sponsored businesses">
+        <h2 class="ads-slider-heading">✨ Sponsored</h2>
 
-          <div class="hero-stats">
-            <div class="stat"><span class="number" id="totalBusinesses">0</span><span class="label">Businesses</span></div>
-            <div class="stat"><span class="number" id="totalProducts">0</span><span class="label">Products</span></div>
-            <div class="stat"><span class="number" id="totalCustomers">0</span><span class="label">Customers</span></div>
-          </div>
+        <div class="ads-slider" id="adsSlider" tabindex="0" aria-roledescription="carousel">
+          <!-- Slides are inserted by index.js: .ads-slide elements -->
+
+          <button type="button" class="ads-nav ads-prev" id="adsPrevBtn" aria-label="Previous ad">
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <button type="button" class="ads-nav ads-next" id="adsNextBtn" aria-label="Next ad">
+            <i class="fas fa-chevron-right"></i>
+          </button>
+
+          <div class="ads-progress" id="adsProgress" aria-hidden="true"></div>
         </div>
-      </div>
+
+        <div class="ads-dots" id="adsDots" role="tablist" aria-label="Ad slide indicators"></div>
+      </section>
 
       <!-- ============================================================ -->
       <!-- SEARCH & FILTER BAR                                          -->
@@ -288,14 +290,6 @@
         <button type="button" class="location-banner-btn" id="enableLocationBtn">
           <i class="fas fa-location-crosshairs"></i> Enable location
         </button>
-      </div>
-
-      <!-- Featured Businesses -->
-      <div class="featured-section">
-        <h2>⭐ Featured Businesses</h2>
-        <div class="business-grid" id="featuredGrid">
-          <p style="text-align:center;padding:40px;color:#94a3b8;grid-column:1/-1;">Loading featured businesses...</p>
-        </div>
       </div>
 
       <!-- All Businesses -->

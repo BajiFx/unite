@@ -14,6 +14,17 @@
 //   area instead. The block lives in the profile panel, next to
 //   the location card. These names are used by the search handler
 //   as a soft anchor (E.4) and are never shared with any business.
+//
+//  Section J — Featured Businesses removal:
+//   J.4 — The account page no longer loads or renders the
+//         Featured Businesses grid. Featured businesses were
+//         only ever shown by the marketplace home page, and
+//         that block has been replaced by the hero ad slider
+//         (Section J). The corresponding DOM nodes remain in
+//         the HTML as a hidden placeholder so nothing breaks
+//         if another caller still references them, but
+//         loadFeaturedBusinessesAccount() and its renderer
+//         are removed from the load path and from the exports.
 // ============================================================
 
 // ============================================================
@@ -30,7 +41,6 @@ let currentFilterStatus = null;
 let returnsMap = {};
 let currentSection = 'dashboard';
 let allBusinessesAccount = [];
-let featuredBusinessesAccount = [];
 let currentPageAccount = 1;
 let hasMoreAccount = true;
 let isLoadingAccount = false;
@@ -1299,12 +1309,18 @@ function loadMessagesContent() {
 
 // ============================================================
 //  MARKETPLACE FUNCTIONS INSIDE ACCOUNT
+//
+//  Section J.4 — loadFeaturedBusinessesAccount() and
+//  renderFeaturedBusinessesAccount() are no longer called from
+//  the load path. The Featured Businesses grid has been replaced
+//  by the marketplace hero ad slider. We keep the DOM placeholder
+//  in the HTML so external callers do not break, but the account
+//  page does not populate it.
 // ============================================================
 
 async function loadMarketplaceAccount() {
     console.log('🏪 Loading marketplace in account...');
     await loadCategoriesAccount();
-    await loadFeaturedBusinessesAccount();
     await loadBusinessesAccount(true);
 }
 
@@ -1327,32 +1343,6 @@ async function loadCategoriesAccount() {
     } catch (err) {
         console.error('Error loading categories:', err);
     }
-}
-
-async function loadFeaturedBusinessesAccount() {
-    try {
-        const res = await fetch('/api/businesses?featured=true&limit=6&_=' + Date.now());
-        if (!res.ok) throw new Error('Failed to load featured businesses');
-        const data = await res.json();
-        featuredBusinessesAccount = data.businesses || [];
-        renderFeaturedBusinessesAccount();
-    } catch (err) {
-        console.error('Error loading featured businesses:', err);
-        document.getElementById('featuredGridAccount').innerHTML =
-            '<div class="empty-state" style="grid-column:1/-1;"><span class="icon">🏪</span> No featured businesses</div>';
-    }
-}
-
-function renderFeaturedBusinessesAccount() {
-    const container = document.getElementById('featuredGridAccount');
-    if (!container) return;
-
-    if (!featuredBusinessesAccount || featuredBusinessesAccount.length === 0) {
-        container.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><span class="icon">🏪</span> No featured businesses</div>';
-        return;
-    }
-
-    container.innerHTML = featuredBusinessesAccount.map(b => createBusinessCardAccount(b)).join('');
 }
 
 async function loadBusinessesAccount(reset = true) {

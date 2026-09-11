@@ -24,6 +24,18 @@
 //   - businessFallbackImage() strips unpaired surrogates and control
 //     characters before encodeURIComponent, so a corrupted product
 //     name can no longer throw "URIError: URI malformed".
+//
+//  Role-scoping fixes:
+//   - The header of business-profile.html calls logout() inline.
+//     This file now defines and exposes it, so the header no longer
+//     throws "logout is not defined" on a business-admin session.
+//   - checkFollowStatus() and checkLocationStatus() call endpoints
+//     that are customer-only. When the viewer is a business admin
+//     (own business or another business's profile), those calls are
+//     skipped and the Follow button is hidden, so the page no longer
+//     receives 403 responses in the console.
+//   - getViewerRole() is the single source of truth for "who is
+//     looking at this page". Every role-scoped behaviour reads it.
 // ============================================================
 
 // ============================================================
@@ -100,6 +112,70 @@ let reviewRating = window.reviewRating;
 let isFollowing = window.isFollowing;
 let customerLocation = window.customerLocation;
 let isOwnBusiness = window.isOwnBusiness;
+
+// ============================================================
+//  VIEWER ROLE HELPERS
+//
+//  Single source of truth for "who is looking at this page".
+//  Every role-scoped behaviour below reads from getViewerRole().
+//
+//   - 'customer'        → logged-in customer
+//   - 'business_admin'  → logged-in business admin (own or other)
+//   - 'super_admin'     → logged-in platform admin
+//   - 'guest'           → no session
+// ============================================================
+
+function getViewerRole() {
+    try {
+        const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        if (!user || !user.email) return 'guest';
+
+        const role = user.role || 'customer';
+        if (role === 'business_admin') return 'business_admin';
+        if (role === 'super_admin' || role === 'admin') return 'super_admin';
+        return 'customer';
+    } catch (err) {
+        return 'guest';
+    }
+}
+
+function isCustomerViewer() {
+    return getViewerRole() === 'customer';
+}
+
+function isBusinessAdminViewer() {
+    const role = getViewerRole();
+    return role === 'business_admin' || role === 'super_admin';
+}
+
+// ============================================================
+//  LOGOUT
+//
+//  The header of business-profile.html calls logout() inline.
+//  The page does not load app.js, so this file must own it.
+//  Behaviour matches app.js: post to /api/auth/logout, clear the
+//  session keys, then redirect to the marketplace.
+// ============================================================
+
+async function logout() {
+    try {
+        if (typeof window.fetch === 'function') {
+            await window.fetch('/api/auth/logout', { method: 'POST' });
+        }
+    } catch (err) {
+        console.warn('Logout request failed:', err);
+    } finally {
+        localStorage.removeItem('token');
+        localStorage.removeItem('customerToken');
+        localStorage.removeItem('businessId');
+        localStorage.removeItem('businessName');
+        localStorage.removeItem('businessSlug');
+        localStorage.removeItem('currentUser');
+        window.currentUser = null;
+        window.customerToken = null;
+        window.location.href = '/';
+    }
+}
 
 function openGuestCartPrompt() {
     const modal = document.getElementById('authModal');
@@ -277,8 +353,17 @@ async function loadBusinessProfile() {
         await loadBusinessProducts();
         buildBusinessSlider();
         loadBusinessReviews();
-        checkFollowStatus();
-        checkLocationStatus();
+
+        // Role-scoped calls. Follow and customer location status are
+        // customer-only endpoints. For business admins and super
+        // admins we skip them entirely and hide the Follow button so
+        // there is no 403 in the console.
+        if (isCustomerViewer()) {
+            checkFollowStatus();
+            checkLocationStatus();
+        } else {
+            hideFollowButtonForNonCustomer();
+        }
 
         document.title = `${businessData.business_name} - Shop Kenya`;
         window.businessProfileLoaded = true;
@@ -290,6 +375,16 @@ async function loadBusinessProfile() {
         console.error('❌ Business profile error:', err);
         showError('Error loading business', err.message);
     }
+}
+
+/**
+ * Hide the Follow button when the viewer is not a customer. The
+ * button itself is rendered in the hero actions of the page; we
+ * simply set it to display:none. This is idempotent.
+ */
+function hideFollowButtonForNonCustomer() {
+    const followBtn = document.getElementById('followBtn');
+    if (followBtn) followBtn.style.display = 'none';
 }
 
 // ============================================================
@@ -358,6 +453,11 @@ function renderBusinessProfile() {
 
     renderSocialLinks(business);
     renderMap(business);
+
+    // Non-customer viewers do not get a Follow button.
+    if (!isCustomerViewer()) {
+        hideFollowButtonForNonCustomer();
+    }
 
     // Section H — reflect H.4 banner and H.5 contact-only block
     // as soon as the business data is available. This is safe to
@@ -912,16 +1012,16 @@ function filterBusinessProducts() {
 // ============================================================
 
 async function toggleBusinessWishlist(productId) {
-    if (!window.customerToken) {
+    if (!isCustomerViewer()) {
         if (typeof openAuthModal === 'function') openAuthModal('login');
         return;
     }
+
     try {
         const res = await fetch('/api/wishlist', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${window.customerToken}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ product_id: productId })
         });
@@ -1001,7 +1101,7 @@ function setRating(rating) {
 // ============================================================
 
 async function submitBusinessReview() {
-    if (!window.customerToken) {
+    if (!isCustomerViewer()) {
         if (typeof openAuthModal === 'function') openAuthModal('login');
         return;
     }
@@ -1020,8 +1120,7 @@ async function submitBusinessReview() {
         const res = await fetch(`/api/businesses/${businessSlug}/review`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${window.customerToken}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ rating: reviewRating, review_text: text })
         });
@@ -1044,16 +1143,23 @@ async function submitBusinessReview() {
 
 // ============================================================
 //  FOLLOW/UNFOLLOW BUSINESS
+//
+//  Role-scoped. The /follow-status and /follow endpoints require
+//  req.role === 'customer'. Non-customers skip the request
+//  entirely (see the guard inside loadBusinessProfile) so no 403
+//  is produced in the console.
 // ============================================================
 
 async function checkFollowStatus() {
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    if (!user.email) return;
+    if (!isCustomerViewer()) return;
 
     try {
-        const res = await fetch(`/api/businesses/${businessSlug}/follow-status`, {
-            headers: { 'Authorization': `Bearer ${window.customerToken}` }
-        });
+        const res = await fetch(`/api/businesses/${businessSlug}/follow-status`);
+        if (!res.ok) {
+            // Silently ignore — the Follow button just stays in its
+            // default state.
+            return;
+        }
         const data = await res.json();
         window.isFollowing = data.isFollowing || false;
         isFollowing = window.isFollowing;
@@ -1078,16 +1184,14 @@ function updateFollowButton() {
 }
 
 async function toggleFollow() {
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    if (!user.email) {
+    if (!isCustomerViewer()) {
         if (typeof openAuthModal === 'function') openAuthModal('login');
         return;
     }
 
     try {
         const res = await fetch(`/api/businesses/${businessSlug}/follow`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${window.customerToken}` }
+            method: 'POST'
         });
         const data = await res.json();
         if (data.success) {
@@ -1107,16 +1211,16 @@ async function toggleFollow() {
 
 // ============================================================
 //  LOCATION REQUEST
+//
+//  Role-scoped. /api/location/customer/status requires the
+//  customer role. Non-customers skip the request entirely.
 // ============================================================
 
 async function checkLocationStatus() {
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    if (!user.email) return false;
+    if (!isCustomerViewer()) return false;
 
     try {
-        const res = await fetch('/api/location/customer/status', {
-            headers: { 'Authorization': `Bearer ${window.customerToken}` }
-        });
+        const res = await fetch('/api/location/customer/status');
         if (!res.ok) return false;
         const data = await res.json();
 
@@ -1229,7 +1333,7 @@ function updateNavCartBadge() {
 // ============================================================
 
 function showToast(message, type = 'success') {
-    if (typeof window.showToast === 'function') {
+    if (typeof window.showToast === 'function' && window.showToast !== showToast) {
         window.showToast(message, type);
         return;
     }
@@ -1323,6 +1427,8 @@ function showToast(message, type = 'success') {
 //  EXPOSE FUNCTIONS
 // ============================================================
 
+window.logout = logout;
+
 window.changeBusinessCardQty = changeBusinessCardQty;
 window.addBusinessCardToCart = addBusinessCardToCart;
 window.goToMarketplaceCart = goToMarketplaceCart;
@@ -1335,6 +1441,12 @@ window.toggleFollow = toggleFollow;
 window.filterBusinessProducts = filterBusinessProducts;
 window.showToast = showToast;
 window.checkIfOwnBusiness = checkIfOwnBusiness;
+
+// Role helpers — exposed so any future surface on this page can reuse
+// the same "who is looking at this page" answer.
+window.getViewerRole = getViewerRole;
+window.isCustomerViewer = isCustomerViewer;
+window.isBusinessAdminViewer = isBusinessAdminViewer;
 
 // Section B exposures
 window.renderBusinessProductGrid = renderBusinessProductGrid;

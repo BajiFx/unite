@@ -113,11 +113,11 @@
 
   <div class="account-top-header">
     <div class="brand">
-      🛍️ <span>Shop Kenya</span>
+      🛍️ <span>BidhaaLink</span>
     </div>
     <div class="user-info">
-      <span class="user-name"><i class="fas fa-user-circle"></i> <span id="headerUserName">George Onyango Ochieng</span></span>
-      <span class="user-phone"><i class="fas fa-phone"></i> <span id="headerUserPhone">+254 712 345 678</span></span>
+      <span class="user-name"><i class="fas fa-user-circle"></i> <span id="headerUserName">Customer</span></span>
+      <span class="user-phone"><i class="fas fa-phone"></i> <span id="headerUserPhone">—</span></span>
     </div>
   </div>
 
@@ -414,6 +414,11 @@
 
   <!-- ============================================================ -->
   <!-- MARKETPLACE SECTION - ALWAYS VISIBLE BELOW -->
+  <!--                                                              -->
+  <!-- Section J.4 — Featured Businesses grid is no longer rendered  -->
+  <!-- by the account page. The block remains as a hidden          -->
+  <!-- placeholder so external callers do not break, and the ad    -->
+  <!-- slider lives only on the marketplace home page.             -->
   <!-- ============================================================ -->
 
   <div class="marketplace-section-account">
@@ -439,13 +444,10 @@
       </select>
     </div>
 
-    <!-- Featured Businesses -->
-    <h3 style="font-size:0.9rem; font-weight:700; color:#0f172a; margin-bottom:10px;">
-      ⭐ Featured Businesses
-    </h3>
-    <div class="business-grid-account" id="featuredGridAccount">
-      <p style="text-align:center;padding:20px;color:#94a3b8;grid-column:1/-1;">Loading featured businesses...</p>
-    </div>
+    <!-- Featured Businesses — hidden placeholder.
+         Section J.4 removed the feature. Kept here so any code
+         still referencing #featuredGridAccount does not throw. -->
+    <div id="featuredGridAccount" hidden></div>
 
     <!-- All Businesses -->
     <h3 style="font-size:0.9rem; font-weight:700; color:#0f172a; margin:16px 0 10px;">

@@ -40,11 +40,28 @@
 //   location names match. The customer's preferred names are never
 //   returned in the response (D.11 preserved).
 //
+//  Section J — Marketplace hero slider:
+//   J.1 / J.4 — /ads returns the active ad set that replaces the
+//               Featured Businesses block on the marketplace.
+//   J.6 — /ads/:id/click returns the ad's link type and target so
+//         the client can navigate to the correct page (profile or
+//         product).
+//   J.7 — /ads/:id/view and /ads/:id/click update views, clicks,
+//         and CTR in the same table the business admin uses.
+//
 //  Guests: the customer can pass ?latitude=..&longitude=.. without
 //  logging in. The server never persists them (D.11).
 //
 //  Server-side geocode cache: 'in <place>' is geocoded once via
 //  Nominatim and cached in memory for 1 hour.
+//
+//  Section I — Public payment settings endpoint:
+//   The /:slug/payment-settings response is extended so the
+//   customer checkout can render the correct M-Pesa label
+//   (Paybill / Till / Pochi) without a second round-trip. The
+//   environment value is never returned to the public because
+//   it is a platform-wide setting; the client only needs to
+//   know which shortcode and account reference to show.
 // ============================================================
 
 const express = require('express');
@@ -423,14 +440,63 @@ router.get('/nearby', async (req, res) => {
     }
 });
 
+// ============================================================
+//  SECTION J — PUBLIC ADS FEED (HERO SLIDER ON MARKETPLACE)
+//
+//  J.1 / J.4 — Return the active ad set that replaces the
+//              Featured Businesses block on the marketplace.
+//              Only ads belonging to active businesses are
+//              returned, and only ads that are themselves
+//              active. The slides are ordered newest-first so
+//              a fresh ad appears first.
+//
+//  The business row is joined so the client has everything it
+//  needs to render a click: business slug, business name, and
+//  logo (used as a small fallback card when media is missing).
+//
+//  The product row is joined when the ad points at a product,
+//  so the client can render the product name/thumbnail without
+//  a second round-trip.
+// ============================================================
+
 router.get('/ads', async (req, res) => {
     try {
+        const limitRaw = parseInt(req.query.limit, 10);
+        const limit = Number.isFinite(limitRaw) && limitRaw > 0
+            ? Math.min(limitRaw, 30)
+            : 20;
+
         const result = await pool.query(`
-            SELECT a.*, b.business_name, b.slug, b.logo
-            FROM business_ads a JOIN businesses b ON b.id = a.business_id
-            WHERE a.is_active = true AND b.is_active = true
+            SELECT a.id,
+                   a.business_id,
+                   a.media_type,
+                   a.media_url,
+                   a.title,
+                   a.description,
+                   a.link_type,
+                   a.link_target_id,
+                   a.display_duration,
+                   a.views,
+                   a.clicks,
+                   a.click_through_rate,
+                   a.created_at,
+                   b.business_name,
+                   b.slug  AS business_slug,
+                   b.logo  AS business_logo,
+                   p.name  AS product_name,
+                   p.image AS product_image
+            FROM business_ads a
+            JOIN businesses b ON b.id = a.business_id
+            LEFT JOIN products p
+                   ON a.link_type = 'product'
+                  AND p.id = a.link_target_id
+                  AND p.is_active = true
+            WHERE a.is_active = true
+              AND b.is_active = true
             ORDER BY a.created_at DESC
-        `);
+            LIMIT $1
+        `, [limit]);
+
         res.json({ ads: result.rows });
     } catch (err) {
         logError(err, 'Get marketplace ads');
@@ -438,19 +504,72 @@ router.get('/ads', async (req, res) => {
     }
 });
 
+// ============================================================
+//  J.7 — RECORD AD IMPRESSION
+//  Fire-and-forget from the client. The endpoint only writes
+//  the counter and CTR; it does not return the ad itself.
+// ============================================================
+
 router.post('/ads/:id/view', async (req, res) => {
     try {
-        await pool.query(`UPDATE business_ads SET views = views + 1, click_through_rate = CASE WHEN views + 1 = 0 THEN 0 ELSE ROUND((clicks::numeric / (views + 1)) * 100, 2) END, updated_at = NOW() WHERE id = $1 AND is_active = true`, [req.params.id]);
+        await pool.query(`
+            UPDATE business_ads
+            SET views = views + 1,
+                click_through_rate = CASE
+                    WHEN views + 1 = 0 THEN 0
+                    ELSE ROUND((clicks::numeric / (views + 1)) * 100, 2)
+                END,
+                updated_at = NOW()
+            WHERE id = $1 AND is_active = true
+        `, [req.params.id]);
         res.status(204).end();
-    } catch (err) { res.status(500).json({ error: 'Unable to record ad view' }); }
+    } catch (err) {
+        res.status(500).json({ error: 'Unable to record ad view' });
+    }
 });
+
+// ============================================================
+//  J.6 / J.7 — RECORD AD CLICK AND RETURN THE TARGET
+//  The client uses the returned link_type + link_target_id +
+//  business_slug to navigate without a second call. That way
+//  the click is always counted even if navigation happens
+//  immediately after.
+// ============================================================
 
 router.post('/ads/:id/click', async (req, res) => {
     try {
-        const result = await pool.query(`UPDATE business_ads SET clicks = clicks + 1, click_through_rate = CASE WHEN views = 0 THEN 0 ELSE ROUND(((clicks + 1)::numeric / views) * 100, 2) END, updated_at = NOW() WHERE id = $1 AND is_active = true RETURNING link_type, link_target_id, business_id`, [req.params.id]);
-        if (!result.rows[0]) return res.status(404).json({ error: 'Ad not found' });
-        res.json({ success: true, ad: result.rows[0] });
-    } catch (err) { res.status(500).json({ error: 'Unable to record ad click' }); }
+        const result = await pool.query(`
+            UPDATE business_ads
+            SET clicks = clicks + 1,
+                click_through_rate = CASE
+                    WHEN views = 0 THEN 0
+                    ELSE ROUND(((clicks + 1)::numeric / views) * 100, 2)
+                END,
+                updated_at = NOW()
+            WHERE id = $1 AND is_active = true
+            RETURNING link_type, link_target_id, business_id
+        `, [req.params.id]);
+
+        if (!result.rows[0]) {
+            return res.status(404).json({ error: 'Ad not found' });
+        }
+
+        const ad = result.rows[0];
+        const businessResult = await pool.query(
+            'SELECT slug FROM businesses WHERE id = $1 AND is_active = true',
+            [ad.business_id]
+        );
+
+        res.json({
+            success: true,
+            ad: {
+                ...ad,
+                business_slug: businessResult.rows[0]?.slug || null
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Unable to record ad click' });
+    }
 });
 
 // ============================================================
@@ -949,6 +1068,13 @@ router.get('/:slug/delivery', async (req, res) => {
 
 // ============================================================
 //  GET BUSINESS PAYMENT SETTINGS (Public)
+//
+//  Section I.1 / I.2 — The full M-Pesa type fields are returned
+//  so the customer checkout can build the correct label
+//  (Paybill / Till / Pochi) without a second round-trip.
+//  The environment value is intentionally NOT returned here —
+//  it is a platform-wide setting and never belongs in a public
+//  response.
 // ============================================================
 router.get('/:slug/payment-settings', async (req, res) => {
     try {
@@ -956,7 +1082,14 @@ router.get('/:slug/payment-settings', async (req, res) => {
 
         const result = await pool.query(
             `SELECT
-                mpesa_enabled, mpesa_number,
+                mpesa_enabled,
+                mpesa_number,
+                mpesa_payment_type,
+                mpesa_paybill_number,
+                mpesa_paybill_account,
+                mpesa_till_number,
+                pochi_la_biashara_enabled,
+                pochi_la_biashara_number,
                 airtel_enabled, airtel_number,
                 bank_enabled, bank_name, bank_account, bank_account_name,
                 paypal_enabled, paypal_email
@@ -1338,6 +1471,10 @@ router.get('/:slug/stats', async (req, res) => {
 
 // ============================================================
 //  GET FEATURED BUSINESSES (Public)
+//  Kept for backwards compatibility with the account page and
+//  any client that still calls it directly. The marketplace
+//  home page no longer renders a Featured Businesses grid;
+//  the ad slider (Section J) replaces it.
 // ============================================================
 router.get('/featured/all', async (req, res) => {
     try {

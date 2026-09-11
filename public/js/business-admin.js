@@ -44,6 +44,22 @@
 //  I.5 — every save sends all the type-specific fields so the
 //        backend stores the whole record
 //  I.6 — read-only environment label from the server
+//
+//  Section J — In-page ad management
+//  J.2 — navigateTo('ads') shows the #section-ads block that
+//        lives inside business-admin.html. The ad form and ad
+//        list are driven by ad-management.js which is loaded
+//        on the same page.
+//
+//        On first entry the helper window.initAdManagement() is
+//        called so the drop zone, form events, product picker,
+//        and ad list are wired up. On later visits we only call
+//        window.loadAds() to refresh the list.
+//
+//        Both calls are guarded, so if ad-management.js has not
+//        loaded yet (slow network, script order) the page does
+//        not throw — the section simply shows its built-in
+//        "Loading your ads..." placeholder.
 // ============================================================
 
 // Check if running in embedded mode (inside dashboard panel)
@@ -81,6 +97,9 @@ let socket = null;
 let statsInterval = null;
 let currentFilterStatus = null;
 let variantCounter = 0;
+
+// Section J.2 — has the in-page ad management surface been initialised?
+let adManagementInitialised = false;
 
 // Section C — map + location state
 let businessLocationMap = null;
@@ -266,7 +285,7 @@ async function verifyBusinessAccess() {
         ]);
 
         const section = new URLSearchParams(window.location.search).get('section');
-        const validSections = ['dashboard', 'orders', 'customers', 'products', 'productcategories', 'profile', 'payments', 'delivery', 'ordersettings'];
+        const validSections = ['dashboard', 'orders', 'customers', 'ads', 'products', 'productcategories', 'profile', 'payments', 'delivery', 'ordersettings'];
         navigateTo(validSections.includes(section) ? section : 'dashboard');
 
         console.log('✅ Business admin initialized for:', businessData.business_name);
@@ -712,6 +731,7 @@ function navigateTo(section) {
         dashboard: 'Dashboard',
         orders: 'Orders',
         customers: 'Customers',
+        ads: 'Ad Management',
         products: 'Products',
         productcategories: 'Product Categories',
         profile: 'Business Profile',
@@ -732,6 +752,46 @@ function navigateTo(section) {
             break;
         case 'orders':
             loadOrders();
+            break;
+        case 'ads':
+            // Section J.2 — the ad form + list live in #section-ads and
+            // are driven by ad-management.js, which is loaded on this
+            // same page.
+            //
+            // First visit: initialise the ad management surface
+            // (fetch business, wire the drop zone, load products for
+            // the target picker, load the ads list).
+            //
+            // Later visits: just refresh the ads list.
+            //
+            // Both calls are guarded so a slow network or script order
+            // problem does not throw here.
+            (function openAdsSection() {
+                if (typeof window.initAdManagement !== 'function') {
+                    console.warn('⚠️ ad-management.js not loaded yet; the ads section will stay in its placeholder state.');
+                    return;
+                }
+
+                if (!adManagementInitialised) {
+                    adManagementInitialised = true;
+                    Promise.resolve(window.initAdManagement())
+                        .catch(function (err) {
+                            console.error('Ad management init failed:', err);
+                            // Allow a later retry: reset the flag so a
+                            // second click can try again.
+                            adManagementInitialised = false;
+                        });
+                    return;
+                }
+
+                if (typeof window.loadAds === 'function') {
+                    try {
+                        window.loadAds();
+                    } catch (err) {
+                        console.error('Ad list refresh failed:', err);
+                    }
+                }
+            })();
             break;
         case 'products':
             loadProducts();

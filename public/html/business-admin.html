@@ -14,9 +14,20 @@
             fields (Paybill / Till / Pochi)
       I.6 — read-only environment label
 
-     Only two sections were rewritten:
-      - section-ordersettings (whole form body)
-      - section-payments (only the M-Pesa block)
+     Section J changes:
+      J.2 — new sidebar item "Manage Ads" that opens an IN-PAGE
+            section (section-ads) inside the business admin,
+            placed in the Main group right after Messages.
+
+            The section reuses the same markup / ids that
+            ad-management.html used so that the same JS
+            (ad-management.js) can drive both surfaces
+            unchanged. The standalone page can still be kept,
+            but this is now the primary surface.
+
+     Only these sections were rewritten:
+      - sidebar "Main" group (one new menu item)
+      - main content (one new section: section-ads)
 
      Everything else in this file is preserved byte-for-byte.
      ============================================================ -->
@@ -38,6 +49,7 @@
 
   <!-- Page-Specific Styles -->
   <link rel="stylesheet" href="/css/business-admin.css">
+  <link rel="stylesheet" href="/css/ad-management.css">
   <script>if (new URLSearchParams(window.location.search).get('embedded') === '1') document.documentElement.classList.add('embedded');</script>
 
   <!-- Socket.IO -->
@@ -95,6 +107,14 @@
       </div>
       <div class="menu-item" onclick="openMarketplaceMessages()">
         <i class="fas fa-comment"></i> Messages
+      </div>
+
+      <!-- Section J.2 — In-page Ad Management.
+           The section lives inside this same page (see #section-ads
+           further down). Clicking here switches to it via the same
+           navigateTo() mechanism used by Orders, Products, etc. -->
+      <div class="menu-item" data-section="ads" onclick="navigateTo('ads')">
+        <i class="fas fa-bullhorn"></i> Manage Ads
       </div>
 
       <!-- ===== PRODUCTS ===== -->
@@ -237,6 +257,133 @@
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SECTION: ADS (Section J.2)                                    -->
+    <!--                                                              -->
+    <!--  This is the in-page Ad Management surface. Markup mirrors    -->
+    <!--  the standalone ad-management.html so that ad-management.js   -->
+    <!--  can drive both. The section is hidden until navigateTo('ads')-->
+    <!--  is called; the IDs are kept identical.                       -->
+    <!-- ============================================================ -->
+    <div class="section" id="section-ads">
+
+      <div class="section-header">
+        <h2><i class="fas fa-bullhorn"></i> Ad Management</h2>
+        <button class="btn-save" onclick="loadAds()"><i class="fas fa-sync-alt"></i> Refresh</button>
+      </div>
+
+      <!-- Info banner -->
+      <div class="ad-info-banner">
+        <i class="fas fa-info-circle"></i>
+        <div>
+          <strong>Your ads appear on the marketplace hero slider.</strong>
+          <p>Upload an image (displayed for 10 seconds) or a video (up to 2 minutes). Choose what happens when a customer clicks: open your business profile, or open a specific product.</p>
+        </div>
+      </div>
+
+      <!-- ===== CREATE / EDIT FORM ===== -->
+      <div class="settings-section">
+        <h2 class="section-title" id="formTitle">
+          <i class="fas fa-plus-circle"></i> Create New Ad
+        </h2>
+
+        <form id="adForm" enctype="multipart/form-data">
+          <input type="hidden" id="editAdId" value="">
+
+          <div class="form-row">
+            <!-- Media upload -->
+            <div class="full">
+              <label>Ad Media * <span class="hint">(Image or Video — max 50MB)</span></label>
+              <div class="media-drop" id="mediaDrop">
+                <input type="file" id="adMedia" name="media" accept="image/*,video/*" hidden>
+                <div id="mediaPlaceholder" class="media-placeholder">
+                  <i class="fas fa-cloud-upload-alt"></i>
+                  <p>Click to choose an image or video</p>
+                  <small>JPG, PNG, WEBP, GIF, MP4, WEBM</small>
+                </div>
+                <div id="mediaPreview" class="media-preview" style="display:none;"></div>
+              </div>
+              <small id="mediaHelp" class="hint">Pick one file. The media type is detected automatically.</small>
+            </div>
+
+            <!-- Title -->
+            <div>
+              <label>Title <span class="hint">(optional, shown over the media)</span></label>
+              <input type="text" id="adTitle" name="title" maxlength="200" placeholder="e.g., New Arrivals — 30% Off">
+            </div>
+
+            <!-- Duration -->
+            <div>
+              <label>Display Duration (seconds)</label>
+              <input type="number" id="adDuration" name="display_duration" min="1" max="600" placeholder="Default: 10s images, 120s videos">
+              <small class="hint">Leave blank to use defaults.</small>
+            </div>
+
+            <!-- Description -->
+            <div class="full">
+              <label>Description <span class="hint">(optional)</span></label>
+              <textarea id="adDescription" name="description" rows="2" maxlength="2000" placeholder="Short message shown under the title."></textarea>
+            </div>
+
+            <!-- Link target -->
+            <div>
+              <label>When clicked, this ad should *</label>
+              <select id="adLinkType" name="link_type" onchange="updateLinkTargetField()">
+                <option value="profile">Open my business profile</option>
+                <option value="product">Open a specific product</option>
+              </select>
+            </div>
+
+            <div id="productTargetWrap" style="display:none;">
+              <label>Choose product *</label>
+              <input type="search" id="adProductSearch" placeholder="Search my products..." oninput="filterProductOptions()" autocomplete="off">
+              <select id="adLinkTargetId" name="link_target_id" size="6" style="margin-top:4px;">
+                <option value="">⏳ Loading products...</option>
+              </select>
+              <small class="hint" id="productTargetHelp">Only active products from your business are listed.</small>
+            </div>
+
+            <!-- Active toggle -->
+            <div class="full">
+              <label class="checkbox-label">
+                <input type="checkbox" id="adIsActive" name="is_active" checked>
+                <span>Show this ad on the marketplace immediately</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-save" id="adSubmitBtn">
+              <i class="fas fa-check"></i> Create Ad
+            </button>
+            <button type="button" class="btn-secondary" id="adCancelBtn" onclick="cancelEdit()" style="display:none;">
+              Cancel Edit
+            </button>
+          </div>
+
+          <div id="adFormStatus" class="form-status"></div>
+        </form>
+      </div>
+
+      <!-- ===== EXISTING ADS ===== -->
+      <div class="settings-section" style="margin-top:20px;">
+        <div class="section-header-row">
+          <h2 class="section-title">
+            <i class="fas fa-list"></i> Your Ads
+            <span class="count-badge" id="adsCountBadge">0</span>
+          </h2>
+          <button class="btn-secondary" onclick="loadAds()">
+            <i class="fas fa-sync-alt"></i> Refresh
+          </button>
+        </div>
+
+        <div id="adsList" class="ads-list">
+          <p class="empty-msg">Loading your ads...</p>
+        </div>
+      </div>
+
     </div>
 
     <!-- ============================================================ -->
@@ -476,9 +623,7 @@
         <form id="paymentSettingsForm">
           <div class="form-row">
 
-            <!-- ================================================ -->
-            <!-- I.1 / I.2 / I.3 — M-PESA with type selector      -->
-            <!-- ================================================ -->
+            <!-- I.1 / I.2 / I.3 — M-PESA with type selector -->
             <div class="full" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
               <h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">M-Pesa</h3>
 
@@ -502,7 +647,6 @@
                 </label>
               </div>
 
-              <!-- Paybill fields -->
               <div id="mpesaPaybillFields" style="display:none;">
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                   <div>
@@ -516,27 +660,21 @@
                 </div>
               </div>
 
-              <!-- Till fields -->
               <div id="mpesaTillFields" style="display:none;">
                 <label style="font-weight:600; font-size:0.8rem;">Till Number</label>
                 <input type="text" id="pMpesaTillNumber" placeholder="123456" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
               </div>
 
-              <!-- Pochi fields -->
               <div id="mpesaPochiFields" style="display:none;">
                 <label style="font-weight:600; font-size:0.8rem;">Pochi la Biashara Number</label>
                 <input type="text" id="pPochiNumber" placeholder="0712345678" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
               </div>
 
-              <!-- I.6 — read-only environment label -->
               <p id="mpesaEnvironmentLabel" style="font-size:0.7rem; color:#64748b; margin:10px 0 0 0;">
                 Environment: <span style="font-weight:600;">Loading...</span>
               </p>
             </div>
 
-            <!-- ================================================ -->
-            <!-- AIRTEL                                            -->
-            <!-- ================================================ -->
             <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">Airtel Money</h3>
               <div class="checkbox-group">
                 <label><input type="checkbox" id="pAirtelEnabled"> Enable Airtel Money</label>
@@ -545,9 +683,6 @@
               <input type="text" id="pAirtelNumber" placeholder="0712345678">
             </div>
 
-            <!-- ================================================ -->
-            <!-- BANK                                              -->
-            <!-- ================================================ -->
             <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">Bank Transfer</h3>
               <div class="checkbox-group">
                 <label><input type="checkbox" id="pBankEnabled"> Enable Bank Transfer</label>
@@ -560,9 +695,6 @@
               <input type="text" id="pBankHolder" placeholder="Your Business Name">
             </div>
 
-            <!-- ================================================ -->
-            <!-- PAYPAL                                            -->
-            <!-- ================================================ -->
             <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">PayPal</h3>
               <div class="checkbox-group">
                 <label><input type="checkbox" id="pPaypalEnabled"> Enable PayPal</label>
@@ -581,12 +713,8 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- SECTION: ORDER SETTINGS
-         H.1 — show_cart_when_disabled checkbox
-         H.2 — order_disabled_message textarea
-         H.3 — delivery-vs-orders warning banner
-         H.7 — preview reflects H.4 / H.5 customer-facing state
-         ============================================================ -->
+    <!-- SECTION: ORDER SETTINGS -->
+    <!-- ============================================================ -->
     <div class="section" id="section-ordersettings">
       <div class="section-header">
         <h2>📋 Order Settings</h2>
@@ -598,7 +726,6 @@
       <div class="settings-section">
         <form id="orderSettingsForm" onsubmit="event.preventDefault(); saveOrderSettings();">
 
-          <!-- H.3 — delivery vs orders warning -->
           <div id="orderDeliveryWarning" style="display:none; margin-bottom:12px; padding:14px 18px; background:#fff7ed; border-radius:10px; border-left:4px solid #f59e0b; color:#7c2d12; font-size:0.85rem;">
             <strong>⚠️ You are accepting online orders, but delivery is turned off.</strong>
             <p style="margin:4px 0 0 0; color:#7c2d12;">
@@ -607,7 +734,6 @@
             </p>
           </div>
 
-          <!-- ONLINE ORDERS TOGGLE -->
           <div class="form-group" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
             <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
               🛒 Allow Online Orders?
@@ -628,9 +754,6 @@
             </div>
           </div>
 
-          <!-- ============================================ -->
-          <!-- H.1 / H.2 — Visibility when orders are off    -->
-          <!-- ============================================ -->
           <div class="form-group" style="margin-top:12px; background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
             <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
               👀 What customers see when orders are paused
@@ -1053,6 +1176,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/js/cookie-auth-client.js"></script>
 <script src="/js/business-admin.js"></script>
+<script src="/js/ad-management.js"></script>
 
 </body>
 </html>

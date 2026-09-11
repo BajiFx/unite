@@ -1,7 +1,36 @@
 /* ============================================================
    ACCOUNT PAGE STYLES - HORIZONTAL LAYOUT
    Location: public/css/account.css
+
+   Section J.4:
+    The Featured Businesses grid is no longer rendered on the
+    account page. It was replaced by the marketplace hero ad
+    slider, which lives only on the marketplace home page
+    (public/html/index.html) and is styled by
+    public/css/marketplace.css.
+
+    #featuredGridAccount is kept in account.html as a hidden
+    placeholder so any external caller still referencing it
+    does not throw. No CSS is required for it beyond the
+    browser default `[hidden] { display: none }`.
+
+   All other styles here are unchanged and still apply to the
+   account page's horizontal layout, the customer location card
+   (Section D), the preferred-area card (Section E.2), and the
+   embedded workspace view.
    ============================================================ */
+
+/* ============================================================
+   SECTION J.4 — Featured Businesses grid is retired.
+   Defensive rule: if any stale markup still carries the old
+   #featuredGridAccount node, hide it explicitly so it can
+   never appear above the "All Businesses" heading.
+   ============================================================ */
+#featuredGridAccount,
+.featured-grid-account,
+#featuredGridAccount[hidden] {
+  display: none !important;
+}
 
 /* ============================================================
    TOP HEADER BAR
@@ -171,7 +200,6 @@
   color: #1d4ed8;
 }
 
-/* Mobile hamburger */
 .account-nav-horizontal .hamburger-mobile {
   display: none;
   background: none;
@@ -276,8 +304,6 @@
   line-height: 1.5;
 }
 
-/* Status badges — only one is visible at a time.
-   The JS toggles `display: inline-block` / `none`. */
 #customerLocationStatusBadge {
   background: #dcfce7;
   color: #166534;
@@ -300,7 +326,6 @@
   letter-spacing: 0.01em;
 }
 
-/* Action buttons inside the card */
 #customerActivateLocationBtn,
 #customerRefreshLocationBtn,
 #customerDeactivateLocationBtn {
@@ -552,6 +577,23 @@
   color: #0f172a;
 }
 
+/* Section H.6 — order-status badge on each business card */
+.business-card-account .card-badges .badge.accepting-orders {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+  box-shadow: 0 1px 3px rgba(22, 101, 52, 0.12);
+  letter-spacing: 0.02em;
+}
+
+.business-card-account .card-badges .badge.orders-paused {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  box-shadow: 0 1px 3px rgba(153, 27, 27, 0.15);
+  letter-spacing: 0.02em;
+}
+
 .business-card-account .card-body {
   padding: 10px 12px 12px;
 }
@@ -665,7 +707,6 @@
   100% { opacity: 1; transform: scale(1); }
 }
 
-/* Color variants */
 .stat-link-panel.pending_payment { border-color: #fdba74; background: #fff7ed; }
 .stat-link-panel.pending_payment .stat-icon { background: #fdba74; color: #9a3412; }
 .stat-link-panel.pending { border-color: #fcd34d; background: #fffbeb; }
@@ -1245,7 +1286,6 @@
     font-size: 1.1rem;
   }
 
-  /* Location card collapses to a single column on narrow screens. */
   .customer-location-card {
     padding: 14px;
   }
@@ -1396,7 +1436,6 @@
     font-size: 0.5rem;
   }
 
-  /* Customer location card — compact mode */
   .customer-location-card {
     padding: 12px;
   }
@@ -1439,7 +1478,6 @@ html.embedded .account-content-panel {
   box-shadow: none;
 }
 
-/* The outer Marketplace owns navigation and Cart access in embedded mode. */
 html.embedded .quick-actions-panel {
   display: none !important;
 }

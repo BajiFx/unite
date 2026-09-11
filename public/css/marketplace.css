@@ -6,6 +6,34 @@
     H.6 — .badge.accepting-orders and .badge.orders-paused, the
           two order-status badges rendered by index.js on each
           business card.
+
+   Section J additions:
+    J.4 / J.5 — the marketplace hero ad slider that replaces the
+                Featured Businesses grid. Sections:
+                  .ads-slider-section  — outer wrapper
+                  .ads-slider          — the slider viewport
+                  .ads-slide           — each slide (media + caption)
+                  .ads-nav             — prev/next buttons
+                  .ads-dots / .ads-dot — dot indicators
+                  .ads-progress        — thin time-remaining bar
+
+                Images default to 6s, videos to 60s. The per-ad
+                display_duration, when set, overrides both.
+
+    J.5b — "Liveness" for image slides (chosen option: 1 = Ken Burns)
+                A slow, cinematic zoom + drift on image slides so
+                they feel alive without shouting. Pure CSS, no JS,
+                no library. Videos are untouched. The animation
+                restarts every time a slide becomes active because
+                it is keyed off .ads-slide.is-active. Mobile gets a
+                gentler variant automatically.
+
+    J.5c — Compact slider size
+                The slider is now a short banner strip rather than
+                a tall hero so it cannot dominate the marketplace.
+                Desktop ~160-220px tall, tablet ~130px, phone
+                ~110-160px. All typography, padding, and controls
+                scale down to match.
    ============================================================ */
 
 /* ============================================================
@@ -389,6 +417,383 @@
 }
 
 /* ============================================================
+   SECTION J — MARKETPLACE AD SLIDER
+   Replaces the old Featured Businesses grid. The hero banner
+   above stays in place. The slider is a single rounded card
+   that sits between the hero and the search bar.
+
+   J.5c — Compact banner strip. The slider is intentionally
+   short (roughly one-third the height of the old hero block)
+   so it attracts the eye without pushing the search bar and
+   business grid off the first screen. Everything inside —
+   caption, nav buttons, dots — scales down to match.
+   ============================================================ */
+
+.ads-slider-section {
+  margin: 0 0 16px 0;
+}
+
+.ads-slider-section[hidden] {
+  display: none !important;
+}
+
+.ads-slider-heading {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 8px 0;
+  padding: 0 2px;
+  letter-spacing: 0.01em;
+}
+
+/* ------------------------------------------------------------
+   Slider viewport — compact size
+   ------------------------------------------------------------ */
+.ads-slider {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 4;
+  min-height: 140px;
+  max-height: 220px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0f172a;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16);
+  outline: none;
+}
+
+.ads-slider:focus-visible {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35), 0 8px 22px rgba(15, 23, 42, 0.16);
+}
+
+/* ------------------------------------------------------------
+   Slide
+   ------------------------------------------------------------ */
+.ads-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 600ms ease;
+  cursor: pointer;
+  will-change: opacity;
+}
+
+.ads-slide.is-active {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.ads-media-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ads-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  user-select: none;
+  will-change: transform;
+  transform-origin: center center;
+}
+
+/* ------------------------------------------------------------
+   J.5b — Ken Burns on image slides only
+   The animation is keyed off .ads-slide.is-active, so it
+   restarts every time a slide becomes active — no JS hook
+   required, and no forced reflow hack.
+
+   `img.ads-media` matches image slides only. A <video> slide
+   has a `.ads-media` element too, but the browser selector
+   below restricts the animation to the img tag, so video
+   slides keep playing exactly as before.
+
+   The 6s duration matches the new image default so the zoom
+   finishes as the slide changes. If an admin sets a custom
+   display_duration, the zoom simply continues past the slide
+   change without a jump — the reset happens naturally when
+   the class is toggled.
+   ------------------------------------------------------------ */
+@keyframes adKenBurns {
+  0% {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  100% {
+    transform: scale(1.09) translate3d(-2%, -1.5%, 0);
+  }
+}
+
+.ads-slide.is-active img.ads-media {
+  animation: adKenBurns 6s ease-out forwards;
+}
+
+/* A very small reduced-motion escape hatch. Users who have asked
+   their OS to reduce motion get a still image, no zoom. */
+@media (prefers-reduced-motion: reduce) {
+  .ads-slide.is-active img.ads-media {
+    animation: none;
+  }
+}
+
+/* A soft gradient overlay guarantees the caption stays legible
+   regardless of how light or busy the underlying media is. */
+.ads-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0.05) 40%, rgba(0, 0, 0, 0.72) 100%);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------
+   Caption — compact
+   ------------------------------------------------------------ */
+.ads-caption {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 16px;
+  color: #ffffff;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 720px;
+}
+
+.ads-business {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 2px 9px;
+  margin-bottom: 3px;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.9);
+  color: #1e293b;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ads-title {
+  font-size: clamp(0.9rem, 1.8vw, 1.15rem);
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.2;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.ads-description {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin: 0;
+  opacity: 0.95;
+  color: #f1f5f9;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+
+/* ------------------------------------------------------------
+   Prev / Next navigation — smaller to fit the strip
+   ------------------------------------------------------------ */
+.ads-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.55);
+  color: #ffffff;
+  font-size: 0.8rem;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background-color 160ms ease, transform 160ms ease, opacity 160ms ease;
+}
+
+.ads-nav:hover,
+.ads-nav:focus-visible {
+  background: rgba(15, 23, 42, 0.8);
+  transform: translateY(-50%) scale(1.05);
+  outline: none;
+}
+
+.ads-nav:active {
+  transform: translateY(-50%) scale(0.96);
+}
+
+.ads-prev { left: 10px; }
+.ads-next { right: 10px; }
+
+/* ------------------------------------------------------------
+   Dot indicators
+   ------------------------------------------------------------ */
+.ads-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.ads-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  background: #cbd5e1;
+  cursor: pointer;
+  transition: background-color 200ms ease, transform 200ms ease, width 200ms ease;
+}
+
+.ads-dot:hover {
+  background: #94a3b8;
+  transform: scale(1.15);
+}
+
+.ads-dot.is-active {
+  background: #2563eb;
+  width: 20px;
+  border-radius: 999px;
+}
+
+.ads-dot:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------
+   Progress bar — thin line at the bottom of the slider
+   that drains over the current slide's display duration.
+   ------------------------------------------------------------ */
+.ads-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: linear-gradient(90deg, #facc15, #22c55e);
+  z-index: 6;
+  transition: width 100ms linear;
+  pointer-events: none;
+}
+
+/* A very small pulse when the user presses prev/next so there is
+   a tactile response even if the new slide takes a moment to
+   paint. */
+@keyframes adsPulse {
+  0%   { box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16); }
+  40%  { box-shadow: 0 8px 22px rgba(37, 99, 235, 0.45); }
+  100% { box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16); }
+}
+
+.ads-slider.ads-pulse {
+  animation: adsPulse 300ms ease;
+}
+
+/* ------------------------------------------------------------
+   Ad slider — responsive
+   ------------------------------------------------------------ */
+@media (max-width: 720px) {
+  .ads-slider {
+    aspect-ratio: 16 / 6;
+    min-height: 130px;
+    max-height: 180px;
+    border-radius: 12px;
+  }
+
+  .ads-caption {
+    left: 14px;
+    right: 14px;
+    bottom: 12px;
+    gap: 3px;
+  }
+
+  .ads-title {
+    font-size: 0.95rem;
+  }
+
+  .ads-description {
+    font-size: 0.72rem;
+    -webkit-line-clamp: 1;
+  }
+
+  .ads-business {
+    font-size: 0.55rem;
+    padding: 2px 7px;
+  }
+
+  .ads-nav {
+    width: 28px;
+    height: 28px;
+    font-size: 0.7rem;
+  }
+
+  .ads-prev { left: 6px; }
+  .ads-next { right: 6px; }
+
+  .ads-dots {
+    gap: 5px;
+    margin-top: 7px;
+  }
+
+  .ads-dot {
+    width: 7px;
+    height: 7px;
+  }
+
+  .ads-dot.is-active {
+    width: 16px;
+  }
+
+  /* Gentler Ken Burns on small screens: shorter distance, slower
+     relative motion. Still clearly alive, still clearly calm. */
+  @keyframes adKenBurns {
+    0%   { transform: scale(1) translate3d(0, 0, 0); }
+    100% { transform: scale(1.06) translate3d(-1%, -1%, 0); }
+  }
+}
+
+@media (max-width: 480px) {
+  .ads-slider {
+    aspect-ratio: 16 / 9;
+    min-height: 110px;
+    max-height: 160px;
+    border-radius: 10px;
+  }
+
+  .ads-title {
+    font-size: 0.85rem;
+  }
+
+  .ads-description {
+    font-size: 0.68rem;
+  }
+
+  .ads-slider-heading {
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+  }
+}
+
+/* ============================================================
    SEARCH & FILTER BAR
    ============================================================ */
 
@@ -565,8 +970,6 @@
   letter-spacing: 0.02em;
 }
 
-/* On hover, keep the badge colours stable so the card's hover
-   effect (lift + shadow) is the only thing that changes. */
 .business-card:hover .card-badges .badge.accepting-orders {
   background: #dcfce7;
   color: #166534;
@@ -625,7 +1028,9 @@
 }
 
 /* ============================================================
-   FEATURED SECTION
+   FEATURED SECTION — kept for compatibility with the account
+   page. The marketplace home page no longer renders this block;
+   the ad slider (Section J) replaces it.
    ============================================================ */
 
 .featured-section {
@@ -772,7 +1177,6 @@
     min-width: 100px;
   }
 
-  /* Section H.6 — keep the badge row compact on tablets. */
   .business-card .card-badges {
     gap: 3px;
     top: 6px;
@@ -807,8 +1211,6 @@
     padding: 20px 12px;
   }
 
-  /* Section H.6 — on very small cards, hide the longer labels
-     behind shorter equivalents so the badge row never overflows. */
   .business-card .card-badges {
     max-width: calc(100% - 12px);
     flex-wrap: wrap;
@@ -1191,11 +1593,6 @@ body.workspace-active .marketplace-container {
    Vibrant, compact, mobile-friendly.
    ============================================================ */
 
-/* ------------------------------------------------------------
-   The panel itself.
-   A single rounded card with a soft gradient and a fine border
-   that subtly stands out from the business grid below it.
-   ------------------------------------------------------------ */
 .location-panel {
   display: flex;
   flex-direction: column;
@@ -1210,9 +1607,6 @@ body.workspace-active .marketplace-container {
   box-shadow: 0 2px 10px rgba(22, 101, 52, 0.05);
 }
 
-/* ------------------------------------------------------------
-   Row 1 — action pills
-   ------------------------------------------------------------ */
 .location-actions {
   display: flex;
   align-items: center;
@@ -1245,7 +1639,6 @@ body.workspace-active .marketplace-container {
   font-size: 0.72rem;
 }
 
-/* Primary — Find Near Me / Refresh Near Me */
 .loc-pill.loc-primary {
   background: linear-gradient(135deg, #16a34a, #15803d);
   color: #ffffff;
@@ -1257,7 +1650,6 @@ body.workspace-active .marketplace-container {
   transform: translateY(-1px);
 }
 
-/* Urgent — nearest first */
 .loc-pill.loc-urgent {
   background: #fff8e1;
   color: #92400e;
@@ -1299,7 +1691,6 @@ body.workspace-active .marketplace-container {
   color: #78350f;
 }
 
-/* Status chip — location active */
 .loc-pill.loc-status {
   background: linear-gradient(135deg, #dcfce7, #bbf7d0);
   color: #166534;
@@ -1313,7 +1704,6 @@ body.workspace-active .marketplace-container {
   display: none !important;
 }
 
-/* Turn off location */
 .loc-pill.loc-off {
   background: #fef2f2;
   color: #991b1b;
@@ -1330,9 +1720,6 @@ body.workspace-active .marketplace-container {
   display: none !important;
 }
 
-/* ------------------------------------------------------------
-   Row 2 — typed location search + filter toggle
-   ------------------------------------------------------------ */
 .location-search-row {
   display: flex;
   align-items: center;
@@ -1452,9 +1839,6 @@ body.workspace-active .marketplace-container {
   display: none !important;
 }
 
-/* ------------------------------------------------------------
-   Row 3 — dropdown filters, collapsed by default
-   ------------------------------------------------------------ */
 .location-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1529,12 +1913,6 @@ body.workspace-active .marketplace-container {
   display: none !important;
 }
 
-/* ------------------------------------------------------------
-   Guest location banner
-   Hidden by default (the `hidden` attribute is set in the HTML),
-   revealed by index.js when the customer types a self-anchor
-   keyword without having activated their location.
-   ------------------------------------------------------------ */
 .location-banner {
   display: flex;
   align-items: center;
@@ -1613,9 +1991,6 @@ body.workspace-active .marketplace-container {
   cursor: not-allowed;
 }
 
-/* ------------------------------------------------------------
-   Distance badge on business cards ("1.2 km away")
-   ------------------------------------------------------------ */
 .business-card .card-body .business-distance {
   display: inline-block;
   margin: 2px 0 6px;
@@ -1628,9 +2003,6 @@ body.workspace-active .marketplace-container {
   letter-spacing: 0.01em;
 }
 
-/* ------------------------------------------------------------
-   Inline "near me" hint
-   ------------------------------------------------------------ */
 .search-near-hint {
   position: absolute;
   top: calc(100% + 4px);
@@ -1664,9 +2036,6 @@ body.workspace-active .marketplace-container {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ------------------------------------------------------------
-   Responsive tweaks for the Section D elements
-   ------------------------------------------------------------ */
 @media (max-width: 720px) {
   .location-banner {
     flex-direction: column;
@@ -1687,8 +2056,6 @@ body.workspace-active .marketplace-container {
     padding: 2px 8px;
   }
 
-  /* Location panel collapses: action pills stay in one scrollable row,
-     the search field stretches, and the filters stack under it. */
   .location-panel {
     padding: 10px;
     gap: 8px;

@@ -23,17 +23,23 @@
 //  C.9 — location_complete flag is returned on GET /profile so
 //        the panel can show a warning when incomplete.
 //
-//  FIX LOG — C.3 / C.5 validation
-//  The original validation used
-//      body('accuracy').optional().isString()
-//  but the browser always sends `accuracy` as a NUMBER (metres).
-//  That made express-validator return 400 on every activation
-//  request, even when latitude and longitude were perfectly fine.
+//  Section J — Business Ads (hero slider on marketplace)
+//  J.1 — The business_ads table is managed through
+//        /ads (list), /ads (create), /ads/:id (update),
+//        /ads/:id (delete), and /ads/:id/toggle.
+//  J.2 — Business admins can upload image or video, set the
+//        title, description, and link target (profile or
+//        product), and toggle an ad active or inactive.
+//  J.3 — Each ad is returned with views, clicks, and CTR so the
+//        admin panel can render a small performance table.
+//  J.6 — The link target is validated against the same business
+//        so a product ad can never point at another business's
+//        product.
 //
-//  Both /location/activate and PUT /location now validate manually
-//  instead of using express-validator. This is more robust, accepts
-//  numeric strings and numbers interchangeably, and treats 0 as a
-//  valid coordinate (which notEmpty() would reject).
+//  Section I.6 — mpesa_environment is now returned by
+//        GET /payment-settings so the business admin panel can
+//        render the read-only environment badge (production vs
+//        sandbox) without a second request.
 // ============================================================
 
 const express = require('express');
@@ -747,6 +753,409 @@ router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 });
 
 // ============================================================
+//  SECTION J — BUSINESS ADS (HERO SLIDER ON MARKETPLACE)
+//
+//  J.1 — Ad rows live in the business_ads table created by
+//        migrations/sql/20260914-business-ads.sql.
+//  J.2 — Upload image or video, set title / description, and
+//        choose a link target (profile or one of this
+//        business's own products).
+//  J.3 — The list response carries views, clicks, and CTR so
+//        the admin panel can render a small performance table.
+//  J.6 — When link_type = 'product', link_target_id must be a
+//        product owned by the same business. Enforced here at
+//        the app layer, and again by a trigger in the schema.
+//
+//  Media is uploaded to Cloudinary, matching how product media
+//  is handled elsewhere in this file:
+//    images → default resource type
+//    videos → resource_type: 'video'
+// ============================================================
+
+/**
+ * Normalise an ad's display duration.
+ * Accepts a number or numeric string.
+ * Returns the value in seconds, or null when the caller did
+ * not supply one (the slider then falls back to the defaults
+ * from Section J.5: 10s for images, 120s for videos).
+ */
+function parseDisplayDuration(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const num = Number.parseInt(value, 10);
+    if (!Number.isFinite(num) || num < 1) return null;
+    // Clamp to a sane range so a bad value can never hang the slider.
+    return Math.min(Math.max(num, 1), 600);
+}
+
+/**
+ * Normalise an ad's link type.
+ * Anything other than 'product' falls back to 'profile'.
+ */
+function parseLinkType(value) {
+    return value === 'product' ? 'product' : 'profile';
+}
+
+/**
+ * Validate the link target for an ad.
+ *
+ *  - link_type = 'profile'  → target is ignored, always valid.
+ *  - link_type = 'product'  → target must be a real product
+ *                             owned by the same business.
+ *
+ * Returns { ok: true, linkTargetId } or { ok: false, error }.
+ */
+async function validateAdLinkTarget(businessId, linkType, rawTargetId) {
+    if (linkType !== 'product') {
+        return { ok: true, linkTargetId: null };
+    }
+
+    const targetId = Number.parseInt(rawTargetId, 10);
+    if (!Number.isInteger(targetId)) {
+        return { ok: false, error: 'Please choose which product this ad should open.' };
+    }
+
+    const result = await pool.query(
+        'SELECT id FROM products WHERE id = $1 AND business_id = $2 AND is_active = true',
+        [targetId, businessId]
+    );
+
+    if (result.rows.length === 0) {
+        return { ok: false, error: 'Selected product does not belong to your business.' };
+    }
+
+    return { ok: true, linkTargetId: targetId };
+}
+
+/**
+ * Load a single ad owned by the given business, joined with the
+ * minimal product data needed to render the list.
+ */
+async function loadAdForBusiness(businessId, adId) {
+    const result = await pool.query(`
+        SELECT a.*,
+               p.name AS product_name,
+               p.image AS product_image
+        FROM business_ads a
+        LEFT JOIN products p ON p.id = a.link_target_id AND a.link_type = 'product'
+        WHERE a.id = $1 AND a.business_id = $2
+    `, [adId, businessId]);
+
+    return result.rows[0] || null;
+}
+
+// ============================================================
+//  J — LIST ADS FOR THE CURRENT BUSINESS
+// ============================================================
+
+router.get('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT a.*,
+                   p.name AS product_name,
+                   p.image AS product_image
+            FROM business_ads a
+            LEFT JOIN products p ON p.id = a.link_target_id AND a.link_type = 'product'
+            WHERE a.business_id = $1
+            ORDER BY a.is_active DESC, a.created_at DESC
+        `, [req.businessId]);
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error('❌ Get business ads error:', err);
+        logError(err, 'Get business ads');
+        res.status(500).json({ error: 'Unable to load ads' });
+    }
+});
+
+// ============================================================
+//  J — CREATE AD
+//  Multipart form:
+//    media           (required, single file: image or video)
+//    media_type      ('image' | 'video')
+//    title           (optional)
+//    description     (optional)
+//    link_type       ('profile' | 'product')
+//    link_target_id  (required when link_type = 'product')
+//    display_duration(optional, seconds)
+//    is_active       ('true' | 'false', defaults to 'true')
+// ============================================================
+
+router.post(
+    '/ads',
+    authMiddleware,
+    businessAdminOnly,
+    getBusinessIdFromToken,
+    upload.fields([{ name: 'media', maxCount: 1 }]),
+    async (req, res) => {
+        try {
+            const mediaFile = req.files && req.files.media && req.files.media[0];
+
+            if (!mediaFile) {
+                return res.status(400).json({ error: 'Please upload an image or video for this ad.' });
+            }
+
+            // Derive the media type from the file itself. The client's
+            // `media_type` field is only a hint; the mime type is the
+            // source of truth so a mislabelled upload cannot corrupt the row.
+            const mime = String(mediaFile.mimetype || '').toLowerCase();
+            const inferredType = mime.startsWith('video/') ? 'video' : 'image';
+            const mediaType = inferredType;
+
+            const { title, description, link_type, link_target_id, display_duration, is_active } = req.body || {};
+
+            const parsedLinkType = parseLinkType(link_type);
+            const targetCheck = await validateAdLinkTarget(req.businessId, parsedLinkType, link_target_id);
+            if (!targetCheck.ok) {
+                return res.status(400).json({ error: targetCheck.error });
+            }
+
+            let mediaUrl;
+            try {
+                mediaUrl = await uploadToCloudinary(mediaFile.path, {
+                    folder: `business_shop/${req.businessId}/ads`,
+                    ...(mediaType === 'video' ? { resource_type: 'video' } : {})
+                });
+            } catch (uploadErr) {
+                console.error('Ad media upload error:', uploadErr);
+                return res.status(500).json({ error: 'Unable to upload ad media. Please try again.' });
+            }
+
+            const duration = parseDisplayDuration(display_duration);
+            const active = !(is_active === 'false' || is_active === false);
+
+            const result = await pool.query(`
+                INSERT INTO business_ads (
+                    business_id, media_type, media_url, title, description,
+                    link_type, link_target_id, display_duration, is_active
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING *
+            `, [
+                req.businessId,
+                mediaType,
+                mediaUrl,
+                title ? String(title).trim().slice(0, 200) : null,
+                description ? String(description).trim().slice(0, 2000) : null,
+                parsedLinkType,
+                targetCheck.linkTargetId,
+                duration,
+                active
+            ]);
+
+            await logAdminActivity(req.userId, 'CREATE_AD', {
+                businessId: req.businessId,
+                adId: result.rows[0].id,
+                mediaType
+            });
+
+            const enriched = await loadAdForBusiness(req.businessId, result.rows[0].id);
+
+            res.status(201).json({ success: true, ad: enriched || result.rows[0] });
+        } catch (err) {
+            console.error('❌ Create ad error:', err);
+            logError(err, 'Create ad');
+            res.status(500).json({ error: 'Unable to create ad' });
+        }
+    }
+);
+
+// ============================================================
+//  J — UPDATE AD
+//  Only the fields the admin actually sent are written.
+//  Media is optional; when omitted, the existing media is kept.
+// ============================================================
+
+router.put(
+    '/ads/:id',
+    authMiddleware,
+    businessAdminOnly,
+    getBusinessIdFromToken,
+    upload.fields([{ name: 'media', maxCount: 1 }]),
+    async (req, res) => {
+        try {
+            const adId = Number.parseInt(req.params.id, 10);
+            if (!Number.isInteger(adId)) {
+                return res.status(400).json({ error: 'Invalid ad id' });
+            }
+
+            const existing = await pool.query(
+                'SELECT * FROM business_ads WHERE id = $1 AND business_id = $2',
+                [adId, req.businessId]
+            );
+            if (existing.rows.length === 0) {
+                return res.status(404).json({ error: 'Ad not found' });
+            }
+
+            const current = existing.rows[0];
+            const updates = [];
+            const values = [];
+            let paramIndex = 1;
+
+            // Media replacement (optional).
+            const mediaFile = req.files && req.files.media && req.files.media[0];
+            let nextMediaType = current.media_type;
+            let nextMediaUrl = current.media_url;
+
+            if (mediaFile) {
+                const mime = String(mediaFile.mimetype || '').toLowerCase();
+                nextMediaType = mime.startsWith('video/') ? 'video' : 'image';
+                try {
+                    nextMediaUrl = await uploadToCloudinary(mediaFile.path, {
+                        folder: `business_shop/${req.businessId}/ads`,
+                        ...(nextMediaType === 'video' ? { resource_type: 'video' } : {})
+                    });
+                } catch (uploadErr) {
+                    console.error('Ad media upload error:', uploadErr);
+                    return res.status(500).json({ error: 'Unable to upload ad media. Please try again.' });
+                }
+                updates.push(`media_type = $${paramIndex}`); values.push(nextMediaType); paramIndex++;
+                updates.push(`media_url = $${paramIndex}`); values.push(nextMediaUrl); paramIndex++;
+            }
+
+            // Link type + target (only when the caller sent either of them).
+            const linkTypeWasSent = req.body.link_type !== undefined;
+            const targetWasSent = req.body.link_target_id !== undefined;
+            if (linkTypeWasSent || targetWasSent) {
+                const nextLinkType = linkTypeWasSent
+                    ? parseLinkType(req.body.link_type)
+                    : current.link_type;
+                const rawTarget = targetWasSent ? req.body.link_target_id : current.link_target_id;
+                const targetCheck = await validateAdLinkTarget(req.businessId, nextLinkType, rawTarget);
+                if (!targetCheck.ok) {
+                    return res.status(400).json({ error: targetCheck.error });
+                }
+                updates.push(`link_type = $${paramIndex}`); values.push(nextLinkType); paramIndex++;
+                updates.push(`link_target_id = $${paramIndex}`); values.push(targetCheck.linkTargetId); paramIndex++;
+            }
+
+            if (req.body.title !== undefined) {
+                const t = req.body.title;
+                updates.push(`title = $${paramIndex}`);
+                values.push(t ? String(t).trim().slice(0, 200) : null);
+                paramIndex++;
+            }
+
+            if (req.body.description !== undefined) {
+                const d = req.body.description;
+                updates.push(`description = $${paramIndex}`);
+                values.push(d ? String(d).trim().slice(0, 2000) : null);
+                paramIndex++;
+            }
+
+            if (req.body.display_duration !== undefined) {
+                updates.push(`display_duration = $${paramIndex}`);
+                values.push(parseDisplayDuration(req.body.display_duration));
+                paramIndex++;
+            }
+
+            if (req.body.is_active !== undefined) {
+                updates.push(`is_active = $${paramIndex}`);
+                values.push(!(req.body.is_active === 'false' || req.body.is_active === false));
+                paramIndex++;
+            }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ error: 'No fields to update' });
+            }
+
+            values.push(adId, req.businessId);
+            const query = `
+                UPDATE business_ads
+                SET ${updates.join(', ')}, updated_at = NOW()
+                WHERE id = $${paramIndex} AND business_id = $${paramIndex + 1}
+                RETURNING *
+            `;
+
+            const result = await pool.query(query, values);
+
+            await logAdminActivity(req.userId, 'UPDATE_AD', {
+                businessId: req.businessId,
+                adId
+            });
+
+            const enriched = await loadAdForBusiness(req.businessId, adId);
+
+            res.json({ success: true, ad: enriched || result.rows[0] });
+        } catch (err) {
+            console.error('❌ Update ad error:', err);
+            logError(err, 'Update ad');
+            res.status(500).json({ error: 'Unable to update ad' });
+        }
+    }
+);
+
+// ============================================================
+//  J — TOGGLE AD ACTIVE STATE
+//  A single endpoint for the "Active / Paused" switch in the
+//  admin list, so the UI does not have to send a full update.
+// ============================================================
+
+router.post('/ads/:id/toggle', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const adId = Number.parseInt(req.params.id, 10);
+        if (!Number.isInteger(adId)) {
+            return res.status(400).json({ error: 'Invalid ad id' });
+        }
+
+        const result = await pool.query(`
+            UPDATE business_ads
+            SET is_active = NOT is_active, updated_at = NOW()
+            WHERE id = $1 AND business_id = $2
+            RETURNING *
+        `, [adId, req.businessId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Ad not found' });
+        }
+
+        await logAdminActivity(req.userId, 'TOGGLE_AD', {
+            businessId: req.businessId,
+            adId,
+            isActive: result.rows[0].is_active
+        });
+
+        res.json({ success: true, ad: result.rows[0] });
+    } catch (err) {
+        console.error('❌ Toggle ad error:', err);
+        logError(err, 'Toggle ad');
+        res.status(500).json({ error: 'Unable to toggle ad' });
+    }
+});
+
+// ============================================================
+//  J — DELETE AD
+// ============================================================
+
+router.delete('/ads/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const adId = Number.parseInt(req.params.id, 10);
+        if (!Number.isInteger(adId)) {
+            return res.status(400).json({ error: 'Invalid ad id' });
+        }
+
+        const result = await pool.query(
+            'DELETE FROM business_ads WHERE id = $1 AND business_id = $2 RETURNING id',
+            [adId, req.businessId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Ad not found' });
+        }
+
+        await logAdminActivity(req.userId, 'DELETE_AD', {
+            businessId: req.businessId,
+            adId
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Delete ad error:', err);
+        logError(err, 'Delete ad');
+        res.status(500).json({ error: 'Unable to delete ad' });
+    }
+});
+
+// ============================================================
 //  ADD PRODUCT TO BUSINESS
 //  B.1 — product_category_id is required
 //  B.5 — Save blocked without a category
@@ -1279,6 +1688,9 @@ router.get('/customers', authMiddleware, businessAdminOnly, getBusinessIdFromTok
 
 // ============================================================
 //  GET BUSINESS PAYMENT SETTINGS
+//  Section I.6 — mpesa_environment is included so the admin
+//  panel can render the read-only environment badge without a
+//  second request.
 // ============================================================
 
 router.get('/payment-settings', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -1298,7 +1710,15 @@ router.get('/payment-settings', authMiddleware, businessAdminOnly, getBusinessId
             return res.status(404).json({ error: 'Business not found' });
         }
 
-        res.json(result.rows[0]);
+        const settings = result.rows[0];
+
+        // I.6 — read-only environment label. It is a platform-wide
+        // value (process.env.MPESA_ENVIRONMENT), not a per-business
+        // setting, so it is returned here as a display hint only and
+        // is never writable through /payment-settings.
+        settings.mpesa_environment = (process.env.MPESA_ENVIRONMENT || 'sandbox').toLowerCase();
+
+        res.json(settings);
     } catch (err) {
         console.error('❌ Get payment settings error:', err);
         logError(err, 'Get payment settings');

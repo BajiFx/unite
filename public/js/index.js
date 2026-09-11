@@ -20,11 +20,22 @@
 //  D.12 — Find Near Me also acts as refresh when already active.
 //
 //  Section H — Cart and order visibility
-//  H.6 — createBusinessCard() now renders a 🟢 / 🔴 status badge
+//  H.6 — createBusinessCard() renders a 🟢 / 🔴 status badge
 //        that tells customers whether the business is currently
-//        accepting online orders. The badge is driven by the
-//        business's own online_orders_enabled flag, so the
-//        marketplace list stays truthful at a glance.
+//        accepting online orders.
+//
+//  Section J — Marketplace hero ad slider
+//  J.4 — The Featured Businesses grid is replaced by the ad
+//        slider. The slider sits at the top of the marketplace,
+//        below the hero banner and above the search bar.
+//  J.5 — Auto-rotation with pause-on-hover, prev/next buttons,
+//        dot indicators, and a thin progress bar. Images default
+//        to 10s, videos default to 120s; the per-ad
+//        display_duration overrides either default.
+//  J.6 — Clicking a slide records the click and then navigates
+//        to the ad's target (business profile or a product).
+//  J.7 — Each slide fires an impression once per display so the
+//        business admin's views/clicks/CTR stay accurate.
 //
 //  Autofill hardening:
 //   Chromium (Edge and Chrome) writes autofilled values directly
@@ -47,7 +58,6 @@ let hasMore = true;
 let isLoading = false;
 const limit = 12;
 let allBusinesses = [];
-let featuredBusinesses = [];
 let currentPanel = null;
 let currentUser = null;
 let isLoggedIn = false;
@@ -82,6 +92,24 @@ let locationSearchText = '';
 let locationSearchDebounceTimer = null;
 const LOCATION_SEARCH_DEBOUNCE_MS = 350;
 
+// ------------------------------------------------------------
+// Section J — Marketplace ad slider state
+// ------------------------------------------------------------
+const AD_DEFAULTS = Object.freeze({
+  imageSeconds: 10,
+  videoSeconds: 120
+});
+
+let adsList = [];
+let adsCurrentIndex = 0;
+let adsTimer = null;
+let adsProgressTimer = null;
+let adsProgressStart = 0;
+let adsCurrentDurationMs = 0;
+let adsIsPaused = false;
+let adsImpressionFiredFor = new Set();
+let adsSliderBound = false;
+
 // ============================================================
 //  AUTO-FILL GUARD
 // ============================================================
@@ -94,20 +122,6 @@ const LOCATION_SEARCH_DEBOUNCE_MS = 350;
  * the JS setter on the prototype. The only reliable interception
  * point is an instance-level property descriptor on the specific
  * element.
- *
- * The interceptor:
- *   - reads the real value through the original getter;
- *   - on write, checks whether the user has actually typed (via the
- *     `wasTyped` getter) and whether the incoming value looks like
- *     an email address;
- *   - if it is an email and the user has not typed, it swallows the
- *     write and leaves the input empty;
- *   - otherwise it allows the write.
- *
- * Additionally, it guards the `defaultValue` property and the
- * `value` HTML attribute, and installs a MutationObserver on the
- * element, because some Chromium builds write through those paths
- * before touching the JS `value` setter.
  */
 function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
   const input = document.getElementById(inputId);
@@ -116,13 +130,11 @@ function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
   const looksLikeEmail = (value) =>
     typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
-  // Grab the real descriptor from the prototype chain.
   const realDescriptor = Object.getOwnPropertyDescriptor(
     Object.getPrototypeOf(input),
     'value'
   );
 
-  // Fallback for very old browsers or unexpected prototypes.
   if (!realDescriptor || !realDescriptor.get || !realDescriptor.set) {
     const clearLoop = () => {
       if (!wasTyped() && looksLikeEmail(input.value)) input.value = '';
@@ -132,14 +144,10 @@ function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
     return;
   }
 
-  // If a spurious value is already there when we attach, purge it
-  // through the real setter, bypassing our own interceptor.
   if (!wasTyped() && looksLikeEmail(input.value)) {
     realDescriptor.set.call(input, '');
   }
 
-  // Install the instance-level interceptor. This is what actually
-  // catches Chromium's native autofill write through the JS setter.
   Object.defineProperty(input, 'value', {
     configurable: true,
     get() {
@@ -147,16 +155,12 @@ function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
     },
     set(next) {
       if (!wasTyped() && looksLikeEmail(next)) {
-        // Swallow the autofill write entirely.
         return;
       }
       realDescriptor.set.call(input, next);
     }
   });
 
-  // Also intercept defaultValue. Some autofill paths write there
-  // first, then Chromium copies it into value via a code path that
-  // can fire before our value interceptor is installed.
   try {
     const defaultDescriptor = Object.getOwnPropertyDescriptor(
       Object.getPrototypeOf(input),
@@ -180,8 +184,6 @@ function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
     // Non-fatal — the value interceptor alone is usually enough.
   }
 
-  // Watch the `value` HTML attribute. Some builds set the attribute
-  // directly, which does not go through the JS property setter.
   try {
     const observer = new MutationObserver(() => {
       if (wasTyped()) return;
@@ -196,9 +198,6 @@ function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
     // Non-fatal.
   }
 
-  // Belt-and-braces purge on first real interaction. We deliberately
-  // do NOT use `focus` alone (some browsers fire focus on load), we
-  // gate on the first genuine keydown / paste / beforeinput.
   const purgeIfAutofilled = () => {
     if (!wasTyped() && looksLikeEmail(input.value)) {
       realDescriptor.set.call(input, '');
@@ -209,12 +208,11 @@ function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
   input.addEventListener('paste', purgeIfAutofilled);
   input.addEventListener('beforeinput', purgeIfAutofilled);
 
-  // Finally, one short polling window to catch very late autofill.
   let ticks = 0;
   const tick = setInterval(() => {
     ticks += 1;
     purgeIfAutofilled();
-    if (ticks >= 20) clearInterval(tick);   // ~10 seconds
+    if (ticks >= 20) clearInterval(tick);
   }, 500);
 }
 
@@ -462,10 +460,6 @@ function bindLocationControls() {
 
   // ---- D.7 — Typed location search ----
   if (locationSearchInput) {
-    // Mark the field as "user touched" only on a genuine key, paste
-    // or IME event. Focus alone is not a reliable signal because
-    // some browsers fire focus on page load, which would silently
-    // disable the autofill guard.
     const markLocationTyped = () => { locationSearchWasTyped = true; };
 
     locationSearchInput.addEventListener('pointerdown', markLocationTyped, { once: true });
@@ -629,11 +623,6 @@ document.addEventListener('DOMContentLoaded', function() {
   if (!document.getElementById('businessGrid')) return;
   console.log('📄 Index page loaded');
 
-  // Install autofill guards FIRST, before any other JS touches the
-  // inputs and before any async work begins. The instance-level
-  // interceptor inside each guard is the only reliable way to stop
-  // Chromium's native autofill from writing an email into these
-  // search fields.
   clearSpuriousSearchAutofill('businessSearch', () => marketplaceSearchWasTyped);
   clearSpuriousSearchAutofill('locationSearchInput', () => locationSearchWasTyped);
 
@@ -642,7 +631,6 @@ document.addEventListener('DOMContentLoaded', function() {
     businessSearch.value = '';
     businessSearch.defaultValue = '';
 
-    // Mark the field as typed the moment the user really interacts.
     businessSearch.addEventListener('pointerdown', () => {
       marketplaceSearchWasTyped = true;
     }, { once: true });
@@ -774,7 +762,7 @@ async function upgradeToPreciseLocationOnce() {
 async function loadMarketplace() {
   try {
     await loadCategories();
-    await loadFeaturedBusinesses();
+    await loadAds();          // J.4 — replaces loadFeaturedBusinesses()
     await loadBusinesses();
     await loadPlatformStats();
     updateCartBadge();
@@ -808,6 +796,376 @@ async function loadCategories() {
   } catch (err) {
     console.error('Error loading categories:', err);
   }
+}
+
+// ============================================================
+//  SECTION J — MARKETPLACE AD SLIDER
+//
+//  J.4 — Replaces the old Featured Businesses grid. The slider
+//        sits at the top of the marketplace, below the hero banner
+//        and above the search bar.
+//  J.5 — Auto-rotation, prev/next, dots, progress bar, pause-on-hover.
+//  J.6 — Click → record click, then navigate.
+//  J.7 — Impression fired once per slide display.
+//
+//  This block is entirely self-contained: it never touches the
+//  business grid, the search controls, or the location panel.
+// ============================================================
+
+async function loadAds() {
+  const section = document.getElementById('adsSliderSection');
+  const slider = document.getElementById('adsSlider');
+  const dots = document.getElementById('adsDots');
+  if (!section || !slider || !dots) return;
+
+  try {
+    const res = await fetch('/api/businesses/ads', {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!res.ok) throw new Error(`Ads request failed (${res.status})`);
+
+    const data = await res.json();
+    adsList = Array.isArray(data.ads) ? data.ads.filter(ad => ad && ad.media_url) : [];
+
+    if (adsList.length === 0) {
+      // No active ads → the whole section stays hidden so the
+      // marketplace simply has no slider today.
+      section.hidden = true;
+      slider.innerHTML = '';
+      dots.innerHTML = '';
+      return;
+    }
+
+    renderAdsSlider();
+    section.hidden = false;
+    bindAdsSliderOnce();
+    startAdsRotation();
+  } catch (err) {
+    console.warn('Ads slider skipped:', err.message);
+    section.hidden = true;
+  }
+}
+
+function renderAdsSlider() {
+  const slider = document.getElementById('adsSlider');
+  const dots = document.getElementById('adsDots');
+  if (!slider || !dots) return;
+
+  // Remove any previous slide nodes, but keep the nav buttons and
+  // the progress bar (they are referenced by id).
+  slider.querySelectorAll('.ads-slide').forEach(node => node.remove());
+
+  slider.insertAdjacentHTML('afterbegin', adsList.map((ad, index) => renderAdSlide(ad, index)).join(''));
+
+  dots.innerHTML = adsList.map((ad, index) => {
+    const label = ad.title ? escapeAdsText(ad.title) : `Ad ${index + 1}`;
+    return `
+      <button
+        type="button"
+        class="ads-dot${index === 0 ? ' is-active' : ''}"
+        data-ad-index="${index}"
+        role="tab"
+        aria-label="${label}"
+        aria-selected="${index === 0 ? 'true' : 'false'}"
+      ></button>
+    `;
+  }).join('');
+
+  adsCurrentIndex = 0;
+  adsImpressionFiredFor = new Set();
+  updateAdsActiveSlide();
+
+  dots.querySelectorAll('.ads-dot').forEach(dot => {
+    dot.addEventListener('click', () => {
+      const idx = parseInt(dot.dataset.adIndex, 10);
+      if (!Number.isInteger(idx)) return;
+      goToAd(idx, { userInitiated: true });
+    });
+  });
+}
+
+function renderAdSlide(ad, index) {
+  const isVideo = ad.media_type === 'video';
+  const title = ad.title ? `<h3 class="ads-title">${escapeAdsText(ad.title)}</h3>` : '';
+  const description = ad.description ? `<p class="ads-description">${escapeAdsText(ad.description)}</p>` : '';
+  const businessName = ad.business_name ? `<span class="ads-business">${escapeAdsText(ad.business_name)}</span>` : '';
+
+  const media = isVideo
+    ? `<video class="ads-media" src="${escapeAdsAttr(ad.media_url)}" muted playsinline preload="metadata"></video>`
+    : `<img class="ads-media" src="${escapeAdsAttr(ad.media_url)}" alt="${escapeAdsAttr(ad.title || ad.business_name || 'Sponsored')}" loading="lazy">`;
+
+  return `
+    <div class="ads-slide${index === 0 ? ' is-active' : ''}" data-ad-index="${index}" data-ad-id="${ad.id}">
+      <div class="ads-media-wrap">
+        ${media}
+        <div class="ads-overlay"></div>
+        <div class="ads-caption">
+          ${businessName}
+          ${title}
+          ${description}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bindAdsSliderOnce() {
+  if (adsSliderBound) return;
+  adsSliderBound = true;
+
+  const slider = document.getElementById('adsSlider');
+  const prevBtn = document.getElementById('adsPrevBtn');
+  const nextBtn = document.getElementById('adsNextBtn');
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      goToAd(adsCurrentIndex - 1, { userInitiated: true });
+    });
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      goToAd(adsCurrentIndex + 1, { userInitiated: true });
+    });
+  }
+
+  if (slider) {
+    // J.5 — pause on hover / focus, resume on leave / blur.
+    slider.addEventListener('mouseenter', () => { adsIsPaused = true; });
+    slider.addEventListener('mouseleave', () => { adsIsPaused = false; });
+    slider.addEventListener('focusin', () => { adsIsPaused = true; });
+    slider.addEventListener('focusout', () => { adsIsPaused = false; });
+
+    // J.6 — click a slide to open its target.
+    slider.addEventListener('click', (event) => {
+      // Ignore clicks that land on the nav buttons.
+      if (event.target.closest('.ads-nav')) return;
+      const slide = event.target.closest('.ads-slide');
+      if (!slide) return;
+      const idx = parseInt(slide.dataset.adIndex, 10);
+      if (Number.isInteger(idx)) handleAdClick(idx);
+    });
+
+    // Keyboard navigation.
+    slider.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goToAd(adsCurrentIndex - 1, { userInitiated: true });
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goToAd(adsCurrentIndex + 1, { userInitiated: true });
+      }
+    });
+  }
+}
+
+function getAdDurationMs(ad) {
+  const custom = Number(ad && ad.display_duration);
+  if (Number.isFinite(custom) && custom > 0) return custom * 1000;
+  return ad && ad.media_type === 'video'
+    ? AD_DEFAULTS.videoSeconds * 1000
+    : AD_DEFAULTS.imageSeconds * 1000;
+}
+
+function startAdsRotation() {
+  stopAdsRotation();
+  if (adsList.length <= 1) {
+    // Single ad: still fire an impression and freeze on it.
+    if (adsList.length === 1) fireAdImpression(0);
+    return;
+  }
+  scheduleNextAdTick();
+}
+
+function stopAdsRotation() {
+  if (adsTimer) { clearTimeout(adsTimer); adsTimer = null; }
+  if (adsProgressTimer) { clearInterval(adsProgressTimer); adsProgressTimer = null; }
+}
+
+function scheduleNextAdTick() {
+  if (adsTimer) clearTimeout(adsTimer);
+  if (adsProgressTimer) clearInterval(adsProgressTimer);
+
+  const ad = adsList[adsCurrentIndex];
+  if (!ad) return;
+
+  adsCurrentDurationMs = getAdDurationMs(ad);
+  adsProgressStart = Date.now();
+
+  updateAdsProgressBar(0);
+
+  // Pause loop: we still tick to update the progress bar, but we do
+  // not advance the slide while adsIsPaused is true.
+  adsProgressTimer = setInterval(() => {
+    if (adsIsPaused) {
+      // Reset the window so the remaining time is preserved while
+      // paused, not consumed.
+      adsProgressStart = Date.now() - (adsProgressStart ? 0 : 0);
+      return;
+    }
+    const elapsed = Date.now() - adsProgressStart;
+    const pct = Math.min(1, elapsed / adsCurrentDurationMs);
+    updateAdsProgressBar(pct);
+  }, 100);
+
+  // A single timeout that checks whether we should advance. Because
+  // the pause loop is separate, we simply re-arm the timeout each
+  // time the slide changes.
+  const tick = () => {
+    if (adsIsPaused) {
+      adsTimer = setTimeout(tick, 250);
+      return;
+    }
+    const elapsed = Date.now() - adsProgressStart;
+    if (elapsed >= adsCurrentDurationMs) {
+      goToAd(adsCurrentIndex + 1);
+    } else {
+      adsTimer = setTimeout(tick, Math.max(100, adsCurrentDurationMs - elapsed));
+    }
+  };
+  adsTimer = setTimeout(tick, adsCurrentDurationMs);
+}
+
+function updateAdsProgressBar(ratio) {
+  const bar = document.getElementById('adsProgress');
+  if (!bar) return;
+  const pct = Math.max(0, Math.min(1, ratio)) * 100;
+  bar.style.setProperty('--ads-progress', `${pct}%`);
+  bar.style.width = `${pct}%`;
+}
+
+function goToAd(index, options = {}) {
+  if (adsList.length === 0) return;
+  const total = adsList.length;
+  const next = ((index % total) + total) % total;
+
+  adsCurrentIndex = next;
+  adsImpressionFiredFor.add(next);
+  updateAdsActiveSlide();
+  fireAdImpression(next);
+  scheduleNextAdTick();
+
+  if (options.userInitiated) {
+    // Small visual feedback when the user presses prev/next.
+    const slider = document.getElementById('adsSlider');
+    if (slider) {
+      slider.classList.remove('ads-pulse');
+      // Force reflow so the animation can replay.
+      void slider.offsetWidth;
+      slider.classList.add('ads-pulse');
+      setTimeout(() => slider.classList.remove('ads-pulse'), 300);
+    }
+  }
+}
+
+function updateAdsActiveSlide() {
+  const slider = document.getElementById('adsSlider');
+  if (slider) {
+    slider.querySelectorAll('.ads-slide').forEach(slide => {
+      const idx = parseInt(slide.dataset.adIndex, 10);
+      slide.classList.toggle('is-active', idx === adsCurrentIndex);
+    });
+
+    // Play the active video (if any) and pause the others.
+    slider.querySelectorAll('.ads-slide').forEach(slide => {
+      const idx = parseInt(slide.dataset.adIndex, 10);
+      const video = slide.querySelector('video');
+      if (!video) return;
+      if (idx === adsCurrentIndex) {
+        try { video.currentTime = 0; video.play().catch(() => {}); } catch (e) {}
+      } else {
+        try { video.pause(); } catch (e) {}
+      }
+    });
+  }
+
+  const dots = document.getElementById('adsDots');
+  if (dots) {
+    dots.querySelectorAll('.ads-dot').forEach(dot => {
+      const idx = parseInt(dot.dataset.adIndex, 10);
+      const active = idx === adsCurrentIndex;
+      dot.classList.toggle('is-active', active);
+      dot.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  }
+}
+
+function fireAdImpression(index) {
+  if (!Number.isInteger(index)) return;
+  if (adsImpressionFiredFor.has(index)) return;
+  adsImpressionFiredFor.add(index);
+
+  const ad = adsList[index];
+  if (!ad || !ad.id) return;
+
+  // J.7 — fire-and-forget. The server increments views and
+  // recomputes CTR. We never block the UI on this request.
+  try {
+    fetch(`/api/businesses/ads/${encodeURIComponent(ad.id)}/view`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      keepalive: true
+    }).catch(() => {});
+  } catch (err) {
+    // Non-fatal.
+  }
+}
+
+async function handleAdClick(index) {
+  if (!Number.isInteger(index)) return;
+  const ad = adsList[index];
+  if (!ad || !ad.id) return;
+
+  // J.7 — fire-and-forget click tracking. Then navigate.
+  let target = null;
+  try {
+    const res = await fetch(`/api/businesses/ads/${encodeURIComponent(ad.id)}/click`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      keepalive: true
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.ad) target = data.ad;
+    }
+  } catch (err) {
+    // Non-fatal — we still try to navigate using what the slide knows.
+  }
+
+  const linkType = (target && target.link_type) || ad.link_type || 'profile';
+  const linkTargetId = (target && target.link_target_id) || ad.link_target_id || null;
+  const businessSlug = (target && target.business_slug) || ad.business_slug || null;
+
+  if (linkType === 'product' && linkTargetId) {
+    const slugParam = businessSlug ? `&business=${encodeURIComponent(businessSlug)}` : '';
+    window.location.href = `/product-detail.html?id=${encodeURIComponent(linkTargetId)}${slugParam}`;
+    return;
+  }
+
+  if (businessSlug) {
+    window.location.href = `/business/${encodeURIComponent(businessSlug)}`;
+    return;
+  }
+
+  // Last resort: no target information at all — do nothing.
+  console.warn('Ad has no navigable target:', ad);
+}
+
+function escapeAdsText(value) {
+  const div = document.createElement('div');
+  div.textContent = String(value ?? '');
+  return div.innerHTML;
+}
+
+function escapeAdsAttr(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 // ============================================================
@@ -924,50 +1282,6 @@ function handleAdditionalCategoryChange() {
 }
 
 // ============================================================
-//  LOAD FEATURED BUSINESSES
-// ============================================================
-
-async function loadFeaturedBusinesses() {
-  try {
-    const res = await fetch('/api/businesses?featured=true&limit=6&_=' + Date.now());
-    if (!res.ok) throw new Error('Failed to load featured businesses');
-    const data = await res.json();
-    featuredBusinesses = data.businesses || [];
-    renderFeaturedBusinesses();
-  } catch (err) {
-    console.error('Error loading featured businesses:', err);
-    const container = document.getElementById('featuredGrid');
-    if (container) {
-      container.innerHTML = `
-        <div class="empty-state" style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;">
-          <div style="font-size:2rem;">🏪</div>
-          <h3 style="margin-top:8px;">No featured businesses</h3>
-          <p>Check back soon for featured businesses</p>
-        </div>
-      `;
-    }
-  }
-}
-
-function renderFeaturedBusinesses() {
-  const container = document.getElementById('featuredGrid');
-  if (!container) return;
-
-  if (!featuredBusinesses || featuredBusinesses.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state" style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;">
-        <div style="font-size:2rem;">🏪</div>
-        <h3 style="margin-top:8px;">No featured businesses</h3>
-        <p>Check back soon for featured businesses</p>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = featuredBusinesses.map(business => createBusinessCard(business)).join('');
-}
-
-// ============================================================
 //  LOAD BUSINESSES (Section D — smart search)
 // ============================================================
 
@@ -979,8 +1293,6 @@ async function loadBusinesses(reset = true, options = {}) {
   }
   if (isLoading || !hasMore) return;
 
-  // Belt-and-braces: clear any autofill injection that slipped in
-  // between the guard installation and this async tick.
   if (!marketplaceSearchWasTyped) {
     const bs = document.getElementById('businessSearch');
     if (bs && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bs.value.trim())) {
@@ -1106,15 +1418,6 @@ function appendBusinesses() {
 //  Section H.6 — 🟢 / 🔴 order-status badge
 // ============================================================
 
-/**
- * H.6 — Return the badge markup that tells the customer whether this
- * business is currently accepting online orders.
- *
- * The badge is driven entirely by `business.online_orders_enabled`.
- * Anything other than an explicit `false` is treated as accepting
- * orders, matching the behaviour used everywhere else on the site
- * (business profile, product grid, cart checkout).
- */
 function getOrderStatusBadge(business) {
   const accepting = !business || business.online_orders_enabled !== false;
   if (accepting) {
@@ -1142,7 +1445,6 @@ function createBusinessCard(business) {
   if (business.is_verified) badges.push('<span class="badge verified">✅ Verified</span>');
   if (business.is_featured) badges.push('<span class="badge featured">⭐ Featured</span>');
 
-  // Section H.6 — order status badge.
   badges.push(getOrderStatusBadge(business));
 
   const description = business.description || '';
@@ -1900,9 +2202,13 @@ window.syncAdditionalCategoryOptions = syncAdditionalCategoryOptions;
 window.handleAdditionalCategoryChange = handleAdditionalCategoryChange;
 window.maybeSuggestNearKeyword = maybeSuggestNearKeyword;
 
-// Section H.6 exposure so other scripts (e.g. a future refresh) can
-// rebuild the badge without re-rendering the whole card.
 window.getOrderStatusBadge = getOrderStatusBadge;
+
+// Section J exposures — so any future surface (e.g. the account page)
+// can reuse the same helpers without duplicating logic.
+window.loadAds = loadAds;
+window.goToAd = goToAd;
+window.handleAdClick = handleAdClick;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
@@ -1928,6 +2234,7 @@ const MARKETPLACE_WORKSPACE = Object.freeze({
       { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-pie' },
       { id: 'orders', label: 'Orders', icon: 'fa-box' },
       { id: 'products', label: 'Products', icon: 'fa-tags' },
+      { id: 'ads', label: 'Manage Ads', icon: 'fa-bullhorn' },
       { id: 'customers', label: 'Customers', icon: 'fa-users' },
       { id: 'messages', label: 'Messages', icon: 'fa-comment' },
       { id: 'settings', label: 'Settings', icon: 'fa-sliders-h' },

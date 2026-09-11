@@ -1,0 +1,752 @@
+/* ============================================================
+   AD MANAGEMENT CSS — Section J
+   Location: public/css/ad-management.css
+   Sits on top of business-admin.css; only styles specific to
+   the ad management surface live here.
+
+   This stylesheet is loaded by both:
+     - public/html/business-admin.html  (Section J.2 — in-page
+       ad management rendered as <div class="section" id="section-ads">)
+     - public/html/ad-management.html   (legacy standalone shell,
+       now a thin redirect — the ids still resolve if the shell
+       is ever reinstated)
+
+   All rules are scoped under the .section-ads namespace OR use
+   #section-ads / #adForm / #adsList so they never leak into
+   other business-admin sections that happen to reuse class
+   names such as .section-title, .form-status, .empty-msg, or
+   .ad-card. business-admin.css owns the shell; this file owns
+   the ad section only.
+   ============================================================ */
+
+/* ============================================================
+   SECTION J.2 — CONTAINER
+   ============================================================ */
+
+#section-ads {
+  --ad-accent: #2563eb;
+  --ad-accent-dark: #1d4ed8;
+  --ad-border: #e2e8f0;
+  --ad-surface: #ffffff;
+  --ad-surface-alt: #f8fafc;
+  --ad-text: #0f172a;
+  --ad-text-soft: #475569;
+  --ad-text-muted: #94a3b8;
+}
+
+#section-ads .ad-info-banner {
+  margin-bottom: 16px;
+}
+
+#section-ads .settings-section {
+  margin-bottom: 16px;
+}
+
+#section-ads .ads-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+/* ============================================================
+   AD INFO BANNER
+   ============================================================ */
+
+.ad-info-banner {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  margin: 0 0 20px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid #2563eb;
+  border-radius: 12px;
+  color: #1e3a8a;
+  font-size: 0.88rem;
+}
+
+.ad-info-banner > i {
+  font-size: 1.4rem;
+  color: #2563eb;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.ad-info-banner strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 2px;
+  color: #1e40af;
+}
+
+.ad-info-banner p {
+  margin: 4px 0 0;
+  color: #1e3a8a;
+  line-height: 1.55;
+}
+
+/* ============================================================
+   SECTION HEADINGS — scoped to #section-ads so they do not
+   override the .section-title used elsewhere in business-admin.css
+   ============================================================ */
+
+#section-ads .section-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#section-ads .section-title i {
+  color: #2563eb;
+}
+
+#section-ads .section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#section-ads .count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 9px;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-left: 6px;
+}
+
+/* ============================================================
+   FORM
+   ============================================================ */
+
+#adForm .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+#adForm .form-row .full {
+  grid-column: 1 / -1;
+}
+
+#adForm label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+#adForm label .hint {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  margin-left: 4px;
+}
+
+#adForm input[type="text"],
+#adForm input[type="number"],
+#adForm input[type="search"],
+#adForm select,
+#adForm textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: #ffffff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#adForm input:focus,
+#adForm select:focus,
+#adForm textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.10);
+}
+
+#adForm textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+#adForm select[size] {
+  padding: 6px;
+}
+
+#adForm select[size] option {
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+#adForm .hint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  display: block;
+  margin-top: 4px;
+}
+
+#adForm #productTargetHelp {
+  color: #64748b;
+}
+
+/* Checkbox row */
+#adForm .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+}
+
+#adForm .checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* ============================================================
+   MEDIA DROP ZONE
+   ============================================================ */
+
+#adForm .media-drop {
+  position: relative;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 20px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.2s, background-color 0.2s;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#adForm .media-drop:hover,
+#adForm .media-drop.dragging {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+#adForm .media-placeholder {
+  color: #64748b;
+  width: 100%;
+}
+
+#adForm .media-placeholder i {
+  font-size: 2.4rem;
+  color: #94a3b8;
+  display: block;
+  margin-bottom: 8px;
+}
+
+#adForm .media-placeholder p {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+#adForm .media-placeholder small {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+#adForm .media-preview {
+  width: 100%;
+  position: relative;
+}
+
+#adForm .media-preview img,
+#adForm .media-preview video {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 10px;
+  margin: 0 auto;
+  background: #0f172a;
+}
+
+#adForm .media-preview .media-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+#adForm .media-preview .media-filename {
+  flex: 1;
+  font-size: 0.78rem;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+#adForm .media-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+#adForm .media-badge.image {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+#adForm .media-badge.video {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+#adForm .media-remove {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+#adForm .media-remove:hover {
+  background: #fecaca;
+}
+
+/* ============================================================
+   FORM ACTIONS
+   ============================================================ */
+
+#adForm .form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+#adForm .form-actions .btn-save {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.2s, transform 0.15s;
+}
+
+#adForm .form-actions .btn-save:hover:not(:disabled) {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+#adForm .form-actions .btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#adForm .form-actions .btn-secondary {
+  background: #e2e8f0;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.2s;
+}
+
+#adForm .form-actions .btn-secondary:hover {
+  background: #cbd5e1;
+}
+
+#adForm #adFormStatus {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  min-height: 18px;
+}
+
+#adForm #adFormStatus.success { color: #16a34a; font-weight: 600; }
+#adForm #adFormStatus.error   { color: #ef4444; font-weight: 600; }
+#adForm #adFormStatus.info    { color: #2563eb; font-weight: 500; }
+
+/* ============================================================
+   ADS LIST
+   ============================================================ */
+
+#adsList.ads-list,
+#adsList {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.ad-card {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.ad-card:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.08);
+}
+
+.ad-card.is-paused {
+  opacity: 0.75;
+  background: #f8fafc;
+}
+
+.ad-card-media {
+  position: relative;
+  width: 100%;
+  height: 150px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.ad-card-media img,
+.ad-card-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ad-card-media .media-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  backdrop-filter: blur(6px);
+}
+
+.ad-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ad-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ad-card-title {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  word-break: break-word;
+}
+
+.ad-card-title em {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.status-pill.active {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.status-pill.paused {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.ad-card-desc {
+  font-size: 0.82rem;
+  color: #475569;
+  margin: 0;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ad-card-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.target-label,
+.duration-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: #f1f5f9;
+  border-radius: 20px;
+}
+
+.target-label i,
+.duration-label i {
+  color: #2563eb;
+}
+
+.duration-label.muted {
+  color: #94a3b8;
+}
+
+.duration-label.muted i {
+  color: #94a3b8;
+}
+
+.ad-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  margin-top: 4px;
+}
+
+.ad-card-stats .stat {
+  text-align: center;
+}
+
+.ad-card-stats .stat-value {
+  display: block;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.ad-card-stats .stat-label {
+  display: block;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.ad-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.btn-action {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 700;
+  font-size: 0.72rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.btn-action:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.btn-action.danger {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+.btn-action.danger:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+/* ============================================================
+   EMPTY STATE (scoped to #adsList so it does not override
+   the .empty-msg used by other business-admin sections)
+   ============================================================ */
+
+#adsList .empty-msg {
+  text-align: center;
+  padding: 30px 20px;
+  color: #94a3b8;
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  border-radius: 10px;
+}
+
+#adsList .empty-msg i {
+  display: block;
+  font-size: 2rem;
+  color: #cbd5e1;
+  margin-bottom: 8px;
+}
+
+#adsList .empty-msg p {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: #475569;
+}
+
+#adsList .empty-msg small {
+  display: block;
+  font-size: 0.78rem;
+}
+
+#adsList .empty-msg.error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+/* ============================================================
+   TOASTS
+   ============================================================ */
+
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 99999;
+  max-width: 400px;
+  width: 100%;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(120%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ============================================================
+   EMBEDDED MODE
+   ============================================================ */
+
+html.embedded .admin-header { display: none !important; }
+html.embedded .admin-main-content {
+  padding: 14px;
+  min-height: 100vh;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 720px) {
+  #adForm .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ad-card {
+    grid-template-columns: 1fr;
+  }
+
+  .ad-card-media {
+    height: 200px;
+  }
+
+  #adForm .media-preview img,
+  #adForm .media-preview video {
+    max-height: 220px;
+  }
+}
+
+@media (max-width: 480px) {
+  .ad-info-banner {
+    padding: 12px 14px;
+  }
+
+  .ad-info-banner > i {
+    font-size: 1.2rem;
+  }
+
+  .ad-card-stats {
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .ad-card-stats .stat-value {
+    font-size: 0.9rem;
+  }
+
+  .btn-action {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

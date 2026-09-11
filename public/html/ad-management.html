@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>Ad Management - BidhaaLink</title>
+  <meta name="description" content="Manage your business advertisements on BidhaaLink — upload images or videos, set targets, and track performance.">
+
+  <!-- Main Global Styles -->
+  <link rel="stylesheet" href="/style.css">
+
+  <!-- External Libraries -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Page-Specific Styles -->
+  <link rel="stylesheet" href="/css/ad-management.css">
+  <link rel="stylesheet" href="/css/business-admin.css">
+  <script>if (new URLSearchParams(window.location.search).get('embedded') === '1') document.documentElement.classList.add('embedded');</script>
+</head>
+<body class="admin-body">
+
+<!-- ===== AUTH CHECK ===== -->
+<div id="authCheck" style="display:none;text-align:center;padding:60px 20px;">
+  <i class="fas fa-lock fa-3x" style="color:#94a3b8;"></i>
+  <h2 style="margin-top:12px;">Business Admin Access</h2>
+  <p style="color:#64748b;">You need to be logged in as a business admin to manage ads.</p>
+  <button class="btn btn-primary" onclick="window.location.href='/business-login.html'">Go to Login</button>
+</div>
+
+<!-- ===== AD MANAGEMENT PANEL ===== -->
+<div id="adManagementPanel" style="display:none;">
+
+  <!-- ===== HEADER ===== -->
+  <div class="admin-header">
+    <div class="header-left">
+      <button class="hamburger" onclick="goBack()">←</button>
+      <h1><i class="fas fa-bullhorn"></i> Ad Management</h1>
+    </div>
+    <div class="header-right">
+      <span id="businessNameDisplay" style="font-weight:600;color:#94a3b8;font-size:0.85rem;"></span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- ===== MAIN CONTENT ===== -->
+  <div class="admin-main-content">
+
+    <!-- Info banner -->
+    <div class="ad-info-banner">
+      <i class="fas fa-info-circle"></i>
+      <div>
+        <strong>Your ads appear on the marketplace hero slider.</strong>
+        <p>Upload an image (displayed for 10 seconds) or a video (up to 2 minutes). Choose what happens when a customer clicks: open your business profile, or open a specific product.</p>
+      </div>
+    </div>
+
+    <!-- ===== CREATE / EDIT FORM ===== -->
+    <div class="settings-section">
+      <h2 class="section-title" id="formTitle">
+        <i class="fas fa-plus-circle"></i> Create New Ad
+      </h2>
+
+      <form id="adForm" enctype="multipart/form-data">
+        <input type="hidden" id="editAdId" value="">
+
+        <div class="form-row">
+          <!-- Media upload -->
+          <div class="full">
+            <label>Ad Media * <span class="hint">(Image or Video — max 50MB)</span></label>
+            <div class="media-drop" id="mediaDrop">
+              <input type="file" id="adMedia" name="media" accept="image/*,video/*" hidden>
+              <div id="mediaPlaceholder" class="media-placeholder">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <p>Click to choose an image or video</p>
+                <small>JPG, PNG, WEBP, GIF, MP4, WEBM</small>
+              </div>
+              <div id="mediaPreview" class="media-preview" style="display:none;"></div>
+            </div>
+            <small id="mediaHelp" class="hint">Pick one file. The media type is detected automatically.</small>
+          </div>
+
+          <!-- Title -->
+          <div>
+            <label>Title <span class="hint">(optional, shown over the media)</span></label>
+            <input type="text" id="adTitle" name="title" maxlength="200" placeholder="e.g., New Arrivals — 30% Off">
+          </div>
+
+          <!-- Duration -->
+          <div>
+            <label>Display Duration (seconds)</label>
+            <input type="number" id="adDuration" name="display_duration" min="1" max="600" placeholder="Default: 10s images, 120s videos">
+            <small class="hint">Leave blank to use defaults.</small>
+          </div>
+
+          <!-- Description -->
+          <div class="full">
+            <label>Description <span class="hint">(optional)</span></label>
+            <textarea id="adDescription" name="description" rows="2" maxlength="2000" placeholder="Short message shown under the title."></textarea>
+          </div>
+
+          <!-- Link target -->
+          <div>
+            <label>When clicked, this ad should *</label>
+            <select id="adLinkType" name="link_type" onchange="updateLinkTargetField()">
+              <option value="profile">Open my business profile</option>
+              <option value="product">Open a specific product</option>
+            </select>
+          </div>
+
+          <div id="productTargetWrap" style="display:none;">
+            <label>Choose product *</label>
+            <input type="search" id="adProductSearch" placeholder="Search my products..." oninput="filterProductOptions()" autocomplete="off">
+            <select id="adLinkTargetId" name="link_target_id" size="6" style="margin-top:4px;">
+              <option value="">⏳ Loading products...</option>
+            </select>
+            <small class="hint" id="productTargetHelp">Only active products from your business are listed.</small>
+          </div>
+
+          <!-- Active toggle -->
+          <div class="full">
+            <label class="checkbox-label">
+              <input type="checkbox" id="adIsActive" name="is_active" checked>
+              <span>Show this ad on the marketplace immediately</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-save" id="adSubmitBtn">
+            <i class="fas fa-check"></i> Create Ad
+          </button>
+          <button type="button" class="btn-secondary" id="adCancelBtn" onclick="cancelEdit()" style="display:none;">
+            Cancel Edit
+          </button>
+        </div>
+
+        <div id="adFormStatus" class="form-status"></div>
+      </form>
+    </div>
+
+    <!-- ===== EXISTING ADS ===== -->
+    <div class="settings-section" style="margin-top:20px;">
+      <div class="section-header-row">
+        <h2 class="section-title">
+          <i class="fas fa-list"></i> Your Ads
+          <span class="count-badge" id="adsCountBadge">0</span>
+        </h2>
+        <button class="btn-secondary" onclick="loadAds()">
+          <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+      </div>
+
+      <div id="adsList" class="ads-list">
+        <p class="empty-msg">Loading your ads...</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== SCRIPTS ===== -->
+<script src="/js/cookie-auth-client.js"></script>
+<script src="/js/ad-management.js"></script>
+
+</body>
+</html>

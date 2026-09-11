@@ -993,3 +993,24 @@ html.embedded .sidebar { display: none !important; }
     align-items: stretch;
   }
 }
+
+/* ============================================================
+   Section J — In-page Ad Management surface
+   The section is shown by navigateTo('ads') in business-admin.js.
+   The form + list markup comes from ad-management.css, which is
+   linked by the page. These rules only scope the container so
+   the ad section sits cleanly inside the business-admin shell.
+   ============================================================ */
+#section-ads .ad-info-banner {
+  margin-bottom: 16px;
+}
+
+#section-ads .settings-section {
+  margin-bottom: 16px;
+}
+
+#section-ads .ads-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
