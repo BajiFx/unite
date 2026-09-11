@@ -43,8 +43,8 @@
 
   // Per-ad display defaults (Section J.5) — exposed so business-admin.js
   // can reuse them when it renders the placeholder values in the form.
-  if (typeof window.AD_DEFAULT_IMAGE_DURATION === 'undefined') window.AD_DEFAULT_IMAGE_DURATION = 10;
-  if (typeof window.AD_DEFAULT_VIDEO_DURATION === 'undefined') window.AD_DEFAULT_VIDEO_DURATION = 120;
+  if (typeof window.AD_DEFAULT_IMAGE_DURATION === 'undefined') window.AD_DEFAULT_IMAGE_DURATION = 6;
+  if (typeof window.AD_DEFAULT_VIDEO_DURATION === 'undefined') window.AD_DEFAULT_VIDEO_DURATION = 60;
 
   var DEFAULT_IMAGE_DURATION = window.AD_DEFAULT_IMAGE_DURATION;
   var DEFAULT_VIDEO_DURATION = window.AD_DEFAULT_VIDEO_DURATION;

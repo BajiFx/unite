@@ -12,7 +12,7 @@
                 Featured Businesses grid. Sections:
                   .ads-slider-section  — outer wrapper
                   .ads-slider          — the slider viewport
-                  .ads-slide           — each slide (media + caption)
+                  .ads-slide           — each slide (media only now)
                   .ads-nav             — prev/next buttons
                   .ads-dots / .ads-dot — dot indicators
                   .ads-progress        — thin time-remaining bar
@@ -20,20 +20,41 @@
                 Images default to 6s, videos to 60s. The per-ad
                 display_duration, when set, overrides both.
 
-    J.5b — "Liveness" for image slides (chosen option: 1 = Ken Burns)
-                A slow, cinematic zoom + drift on image slides so
-                they feel alive without shouting. Pure CSS, no JS,
-                no library. Videos are untouched. The animation
-                restarts every time a slide becomes active because
-                it is keyed off .ads-slide.is-active. Mobile gets a
-                gentler variant automatically.
+    J.5b — "Liveness" for image slides (final: blurred background
+                + Ken Burns on the blurred copy only)
+                Image slides emit two <img> elements:
+                  1) .ads-media-bg — the same image, cover-cropped,
+                     heavily blurred, darkened, and slowly drifting
+                     (Ken Burns). Fills the whole square frame so
+                     the frame never looks empty.
+                  2) .ads-media    — the sharp image on top,
+                     object-fit: contain, so the whole picture is
+                     always visible and never cropped.
+                Videos keep a single element and play normally.
+                Pure CSS for the animation; the blurred copy is
+                written by renderAdSlide() in index.js.
 
-    J.5c — Compact slider size
-                The slider is now a short banner strip rather than
-                a tall hero so it cannot dominate the marketplace.
-                Desktop ~160-220px tall, tablet ~130px, phone
-                ~110-160px. All typography, padding, and controls
-                scale down to match.
+    J.5c — Split slider layout (final)
+                The slider is a two-column grid on desktop:
+                  LEFT  — square ad media frame
+                  RIGHT — solid blue reserved panel with a faint
+                          inner border.
+                Mobile ≤720px stacks; panel gets a short fixed
+                height so the search bar stays on-screen.
+
+   SEARCH BAR — MERGED LAYOUT
+                The search bar and location controls have been
+                merged into one compact row:
+                  1. single #businessSearch input
+                  2. category dropdown
+                  3. sort dropdown
+                  4. Filters toggle
+                  5. Find Near Me / Refresh
+                  6. Urgent toggle
+                  7. location status chip + ✕ turn-off
+                The dropdown filters live in a separate
+                .location-filters-row that opens only when the
+                Filters button is pressed.
    ============================================================ */
 
 /* ============================================================
@@ -417,16 +438,18 @@
 }
 
 /* ============================================================
-   SECTION J — MARKETPLACE AD SLIDER
+   SECTION J — MARKETPLACE AD SLIDER (SPLIT LAYOUT)
    Replaces the old Featured Businesses grid. The hero banner
-   above stays in place. The slider is a single rounded card
-   that sits between the hero and the search bar.
+   above stays in place.
 
-   J.5c — Compact banner strip. The slider is intentionally
-   short (roughly one-third the height of the old hero block)
-   so it attracts the eye without pushing the search bar and
-   business grid off the first screen. Everything inside —
-   caption, nav buttons, dots — scales down to match.
+   J.5b — Image slides carry a blurred, cover-cropped copy of
+          the same image behind the sharp image. The sharp image
+          uses object-fit: contain so the whole picture stays
+          visible. The blurred copy fills the frame and drifts
+          via Ken Burns, so the small square still feels alive.
+
+   J.5c — Split layout: LEFT is the square media frame, RIGHT
+          is a solid blue reserved panel.
    ============================================================ */
 
 .ads-slider-section {
@@ -447,27 +470,69 @@
 }
 
 /* ------------------------------------------------------------
-   Slider viewport — compact size
+   Slider viewport — split grid
    ------------------------------------------------------------ */
 .ads-slider {
   position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;   /* LEFT ad · RIGHT panel */
+  gap: 12px;
   width: 100%;
-  aspect-ratio: 16 / 4;
-  min-height: 140px;
-  max-height: 220px;
-  border-radius: 14px;
-  overflow: hidden;
-  background: #0f172a;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16);
+  align-items: stretch;
   outline: none;
 }
 
 .ads-slider:focus-visible {
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35), 0 8px 22px rgba(15, 23, 42, 0.16);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  border-radius: 14px;
+}
+
+/* Left column — square media frame.
+   aspect-ratio 1/1 keeps the ad square and fully visible. */
+.ads-slider__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 260px;             /* caps height on wide screens */
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0f172a;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16);
+  min-height: 140px;
+}
+
+/* Right column — reserved blue panel with faint inner border. */
+.ads-slider__panel {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 260px;
+  min-height: 140px;
+  border-radius: 14px;
+  background: #1d4ed8;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+              0 8px 22px rgba(15, 23, 42, 0.16);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Small reminder label so the empty panel does not look broken. */
+.ads-slider__panel::after {
+  content: 'Reserved';
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
 }
 
 /* ------------------------------------------------------------
-   Slide
+   Slide — the media frame now lives inside .ads-slider__media,
+   so the slide wrapper only carries the media itself.
    ------------------------------------------------------------ */
 .ads-slide {
   position: absolute;
@@ -492,7 +557,16 @@
   overflow: hidden;
 }
 
-.ads-media {
+/* ------------------------------------------------------------
+   J.5b — Blurred background copy of the image
+   The blurred copy fills the whole frame (cover + blur) so the
+   square never looks empty. It is the element that "lives"
+   via Ken Burns, so the sharp image on top can stay calm.
+
+   image-rendering is left to the browser default; blur hides
+   any scaling artefacts.
+   ------------------------------------------------------------ */
+.ads-media-bg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -500,72 +574,87 @@
   object-fit: cover;
   display: block;
   user-select: none;
-  will-change: transform;
+  pointer-events: none;
+  filter: blur(24px) brightness(0.55) saturate(1.1);
+  transform: scale(1.15);
   transform-origin: center center;
+  will-change: transform, filter;
+  z-index: 0;
+}
+
+/* The sharp image on top. object-fit: contain guarantees the
+   whole picture is visible and never cropped. Its letterbox
+   area is filled by the blurred .ads-media-bg behind it. */
+.ads-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  z-index: 1;
+}
+
+/* Video slides do not carry a blurred background copy — the
+   video itself is the visual. Safety net in case a .ads-media-bg
+   is ever emitted next to a video. */
+.ads-slide.is-video .ads-media-bg {
+  display: none;
+}
+
+/* Videos keep their original cover behaviour so they fill the
+   frame edge-to-edge and play normally. */
+.ads-slide.is-video .ads-media {
+  object-fit: cover;
 }
 
 /* ------------------------------------------------------------
-   J.5b — Ken Burns on image slides only
-   The animation is keyed off .ads-slide.is-active, so it
-   restarts every time a slide becomes active — no JS hook
-   required, and no forced reflow hack.
+   J.5b — Ken Burns on the blurred background only
+   Keyed off .ads-slide.is-active so it restarts on every
+   activation. Videos are untouched (the blurred copy is not
+   emitted for them, and the safety rule above hides it if it
+   ever is).
 
-   `img.ads-media` matches image slides only. A <video> slide
-   has a `.ads-media` element too, but the browser selector
-   below restricts the animation to the img tag, so video
-   slides keep playing exactly as before.
-
-   The 6s duration matches the new image default so the zoom
-   finishes as the slide changes. If an admin sets a custom
-   display_duration, the zoom simply continues past the slide
-   change without a jump — the reset happens naturally when
-   the class is toggled.
+   The 6s duration matches the image default so the drift
+   finishes as the slide changes.
    ------------------------------------------------------------ */
 @keyframes adKenBurns {
   0% {
-    transform: scale(1) translate3d(0, 0, 0);
+    transform: scale(1.15) translate3d(0, 0, 0);
   }
   100% {
-    transform: scale(1.09) translate3d(-2%, -1.5%, 0);
+    transform: scale(1.28) translate3d(-2%, -1.5%, 0);
   }
 }
 
-.ads-slide.is-active img.ads-media {
+.ads-slide.is-active .ads-media-bg {
   animation: adKenBurns 6s ease-out forwards;
 }
 
-/* A very small reduced-motion escape hatch. Users who have asked
-   their OS to reduce motion get a still image, no zoom. */
+/* Respect reduced-motion preference: still blurred background,
+   no drift. */
 @media (prefers-reduced-motion: reduce) {
-  .ads-slide.is-active img.ads-media {
+  .ads-slide.is-active .ads-media-bg {
     animation: none;
   }
 }
 
-/* A soft gradient overlay guarantees the caption stays legible
-   regardless of how light or busy the underlying media is. */
-.ads-overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0.05) 40%, rgba(0, 0, 0, 0.72) 100%);
-  pointer-events: none;
-}
-
 /* ------------------------------------------------------------
-   Caption — compact
+   Caption — kept on the media frame, compact.
    ------------------------------------------------------------ */
 .ads-caption {
   position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 16px;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
   color: #ffffff;
   pointer-events: none;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-width: 720px;
+  max-width: 92%;
+  z-index: 3;
 }
 
 .ads-business {
@@ -583,7 +672,7 @@
 }
 
 .ads-title {
-  font-size: clamp(0.9rem, 1.8vw, 1.15rem);
+  font-size: clamp(0.9rem, 1.6vw, 1.1rem);
   font-weight: 800;
   margin: 0;
   line-height: 1.2;
@@ -591,26 +680,37 @@
 }
 
 .ads-description {
-  font-size: 0.78rem;
-  line-height: 1.4;
+  font-size: 0.75rem;
+  line-height: 1.35;
   margin: 0;
   opacity: 0.95;
   color: #f1f5f9;
   display: -webkit-box;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
+/* A soft gradient overlay guarantees the caption stays legible
+   regardless of how light or busy the underlying media is. */
+.ads-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0.05) 40%, rgba(0, 0, 0, 0.72) 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
 /* ------------------------------------------------------------
-   Prev / Next navigation — smaller to fit the strip
+   Prev / Next navigation — sit on the media frame only.
    ------------------------------------------------------------ */
 .ads-nav {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 5;
+  z-index: 6;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -637,11 +737,12 @@
   transform: translateY(-50%) scale(0.96);
 }
 
-.ads-prev { left: 10px; }
-.ads-next { right: 10px; }
+/* Anchor prev / next to the media frame, not the whole grid. */
+.ads-slider__media .ads-prev { left: 10px; }
+.ads-slider__media .ads-next { right: 10px; }
 
 /* ------------------------------------------------------------
-   Dot indicators
+   Dot indicators — below the whole slider.
    ------------------------------------------------------------ */
 .ads-dots {
   display: flex;
@@ -650,6 +751,7 @@
   gap: 7px;
   margin-top: 8px;
   flex-wrap: wrap;
+  grid-column: 1 / -1;    /* span both grid columns */
 }
 
 .ads-dot {
@@ -680,8 +782,7 @@
 }
 
 /* ------------------------------------------------------------
-   Progress bar — thin line at the bottom of the slider
-   that drains over the current slide's display duration.
+   Progress bar — thin line at the bottom of the MEDIA FRAME.
    ------------------------------------------------------------ */
 .ads-progress {
   position: absolute;
@@ -690,21 +791,20 @@
   height: 3px;
   width: 0;
   background: linear-gradient(90deg, #facc15, #22c55e);
-  z-index: 6;
+  z-index: 7;
   transition: width 100ms linear;
   pointer-events: none;
+  border-radius: 0 0 14px 14px;
 }
 
-/* A very small pulse when the user presses prev/next so there is
-   a tactile response even if the new slide takes a moment to
-   paint. */
+/* A very small pulse when the user presses prev/next. */
 @keyframes adsPulse {
   0%   { box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16); }
   40%  { box-shadow: 0 8px 22px rgba(37, 99, 235, 0.45); }
   100% { box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16); }
 }
 
-.ads-slider.ads-pulse {
+.ads-slider.ads-pulse .ads-slider__media {
   animation: adsPulse 300ms ease;
 }
 
@@ -713,16 +813,29 @@
    ------------------------------------------------------------ */
 @media (max-width: 720px) {
   .ads-slider {
-    aspect-ratio: 16 / 6;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .ads-slider__media {
+    aspect-ratio: 1 / 1;
+    max-height: 200px;
     min-height: 130px;
-    max-height: 180px;
+    border-radius: 12px;
+  }
+
+  .ads-slider__panel {
+    aspect-ratio: auto;
+    height: 90px;                /* fixed short height */
+    min-height: 90px;
+    max-height: 90px;
     border-radius: 12px;
   }
 
   .ads-caption {
-    left: 14px;
-    right: 14px;
-    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    bottom: 10px;
     gap: 3px;
   }
 
@@ -746,8 +859,8 @@
     font-size: 0.7rem;
   }
 
-  .ads-prev { left: 6px; }
-  .ads-next { right: 6px; }
+  .ads-slider__media .ads-prev { left: 6px; }
+  .ads-slider__media .ads-next { right: 6px; }
 
   .ads-dots {
     gap: 5px;
@@ -763,20 +876,38 @@
     width: 16px;
   }
 
-  /* Gentler Ken Burns on small screens: shorter distance, slower
-     relative motion. Still clearly alive, still clearly calm. */
+  /* Lighter blur on phones: cheaper and still reads as a soft
+     backdrop behind the sharp image. */
+  .ads-media-bg {
+    filter: blur(16px) brightness(0.55) saturate(1.05);
+  }
+
+  /* Gentler Ken Burns on small screens. */
   @keyframes adKenBurns {
-    0%   { transform: scale(1) translate3d(0, 0, 0); }
-    100% { transform: scale(1.06) translate3d(-1%, -1%, 0); }
+    0%   { transform: scale(1.15) translate3d(0, 0, 0); }
+    100% { transform: scale(1.22) translate3d(-1%, -1%, 0); }
   }
 }
 
 @media (max-width: 480px) {
-  .ads-slider {
-    aspect-ratio: 16 / 9;
+  .ads-slider__media {
+    aspect-ratio: 1 / 1;
+    max-height: 170px;
     min-height: 110px;
-    max-height: 160px;
     border-radius: 10px;
+  }
+
+  .ads-slider__panel {
+    height: 60px;
+    min-height: 60px;
+    max-height: 60px;
+    border-radius: 10px;
+  }
+
+  .ads-slider__panel::after {
+    font-size: 0.55rem;
+    top: 10px;
+    left: 12px;
   }
 
   .ads-title {
@@ -794,77 +925,463 @@
 }
 
 /* ============================================================
-   SEARCH & FILTER BAR
+   MERGED SEARCH + LOCATION BAR
+   Single compact row on ≥900px, wraps to two lines below that.
+   The controls are, left to right:
+     1. single #businessSearch input
+     2. #businessCategoryFilter
+     3. #sortFilter
+     4. #locationFiltersToggle
+     5. #findNearMeBtn
+     6. #urgentToggle (as a pill)
+     7. #locationStatusChip + #turnOffLocationBtn
    ============================================================ */
 
 .search-filter-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 12px 16px;
-  background: white;
-  margin: 0 0 16px 0;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  margin: 0 0 10px 0;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e8ecf1;
+  row-gap: 8px;
 }
 
+/* 1. Search input grows to fill leftover space */
 .search-filter-bar .search-wrapper {
-  flex: 1;
-  display: flex;
-  gap: 8px;
+  flex: 1 1 260px;
   min-width: 200px;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
   position: relative;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-filter-bar .search-wrapper:focus-within {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
+  background: #ffffff;
 }
 
 .search-filter-bar .search-wrapper input {
   flex: 1;
-  padding: 10px 14px;
-  border: 2px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 0.9rem;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  font-size: 0.85rem;
+  color: #0f172a;
   outline: none;
-  transition: border-color 0.3s;
 }
 
-.search-filter-bar .search-wrapper input:focus {
-  border-color: #2563eb;
+.search-filter-bar .search-wrapper input::placeholder {
+  color: #94a3b8;
 }
 
-.search-filter-bar .search-wrapper button {
-  padding: 10px 20px;
-  background: #2563eb;
-  color: white;
-  border: none;
+.search-filter-bar .search-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  margin: 2px;
+  border: 0;
   border-radius: 8px;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.search-filter-bar .search-submit-btn:hover {
+  background: #15803d;
+  transform: translateY(-1px);
+}
+
+.search-filter-bar .search-submit-btn:active {
+  transform: scale(0.97);
+}
+
+/* 2 & 3. Category + Sort dropdowns — compact */
+.search-filter-bar > select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 180px;
+  padding: 7px 30px 7px 12px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  background-color: #ffffff;
+  font-size: 0.78rem;
+  color: #334155;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.3s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2316a34a' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-filter-bar > select:focus {
+  outline: none;
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
+}
+
+/* 4. Filters toggle button */
+.search-filter-bar .loc-filters-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1.5px solid #c7e3c7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #166534;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.search-filter-bar .loc-filters-toggle:hover {
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+
+.search-filter-bar .loc-filters-toggle[aria-expanded="true"] {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #14532d;
+}
+
+.search-filter-bar .loc-filters-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.search-filter-bar .loc-filters-count[hidden] {
+  display: none !important;
+}
+
+/* 5 & 6. Pill buttons — Near Me and Urgent */
+.search-filter-bar .loc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+              color 0.15s ease, transform 0.15s ease;
+}
+
+.search-filter-bar .loc-pill:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.search-filter-bar .loc-pill.loc-primary {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.25);
+}
+
+.search-filter-bar .loc-pill.loc-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #15803d, #166534);
+  transform: translateY(-1px);
+}
+
+.search-filter-bar .loc-pill.loc-urgent {
+  background: #fff8e1;
+  color: #92400e;
+  border-color: #fcd34d;
+  user-select: none;
+}
+
+.search-filter-bar .loc-pill.loc-urgent input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #f59e0b;
+  border-radius: 4px;
+  background: #ffffff;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.search-filter-bar .loc-pill.loc-urgent input[type="checkbox"]:checked {
+  background: #f59e0b;
+  border-color: #d97706;
+}
+
+.search-filter-bar .loc-pill.loc-urgent input[type="checkbox"]:checked::after {
+  content: '';
+  width: 4px;
+  height: 7px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.search-filter-bar .loc-pill.loc-urgent:has(input:checked) {
+  background: #fde68a;
+  border-color: #f59e0b;
+  color: #78350f;
+}
+
+/* 7. Location status chip + turn-off */
+.search-filter-bar .loc-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
-.search-filter-bar .search-wrapper button:hover {
-  background: #1d4ed8;
+.search-filter-bar .loc-status-chip[hidden] {
+  display: none !important;
 }
 
-.search-filter-bar select {
-  padding: 10px 14px;
-  border: 2px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  background: white;
+.search-filter-bar .loc-turnoff {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #fca5a5;
+  border-radius: 50%;
+  background: #fef2f2;
+  color: #991b1b;
   cursor: pointer;
-  min-width: 140px;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748b' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 36px;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+              transform 0.15s ease;
 }
 
-.search-filter-bar select:focus {
-  border-color: #2563eb;
+.search-filter-bar .loc-turnoff:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+  transform: scale(1.06);
+}
+
+.search-filter-bar .loc-turnoff[hidden] {
+  display: none !important;
+}
+
+/* Hidden proxy input — never shown, kept only for existing JS listeners. */
+.search-filter-bar input[type="hidden"] {
+  display: none;
+}
+
+/* The location search clear button and the hidden proxy input are
+   never visible in the merged bar. */
+#locationSearchInput,
+#locationSearchClearBtn {
+  display: none !important;
+}
+
+/* ============================================================
+   Collapsed dropdown-filters row
+   Opened via the Filters button in the merged bar.
+   ============================================================ */
+
+.location-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  margin: 0 0 10px 0;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.location-filters-row[hidden] {
+  display: none !important;
+}
+
+.location-filters-row select {
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid #c7e3c7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2316a34a' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  min-width: 120px;
+  max-width: 200px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.location-filters-row select:hover {
+  border-color: #86efac;
+}
+
+.location-filters-row select:focus {
   outline: none;
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.location-filters-row select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.location-filters-row .location-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.location-filters-row .location-clear-btn:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+.location-filters-row .location-clear-btn[hidden] {
+  display: none !important;
+}
+
+/* ============================================================
+   RESPONSIVE — merged search bar
+   ============================================================ */
+
+/* ≥900px: single row, text labels stay visible */
+@media (min-width: 900px) {
+  .search-filter-bar {
+    flex-wrap: nowrap;
+  }
+  .search-filter-bar .search-wrapper {
+    flex: 1 1 auto;
+  }
+}
+
+/* <900px: controls wrap to two lines. */
+@media (max-width: 899px) {
+  .search-filter-bar {
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .search-filter-bar .search-wrapper {
+    flex: 1 1 100%;
+    order: 1;
+  }
+
+  .search-filter-bar > select {
+    flex: 1 1 calc(50% - 6px);
+    max-width: none;
+    order: 2;
+  }
+
+  .search-filter-bar .loc-filters-toggle {
+    flex: 0 0 auto;
+    order: 3;
+  }
+
+  .search-filter-bar .loc-pill.loc-primary {
+    flex: 0 0 auto;
+    order: 4;
+  }
+
+  .search-filter-bar .loc-pill.loc-urgent {
+    flex: 0 0 auto;
+    order: 5;
+  }
+
+  .search-filter-bar .loc-status-chip {
+    order: 6;
+    margin-left: auto;
+  }
+
+  .search-filter-bar .loc-turnoff {
+    order: 7;
+  }
+}
+
+/* <560px: labels go away, only icons remain — the bar stays one line high */
+@media (max-width: 560px) {
+  .search-filter-bar .search-submit-label,
+  .search-filter-bar .loc-filters-label,
+  .search-filter-bar .loc-pill-label {
+    display: none;
+  }
+
+  .search-filter-bar .search-submit-btn {
+    padding: 0 10px;
+  }
+
+  .search-filter-bar .loc-filters-toggle {
+    padding: 7px 10px;
+  }
+
+  .search-filter-bar .loc-pill {
+    padding: 0 10px;
+  }
+
+  .search-filter-bar > select {
+    font-size: 0.72rem;
+    padding: 7px 26px 7px 8px;
+    background-position: right 8px center;
+  }
 }
 
 /* ============================================================
@@ -1027,6 +1544,18 @@
   color: #f59e0b;
 }
 
+.business-card .card-body .business-distance {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 /* ============================================================
    FEATURED SECTION — kept for compatibility with the account
    page. The marketplace home page no longer renders this block;
@@ -1110,7 +1639,7 @@
 }
 
 /* ============================================================
-   RESPONSIVE
+   RESPONSIVE — business grid, sidebar, top bar
    ============================================================ */
 
 @media (max-width: 768px) {
@@ -1168,15 +1697,6 @@
     font-size: 1.4rem;
   }
 
-  .search-filter-bar .search-wrapper {
-    min-width: 100%;
-  }
-
-  .search-filter-bar select {
-    flex: 1;
-    min-width: 100px;
-  }
-
   .business-card .card-badges {
     gap: 3px;
     top: 6px;
@@ -1201,10 +1721,6 @@
 
   .business-card .card-body .business-name {
     font-size: 0.85rem;
-  }
-
-  .search-filter-bar {
-    padding: 8px 10px;
   }
 
   .hero-banner {
@@ -1585,333 +2101,10 @@ body.workspace-active .marketplace-container {
 }
 
 /* ============================================================
-   SECTION D — SMART CUSTOMER SEARCH AND LOCATION PANEL
-   Compact three-row layout:
-     Row 1 — action pills (Find Near Me · Urgent · Status · Turn off)
-     Row 2 — typed location search + Filters toggle
-     Row 3 — dropdown filters, collapsed until toggled
-   Vibrant, compact, mobile-friendly.
+   GUEST LOCATION BANNER
+   Shown by index.js when a guest types `near` without having
+   activated location. Unchanged from before.
    ============================================================ */
-
-.location-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  margin: 0 0 12px 0;
-  border: 1px solid #c7e3c7;
-  border-radius: 14px;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(250, 204, 21, 0.10), transparent 40%),
-    linear-gradient(135deg, #f4fbf4 0%, #eaf6ec 100%);
-  box-shadow: 0 2px 10px rgba(22, 101, 52, 0.05);
-}
-
-.location-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.loc-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
-}
-
-.loc-pill:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.loc-pill i {
-  font-size: 0.72rem;
-}
-
-.loc-pill.loc-primary {
-  background: linear-gradient(135deg, #16a34a, #15803d);
-  color: #ffffff;
-  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.28);
-}
-
-.loc-pill.loc-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #15803d, #166534);
-  transform: translateY(-1px);
-}
-
-.loc-pill.loc-urgent {
-  background: #fff8e1;
-  color: #92400e;
-  border-color: #fcd34d;
-  user-select: none;
-}
-
-.loc-pill.loc-urgent input[type="checkbox"] {
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border: 1.5px solid #f59e0b;
-  border-radius: 4px;
-  background: #ffffff;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
-}
-
-.loc-pill.loc-urgent input[type="checkbox"]:checked {
-  background: #f59e0b;
-  border-color: #d97706;
-}
-
-.loc-pill.loc-urgent input[type="checkbox"]:checked::after {
-  content: '';
-  width: 4px;
-  height: 7px;
-  border: solid #ffffff;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg) translate(-1px, -1px);
-}
-
-.loc-pill.loc-urgent:has(input:checked) {
-  background: #fde68a;
-  border-color: #f59e0b;
-  color: #78350f;
-}
-
-.loc-pill.loc-status {
-  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
-  color: #166534;
-  border-color: #86efac;
-  font-weight: 800;
-  cursor: default;
-  letter-spacing: 0.01em;
-}
-
-.loc-pill.loc-status[hidden] {
-  display: none !important;
-}
-
-.loc-pill.loc-off {
-  background: #fef2f2;
-  color: #991b1b;
-  border-color: #fca5a5;
-}
-
-.loc-pill.loc-off:hover:not(:disabled) {
-  background: #fee2e2;
-  border-color: #f87171;
-  transform: translateY(-1px);
-}
-
-.loc-pill.loc-off[hidden] {
-  display: none !important;
-}
-
-.location-search-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.loc-search-wrapper {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.loc-search-icon {
-  position: absolute;
-  left: 12px;
-  color: #16a34a;
-  font-size: 0.85rem;
-  pointer-events: none;
-}
-
-.loc-search-wrapper input {
-  width: 100%;
-  height: 38px;
-  padding: 0 34px 0 34px;
-  border: 1px solid #c7e3c7;
-  border-radius: 10px;
-  background: #ffffff;
-  font: inherit;
-  font-size: 0.85rem;
-  color: #0f172a;
-  outline: none;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
-}
-
-.loc-search-wrapper input::placeholder {
-  color: #94a3b8;
-}
-
-.loc-search-wrapper input:focus {
-  border-color: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
-}
-
-.loc-search-clear {
-  position: absolute;
-  right: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 50%;
-  background: #e2e8f0;
-  color: #475569;
-  cursor: pointer;
-  font-size: 0.65rem;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.loc-search-clear:hover {
-  background: #cbd5e1;
-  color: #0f172a;
-}
-
-.loc-search-clear[hidden] {
-  display: none !important;
-}
-
-.loc-filters-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 38px;
-  padding: 0 14px;
-  border: 1px solid #c7e3c7;
-  border-radius: 10px;
-  background: #ffffff;
-  color: #166534;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-
-.loc-filters-toggle:hover {
-  background: #ecfdf5;
-  border-color: #86efac;
-}
-
-.loc-filters-toggle[aria-expanded="true"] {
-  background: #dcfce7;
-  border-color: #16a34a;
-  color: #14532d;
-}
-
-.loc-filters-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: #16a34a;
-  color: #ffffff;
-  font-size: 0.65rem;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.loc-filters-count[hidden] {
-  display: none !important;
-}
-
-.location-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding-top: 4px;
-}
-
-.location-filters[hidden] {
-  display: none !important;
-}
-
-.location-filters select {
-  height: 32px;
-  padding: 0 28px 0 10px;
-  border: 1px solid #c7e3c7;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #334155;
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2316a34a' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  min-width: 120px;
-  max-width: 220px;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-
-.location-filters select:hover {
-  border-color: #86efac;
-}
-
-.location-filters select:focus {
-  outline: none;
-  border-color: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
-}
-
-.location-filters select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.location-clear-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid #fca5a5;
-  border-radius: 8px;
-  background: #fef2f2;
-  color: #991b1b;
-  font: inherit;
-  font-size: 0.72rem;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 140ms ease, border-color 140ms ease;
-}
-
-.location-clear-btn:hover {
-  background: #fee2e2;
-  border-color: #f87171;
-}
-
-.location-clear-btn[hidden] {
-  display: none !important;
-}
 
 .location-banner {
   display: flex;
@@ -1991,17 +2184,32 @@ body.workspace-active .marketplace-container {
   cursor: not-allowed;
 }
 
-.business-card .card-body .business-distance {
-  display: inline-block;
-  margin: 2px 0 6px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: #dcfce7;
-  color: #166534;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+@media (max-width: 720px) {
+  .location-banner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .location-banner-icon {
+    display: none;
+  }
+
+  .location-banner-btn {
+    align-self: flex-start;
+  }
+
+  .business-card .card-body .business-distance {
+    font-size: 0.62rem;
+    padding: 2px 8px;
+  }
 }
+
+/* ============================================================
+   SEARCH "NEAR ME" HINT
+   Small tooltip shown by index.js while the customer types
+   the word "near" into the merged search field.
+   ============================================================ */
 
 .search-near-hint {
   position: absolute;
@@ -2034,75 +2242,4 @@ body.workspace-active .marketplace-container {
 @keyframes nearHintFadeIn {
   from { opacity: 0; transform: translateY(-3px); }
   to   { opacity: 1; transform: translateY(0); }
-}
-
-@media (max-width: 720px) {
-  .location-banner {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  .location-banner-icon {
-    display: none;
-  }
-
-  .location-banner-btn {
-    align-self: flex-start;
-  }
-
-  .business-card .card-body .business-distance {
-    font-size: 0.62rem;
-    padding: 2px 8px;
-  }
-
-  .location-panel {
-    padding: 10px;
-    gap: 8px;
-  }
-
-  .location-actions {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .location-actions::-webkit-scrollbar {
-    display: none;
-  }
-
-  .loc-pill {
-    flex: 0 0 auto;
-  }
-
-  .location-search-row {
-    flex-wrap: wrap;
-  }
-
-  .loc-search-wrapper {
-    flex: 1 1 100%;
-  }
-
-  .loc-filters-toggle {
-    flex: 1 1 100%;
-    justify-content: center;
-  }
-
-  .location-filters {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-  }
-
-  .location-filters select {
-    max-width: none;
-    width: 100%;
-  }
-
-  .location-clear-btn {
-    justify-content: center;
-    width: 100%;
-  }
 }

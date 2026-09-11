@@ -777,7 +777,7 @@ router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromTo
  * Accepts a number or numeric string.
  * Returns the value in seconds, or null when the caller did
  * not supply one (the slider then falls back to the defaults
- * from Section J.5: 10s for images, 120s for videos).
+ * from Section J.5: 6s for images, 60s for videos).
  */
 function parseDisplayDuration(value) {
     if (value === undefined || value === null || value === '') return null;

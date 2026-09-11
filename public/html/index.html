@@ -127,49 +127,59 @@
 
       <!-- ============================================================ -->
       <!-- SECTION J.4 — MARKETPLACE HERO AD SLIDER                      -->
-      <!-- Replaces the old static "Featured Businesses" block.          -->
-      <!-- Sits at the top of the marketplace, below the hero banner     -->
-      <!-- and above the search/filter bar.                              -->
-      <!-- Ads are loaded from /api/businesses/ads.                      -->
+      <!-- Split layout:                                                 -->
+      <!--   LEFT  — square ad media frame (fully visible)                -->
+      <!--   RIGHT — solid blue reserved panel with faint inner border    -->
+      <!-- Slides, prev/next, progress, and dots keep their existing ids  -->
+      <!-- so index.js only needs to write into the media frame.          -->
+      <!-- Ads are loaded from /api/businesses/ads.                       -->
       <!-- ============================================================ -->
 
       <section class="ads-slider-section" id="adsSliderSection" hidden aria-label="Sponsored businesses">
         <h2 class="ads-slider-heading">✨ Sponsored</h2>
 
         <div class="ads-slider" id="adsSlider" tabindex="0" aria-roledescription="carousel">
-          <!-- Slides are inserted by index.js: .ads-slide elements -->
+          <!-- LEFT — square ad media frame.
+               Slides (.ads-slide) are inserted by index.js into this
+               wrapper only. The blue panel on the right never moves. -->
+          <div class="ads-slider__media" id="adsMediaFrame">
+            <button type="button" class="ads-nav ads-prev" id="adsPrevBtn" aria-label="Previous ad">
+              <i class="fas fa-chevron-left"></i>
+            </button>
+            <button type="button" class="ads-nav ads-next" id="adsNextBtn" aria-label="Next ad">
+              <i class="fas fa-chevron-right"></i>
+            </button>
 
-          <button type="button" class="ads-nav ads-prev" id="adsPrevBtn" aria-label="Previous ad">
-            <i class="fas fa-chevron-left"></i>
-          </button>
-          <button type="button" class="ads-nav ads-next" id="adsNextBtn" aria-label="Next ad">
-            <i class="fas fa-chevron-right"></i>
-          </button>
+            <div class="ads-progress" id="adsProgress" aria-hidden="true"></div>
+          </div>
 
-          <div class="ads-progress" id="adsProgress" aria-hidden="true"></div>
+          <!-- RIGHT — reserved blue panel with a faint inner border. -->
+          <div class="ads-slider__panel" id="adsRightPanel" aria-hidden="true"></div>
         </div>
 
         <div class="ads-dots" id="adsDots" role="tablist" aria-label="Ad slide indicators"></div>
       </section>
 
       <!-- ============================================================ -->
-      <!-- SEARCH & FILTER BAR                                          -->
+      <!-- MERGED SEARCH + LOCATION BAR                                  -->
       <!--                                                              -->
-      <!-- Both search inputs are hardened against browser and password -->
-      <!-- manager autofill. The placeholder teaches the customer three  -->
-      <!-- patterns:                                                     -->
-      <!--   "<thing> near"       → nearest to the customer              -->
-      <!--   "<thing> in <place>" → nearest to a named place             -->
-      <!--   "<thing> <attr>"     → attribute filter (verified, etc.)    -->
+      <!-- One compact row on wide screens, wraps to two lines below.    -->
+      <!--                                                              -->
+      <!-- The single #businessSearch input now also feeds the smart     -->
+      <!-- location parser (near me / in Nairobi / within 5km / etc.).  -->
+      <!-- #locationSearchInput is kept as a hidden proxy so existing    -->
+      <!-- JS listeners that read or clear it keep working unchanged.    -->
       <!-- ============================================================ -->
 
-      <div class="search-filter-bar">
+      <div class="search-filter-bar" role="region" aria-label="Search and filters">
+
+        <!-- 1. Single merged search input -->
         <div class="search-wrapper">
           <input
             type="text"
             id="businessSearch"
             name="bidhaa-search-q"
-            placeholder='Search businesses... try "shoes near", "beddings in Nairobi", or "verified electronics nearby"'
+            placeholder='Search… try "shoes near", "beddings in Nairobi", or "verified electronics"'
             autocomplete="off"
             autocorrect="off"
             autocapitalize="off"
@@ -178,105 +188,88 @@
             data-1p-ignore
             data-form-type="other"
             aria-autocomplete="none"
-            onkeyup="searchBusinesses()"
             oninput="maybeSuggestNearKeyword && maybeSuggestNearKeyword(this.value)"
           >
-          <button onclick="searchBusinesses()" aria-label="Search">
-            <i class="fas fa-search"></i> Search
+          <button type="button" class="search-submit-btn" onclick="searchBusinesses()" aria-label="Search">
+            <i class="fas fa-search"></i><span class="search-submit-label">Search</span>
           </button>
         </div>
-        <select id="businessCategoryFilter" onchange="filterBusinesses()">
-          <option value="all">All Business Categories</option>
+
+        <!-- 2. Category -->
+        <select id="businessCategoryFilter" onchange="filterBusinesses()" aria-label="Business category">
+          <option value="all">All categories</option>
         </select>
-        <select id="sortFilter" onchange="filterBusinesses()">
+
+        <!-- 3. Sort -->
+        <select id="sortFilter" onchange="filterBusinesses()" aria-label="Sort results">
           <option value="newest">Newest</option>
           <option value="popular">Most Popular</option>
           <option value="rating">Highest Rated</option>
         </select>
+
+        <!-- 4. Filters toggle (opens the collapsed dropdown row) -->
+        <button type="button" class="loc-filters-toggle" id="locationFiltersToggle"
+                aria-expanded="false" aria-controls="locationFilters">
+          <i class="fas fa-sliders-h"></i>
+          <span class="loc-filters-label">Filters</span>
+          <span class="loc-filters-count" id="locationFiltersCount" hidden>0</span>
+        </button>
+
+        <!-- 5. Find Near Me (becomes Refresh when location is active) -->
+        <button type="button" class="loc-pill loc-primary" id="findNearMeBtn">
+          <i class="fas fa-location-crosshairs"></i>
+          <span class="loc-pill-label">Near Me</span>
+        </button>
+
+        <!-- 6. Urgent toggle -->
+        <label class="loc-pill loc-urgent" for="urgentToggle" title="Show the closest businesses first">
+          <input type="checkbox" id="urgentToggle">
+          <span><i class="fas fa-bolt"></i><span class="loc-pill-label"> Urgent</span></span>
+        </label>
+
+        <!-- 7. Location status chip + one-tap turn-off -->
+        <span class="loc-status-chip" id="locationStatusChip" hidden></span>
+        <button type="button" class="loc-turnoff" id="turnOffLocationBtn" hidden
+                aria-label="Turn off location sharing" title="Turn off location sharing">
+          <i class="fas fa-times"></i>
+        </button>
+
+        <!-- Hidden proxy input: keeps every existing JS listener working. -->
+        <input
+          type="hidden"
+          id="locationSearchInput"
+          name="bidhaa-location-q"
+          value=""
+        >
+        <button type="button" class="loc-search-clear" id="locationSearchClearBtn"
+                hidden aria-label="Clear location search" style="display:none;">
+          <i class="fas fa-times"></i>
+        </button>
       </div>
 
-      <!-- ============================================================ -->
-      <!-- D.3 / D.7 / D.9 / D.10 — Location panel                       -->
-      <!--                                                              -->
-      <!-- Row 1 (Actions):  Find Near Me · Urgent toggle · Status chip · Turn off -->
-      <!-- Row 2 (Search):   Free-text location search with autocomplete -->
-      <!-- Row 3 (Filters):  Compact dropdowns, hidden by default,       -->
-      <!--                   toggled open via the "Filters" pill         -->
-      <!-- ============================================================ -->
-
-      <div class="location-panel" id="locationControls" role="region" aria-label="Location controls">
-
-        <!-- Row 1: action pills -->
-        <div class="location-actions">
-          <button type="button" class="loc-pill loc-primary" id="findNearMeBtn">
-            <i class="fas fa-location-crosshairs"></i> <span>Find Near Me</span>
-          </button>
-
-          <label class="loc-pill loc-urgent" for="urgentToggle" title="Show the closest businesses first">
-            <input type="checkbox" id="urgentToggle">
-            <span><i class="fas fa-bolt"></i> Urgent</span>
-          </label>
-
-          <span class="loc-pill loc-status" id="locationStatusChip" hidden></span>
-
-          <button type="button" class="loc-pill loc-off" id="turnOffLocationBtn" hidden>
-            <i class="fas fa-location-arrow"></i> <span>Turn off</span>
-          </button>
-        </div>
-
-        <!-- Row 2: free-text location search + filter toggle -->
-        <div class="location-search-row">
-          <div class="loc-search-wrapper">
-            <i class="fas fa-map-marker-alt loc-search-icon"></i>
-            <input
-              type="search"
-              id="locationSearchInput"
-              name="bidhaa-location-q"
-              placeholder="Search by town, county, sub-county, ward…"
-              autocomplete="off"
-              autocorrect="off"
-              autocapitalize="off"
-              spellcheck="false"
-              data-lpignore="true"
-              data-1p-ignore
-              data-form-type="other"
-              aria-autocomplete="none"
-            >
-            <button type="button" class="loc-search-clear" id="locationSearchClearBtn" hidden aria-label="Clear location search">
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-
-          <button type="button" class="loc-filters-toggle" id="locationFiltersToggle" aria-expanded="false" aria-controls="locationFilters">
-            <i class="fas fa-sliders-h"></i> Filters
-            <span class="loc-filters-count" id="locationFiltersCount" hidden>0</span>
-          </button>
-        </div>
-
-        <!-- Row 3: dropdown filters, collapsed by default -->
-        <div class="location-filters" id="locationFilters" hidden>
-          <select id="locationFilterContinent" data-location-field="continent" aria-label="Filter by continent">
-            <option value="">All continents</option>
-          </select>
-          <select id="locationFilterCountry" data-location-field="country" aria-label="Filter by country">
-            <option value="">All countries</option>
-          </select>
-          <select id="locationFilterCounty" data-location-field="county" aria-label="Filter by county">
-            <option value="">All counties</option>
-          </select>
-          <select id="locationFilterSubCounty" data-location-field="sub_county" aria-label="Filter by sub-county">
-            <option value="">All sub-counties</option>
-          </select>
-          <select id="locationFilterTown" data-location-field="town" aria-label="Filter by town">
-            <option value="">All towns</option>
-          </select>
-          <select id="locationFilterWard" data-location-field="ward" aria-label="Filter by ward">
-            <option value="">All wards</option>
-          </select>
-          <button type="button" class="location-clear-btn" id="clearLocationFiltersBtn" hidden>
-            <i class="fas fa-times"></i> Clear all
-          </button>
-        </div>
+      <!-- Collapsed dropdown filters — opened by the Filters button above. -->
+      <div class="location-filters-row" id="locationFilters" hidden>
+        <select id="locationFilterContinent" data-location-field="continent" aria-label="Filter by continent">
+          <option value="">All continents</option>
+        </select>
+        <select id="locationFilterCountry" data-location-field="country" aria-label="Filter by country">
+          <option value="">All countries</option>
+        </select>
+        <select id="locationFilterCounty" data-location-field="county" aria-label="Filter by county">
+          <option value="">All counties</option>
+        </select>
+        <select id="locationFilterSubCounty" data-location-field="sub_county" aria-label="Filter by sub-county">
+          <option value="">All sub-counties</option>
+        </select>
+        <select id="locationFilterTown" data-location-field="town" aria-label="Filter by town">
+          <option value="">All towns</option>
+        </select>
+        <select id="locationFilterWard" data-location-field="ward" aria-label="Filter by ward">
+          <option value="">All wards</option>
+        </select>
+        <button type="button" class="location-clear-btn" id="clearLocationFiltersBtn" hidden>
+          <i class="fas fa-times"></i> Clear all
+        </button>
       </div>
 
       <!-- Guest location banner — hidden by default. Shown by index.js

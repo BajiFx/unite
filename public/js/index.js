@@ -24,18 +24,44 @@
 //        that tells customers whether the business is currently
 //        accepting online orders.
 //
-//  Section J — Marketplace hero ad slider
+//  Section J — Marketplace hero ad slider (split layout)
 //  J.4 — The Featured Businesses grid is replaced by the ad
 //        slider. The slider sits at the top of the marketplace,
 //        below the hero banner and above the search bar.
 //  J.5 — Auto-rotation with pause-on-hover, prev/next buttons,
 //        dot indicators, and a thin progress bar. Images default
-//        to 10s, videos default to 120s; the per-ad
+//        to 6s, videos default to 60s; the per-ad
 //        display_duration overrides either default.
 //  J.6 — Clicking a slide records the click and then navigates
 //        to the ad's target (business profile or a product).
 //  J.7 — Each slide fires an impression once per display so the
 //        business admin's views/clicks/CTR stay accurate.
+//
+//  J.5c — Split layout markup note:
+//        Slides are inserted into #adsMediaFrame (the square left
+//        column), not into #adsSlider. The right column
+//        (#adsRightPanel) is a static reserved blue panel and is
+//        never touched by this script. Prev/next buttons and the
+//        progress bar live inside #adsMediaFrame and are therefore
+//        not wiped when slides are re-rendered.
+//
+//  J.5d — Image liveness:
+//        Image slides carry a blurred, slowly-drifting background
+//        copy of the same image. The sharp image on top uses
+//        object-fit: contain so nothing is cropped. The blurred
+//        background uses object-fit: cover and runs Ken Burns so
+//        the small square frame still feels alive. Video slides
+//        keep their single element and play normally.
+//
+//  MERGED BAR — Search + location
+//        The search input and the location controls have been
+//        merged into a single compact row. See:
+//          getCombinedSearchText()
+//          updateLocationStatusChip()
+//          bindLocationControls()
+//        #businessSearch is now the only visible input; the old
+//        #locationSearchInput is a hidden proxy so existing
+//        listeners do not need to be removed.
 //
 //  Autofill hardening:
 //   Chromium (Edge and Chrome) writes autofilled values directly
@@ -96,8 +122,8 @@ const LOCATION_SEARCH_DEBOUNCE_MS = 350;
 // Section J — Marketplace ad slider state
 // ------------------------------------------------------------
 const AD_DEFAULTS = Object.freeze({
-  imageSeconds: 10,
-  videoSeconds: 120
+  imageSeconds: 6,
+  videoSeconds: 60
 });
 
 let adsList = [];
@@ -361,8 +387,15 @@ function hideLocationBanner() {
 
 // ============================================================
 //  SECTION D — Location status chip + controls wiring
+//  (MERGED BAR)
 // ============================================================
 
+/* MERGED BAR — updateLocationStatusChip
+   The chip is now a compact pill in the merged search bar.
+   - Shows 📍 GPS / 📍 Saved / 📍 Approx instead of the long form.
+   - The full description is exposed as a tooltip.
+   - Find Near Me re-renders with the .loc-pill-label span so the
+     responsive CSS can hide the label on very narrow screens. */
 function updateLocationStatusChip() {
   const chip = document.getElementById('locationStatusChip');
   const offBtn = document.getElementById('turnOffLocationBtn');
@@ -371,26 +404,44 @@ function updateLocationStatusChip() {
 
   if (chip) {
     if (hasCoords) {
-      const src = marketplaceCustomerCoords.source === 'gps'
-        ? 'precise'
+      // Short label so the chip stays compact in the merged bar.
+      // The full source is still available as a tooltip.
+      const short = marketplaceCustomerCoords.source === 'gps'
+        ? { label: 'GPS', title: 'Precise GPS location active' }
         : marketplaceCustomerCoords.source === 'account'
-          ? 'saved'
-          : 'approximate';
-      chip.textContent = `📍 Location active (${src})`;
+          ? { label: 'Saved', title: 'Location saved to your account' }
+          : { label: 'Approx', title: 'Approximate location (estimated from IP)' };
+
+      chip.innerHTML = `<i class="fas fa-map-marker-alt"></i> ${short.label}`;
+      chip.title = short.title;
       chip.hidden = false;
     } else {
       chip.hidden = true;
+      chip.removeAttribute('title');
     }
   }
 
   if (offBtn) offBtn.hidden = !hasCoords;
+
   if (findBtn) {
+    // Preserve the label span so the responsive CSS can hide it on
+    // narrow screens and show only the icon.
     findBtn.innerHTML = hasCoords
-      ? '<i class="fas fa-sync-alt"></i> <span>Refresh Near Me</span>'
-      : '<i class="fas fa-location-crosshairs"></i> <span>Find Near Me</span>';
+      ? '<i class="fas fa-sync-alt"></i> <span class="loc-pill-label">Refresh</span>'
+      : '<i class="fas fa-location-crosshairs"></i> <span class="loc-pill-label">Near Me</span>';
   }
 }
 
+/* MERGED BAR — bindLocationControls
+   The location controls are now individual pills and buttons
+   inside the merged bar. This function wires them:
+   - #findNearMeBtn : requests GPS, saves coords, re-runs the search
+   - #urgentToggle  : checkbox inside the pill, re-runs the search
+   - #turnOffLocationBtn : one-tap ✕ next to the chip
+   - #locationFiltersToggle : opens #locationFilters row
+   - #clearLocationFiltersBtn : clears the dropdowns
+   - #locationSearchInput is a hidden proxy — no listeners attached.
+   - #locationSearchClearBtn is hidden; also no listeners attached. */
 function bindLocationControls() {
   const findBtn = document.getElementById('findNearMeBtn');
   const urgentToggle = document.getElementById('urgentToggle');
@@ -398,15 +449,13 @@ function bindLocationControls() {
   const clearFiltersBtn = document.getElementById('clearLocationFiltersBtn');
   const filtersToggle = document.getElementById('locationFiltersToggle');
   const filtersPanel = document.getElementById('locationFilters');
-  const locationSearchInput = document.getElementById('locationSearchInput');
-  const locationSearchClearBtn = document.getElementById('locationSearchClearBtn');
 
   // ---- D.3 / D.5 / D.12 — Find Near Me / Refresh Near Me ----
   if (findBtn) {
     findBtn.addEventListener('click', async () => {
       const original = findBtn.innerHTML;
       findBtn.disabled = true;
-      findBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Getting location...</span>';
+      findBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span class="loc-pill-label">Locating…</span>';
 
       const coords = await requestCustomerCoordinates();
       findBtn.disabled = false;
@@ -437,7 +486,7 @@ function bindLocationControls() {
     });
   }
 
-  // ---- D.10 — Turn off location ----
+  // ---- D.10 — Turn off location (one-tap ✕) ----
   if (offBtn) {
     offBtn.addEventListener('click', async () => {
       marketplaceCustomerCoords = { latitude: null, longitude: null, source: null };
@@ -458,55 +507,7 @@ function bindLocationControls() {
     });
   }
 
-  // ---- D.7 — Typed location search ----
-  if (locationSearchInput) {
-    const markLocationTyped = () => { locationSearchWasTyped = true; };
-
-    locationSearchInput.addEventListener('pointerdown', markLocationTyped, { once: true });
-    locationSearchInput.addEventListener('keydown', markLocationTyped, { once: true });
-    locationSearchInput.addEventListener('paste', markLocationTyped, { once: true });
-    locationSearchInput.addEventListener('beforeinput', markLocationTyped, { once: true });
-
-    locationSearchInput.addEventListener('input', () => {
-      locationSearchWasTyped = true;
-      locationSearchText = locationSearchInput.value.trim();
-      if (locationSearchClearBtn) {
-        locationSearchClearBtn.hidden = locationSearchText.length === 0;
-      }
-
-      if (locationSearchDebounceTimer) {
-        clearTimeout(locationSearchDebounceTimer);
-      }
-      locationSearchDebounceTimer = setTimeout(() => {
-        updateLocationFiltersCount();
-        loadBusinesses(true);
-      }, LOCATION_SEARCH_DEBOUNCE_MS);
-    });
-
-    locationSearchInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        if (locationSearchDebounceTimer) clearTimeout(locationSearchDebounceTimer);
-        locationSearchWasTyped = true;
-        locationSearchText = locationSearchInput.value.trim();
-        updateLocationFiltersCount();
-        loadBusinesses(true);
-      }
-    });
-  }
-
-  if (locationSearchClearBtn) {
-    locationSearchClearBtn.addEventListener('click', () => {
-      if (locationSearchInput) locationSearchInput.value = '';
-      locationSearchText = '';
-      locationSearchWasTyped = true;
-      locationSearchClearBtn.hidden = true;
-      updateLocationFiltersCount();
-      loadBusinesses(true);
-    });
-  }
-
-  // ---- D.7 — Filters panel toggle (collapsed by default) ----
+  // ---- D.7 — Filters panel toggle (opens the collapsed row) ----
   if (filtersToggle && filtersPanel) {
     filtersToggle.addEventListener('click', () => {
       const expanded = filtersToggle.getAttribute('aria-expanded') === 'true';
@@ -522,10 +523,8 @@ function bindLocationControls() {
       document.querySelectorAll('#locationFilters select').forEach(sel => {
         sel.value = '';
       });
-      if (locationSearchInput) locationSearchInput.value = '';
       locationSearchText = '';
       locationSearchWasTyped = true;
-      if (locationSearchClearBtn) locationSearchClearBtn.hidden = true;
       clearFiltersBtn.hidden = true;
       updateLocationFiltersCount();
       loadBusinesses(true);
@@ -558,16 +557,14 @@ function updateLocationFiltersCount() {
   if (clearBtn) clearBtn.hidden = total === 0;
 }
 
+/* MERGED BAR — getCombinedSearchText
+   The merged bar has a single visible input (#businessSearch), so
+   it is now the primary source. The hidden proxy input is still
+   read as a fallback in case any legacy code writes into it. */
 function getCombinedSearchText() {
-  const businessSearch = getMarketplaceSearchQuery();
-  const locationSearch = getLocationSearchQuery();
-  if (locationSearch && !businessSearch) {
-    return locationSearch;
-  }
-  if (locationSearch && businessSearch) {
-    return `${businessSearch} ${locationSearch}`;
-  }
-  return businessSearch;
+  const marketplaceSearch = getMarketplaceSearchQuery();
+  const hiddenLocationSearch = getLocationSearchQuery();
+  return marketplaceSearch || hiddenLocationSearch;
 }
 
 async function populateLocationFilters() {
@@ -624,7 +621,8 @@ document.addEventListener('DOMContentLoaded', function() {
   console.log('📄 Index page loaded');
 
   clearSpuriousSearchAutofill('businessSearch', () => marketplaceSearchWasTyped);
-  clearSpuriousSearchAutofill('locationSearchInput', () => locationSearchWasTyped);
+  // The hidden location proxy is never visible, so autofill cannot
+  // reach it. The guard is intentionally omitted.
 
   const businessSearch = document.getElementById('businessSearch');
   if (businessSearch) {
@@ -785,7 +783,7 @@ async function loadCategories() {
 
     const select = document.getElementById('businessCategoryFilter');
     if (select && categories.length > 0) {
-      select.innerHTML = '<option value="all">All Business Categories</option>';
+      select.innerHTML = '<option value="all">All categories</option>';
       categories.forEach(cat => {
         const option = document.createElement('option');
         option.value = cat.id;
@@ -799,7 +797,7 @@ async function loadCategories() {
 }
 
 // ============================================================
-//  SECTION J — MARKETPLACE AD SLIDER
+//  SECTION J — MARKETPLACE AD SLIDER (SPLIT LAYOUT)
 //
 //  J.4 — Replaces the old Featured Businesses grid. The slider
 //        sits at the top of the marketplace, below the hero banner
@@ -808,8 +806,18 @@ async function loadCategories() {
 //  J.6 — Click → record click, then navigate.
 //  J.7 — Impression fired once per slide display.
 //
-//  This block is entirely self-contained: it never touches the
-//  business grid, the search controls, or the location panel.
+//  J.5c — Split layout: slides are inserted into #adsMediaFrame
+//         (the square left column). The blue right column
+//         (#adsRightPanel) is a static reserved panel and is
+//         never touched by this script. Prev/next buttons and
+//         the progress bar also live inside #adsMediaFrame, so
+//         they survive a slide re-render.
+//
+//  J.5d — Image liveness: image slides carry a blurred, drifting
+//         background copy of the same image. The sharp image on
+//         top uses object-fit: contain, so nothing is cropped.
+//         The blurred copy fills the frame, so nothing looks
+//         empty. Video slides stay single-element.
 // ============================================================
 
 async function loadAds() {
@@ -832,8 +840,6 @@ async function loadAds() {
       // No active ads → the whole section stays hidden so the
       // marketplace simply has no slider today.
       section.hidden = true;
-      slider.innerHTML = '';
-      dots.innerHTML = '';
       return;
     }
 
@@ -848,15 +854,21 @@ async function loadAds() {
 }
 
 function renderAdsSlider() {
-  const slider = document.getElementById('adsSlider');
+  const mediaFrame = document.getElementById('adsMediaFrame');
   const dots = document.getElementById('adsDots');
-  if (!slider || !dots) return;
+  if (!mediaFrame || !dots) return;
 
   // Remove any previous slide nodes, but keep the nav buttons and
-  // the progress bar (they are referenced by id).
-  slider.querySelectorAll('.ads-slide').forEach(node => node.remove());
+  // the progress bar (they live in the same media frame and are
+  // referenced by id).
+  mediaFrame.querySelectorAll('.ads-slide').forEach(node => node.remove());
 
-  slider.insertAdjacentHTML('afterbegin', adsList.map((ad, index) => renderAdSlide(ad, index)).join(''));
+  // Insert the new slides at the start of the media frame so that
+  // the nav buttons and the progress bar keep painting on top.
+  mediaFrame.insertAdjacentHTML(
+    'afterbegin',
+    adsList.map((ad, index) => renderAdSlide(ad, index)).join('')
+  );
 
   dots.innerHTML = adsList.map((ad, index) => {
     const label = ad.title ? escapeAdsText(ad.title) : `Ad ${index + 1}`;
@@ -891,12 +903,28 @@ function renderAdSlide(ad, index) {
   const description = ad.description ? `<p class="ads-description">${escapeAdsText(ad.description)}</p>` : '';
   const businessName = ad.business_name ? `<span class="ads-business">${escapeAdsText(ad.business_name)}</span>` : '';
 
+  // J.5d — Image slides get a blurred, cover-cropped copy of the
+  // same image behind the sharp image. The blurred copy fills the
+  // square frame (object-fit: cover + blur) so the frame never
+  // looks empty. The sharp image on top uses object-fit: contain
+  // so the whole picture stays visible and is never cropped.
+  //
+  // Video slides stay single-element: a <video> already moves, so
+  // it does not need the "alive" treatment.
+  const mediaSrc = escapeAdsAttr(ad.media_url);
+  const mediaAlt = escapeAdsAttr(ad.title || ad.business_name || 'Sponsored');
+
   const media = isVideo
-    ? `<video class="ads-media" src="${escapeAdsAttr(ad.media_url)}" muted playsinline preload="metadata"></video>`
-    : `<img class="ads-media" src="${escapeAdsAttr(ad.media_url)}" alt="${escapeAdsAttr(ad.title || ad.business_name || 'Sponsored')}" loading="lazy">`;
+    ? `<video class="ads-media" src="${mediaSrc}" muted playsinline preload="metadata"></video>`
+    : `
+        <img class="ads-media-bg" src="${mediaSrc}" alt="" aria-hidden="true" loading="lazy">
+        <img class="ads-media" src="${mediaSrc}" alt="${mediaAlt}" loading="lazy">
+      `;
+
+  const slideClass = `ads-slide${index === 0 ? ' is-active' : ''} ${isVideo ? 'is-video' : 'is-image'}`;
 
   return `
-    <div class="ads-slide${index === 0 ? ' is-active' : ''}" data-ad-index="${index}" data-ad-id="${ad.id}">
+    <div class="${slideClass}" data-ad-index="${index}" data-ad-id="${ad.id}">
       <div class="ads-media-wrap">
         ${media}
         <div class="ads-overlay"></div>
@@ -965,8 +993,7 @@ function getAdDurationMs(ad) {
   const custom = Number(ad && ad.display_duration);
   if (Number.isFinite(custom) && custom > 0) return custom * 1000;
   return ad && ad.media_type === 'video'
-    ? AD_DEFAULTS.videoSeconds * 1000
-    : AD_DEFAULTS.imageSeconds * 1000;
+    ? AD_DEFAULTS.videoSeconds * 1000    : AD_DEFAULTS.imageSeconds * 1000;
 }
 
 function startAdsRotation() {
@@ -1049,27 +1076,27 @@ function goToAd(index, options = {}) {
 
   if (options.userInitiated) {
     // Small visual feedback when the user presses prev/next.
-    const slider = document.getElementById('adsSlider');
-    if (slider) {
-      slider.classList.remove('ads-pulse');
+    const mediaFrame = document.getElementById('adsMediaFrame');
+    if (mediaFrame) {
+      mediaFrame.classList.remove('ads-pulse');
       // Force reflow so the animation can replay.
-      void slider.offsetWidth;
-      slider.classList.add('ads-pulse');
-      setTimeout(() => slider.classList.remove('ads-pulse'), 300);
+      void mediaFrame.offsetWidth;
+      mediaFrame.classList.add('ads-pulse');
+      setTimeout(() => mediaFrame.classList.remove('ads-pulse'), 300);
     }
   }
 }
 
 function updateAdsActiveSlide() {
-  const slider = document.getElementById('adsSlider');
-  if (slider) {
-    slider.querySelectorAll('.ads-slide').forEach(slide => {
+  const mediaFrame = document.getElementById('adsMediaFrame');
+  if (mediaFrame) {
+    mediaFrame.querySelectorAll('.ads-slide').forEach(slide => {
       const idx = parseInt(slide.dataset.adIndex, 10);
       slide.classList.toggle('is-active', idx === adsCurrentIndex);
     });
 
     // Play the active video (if any) and pause the others.
-    slider.querySelectorAll('.ads-slide').forEach(slide => {
+    mediaFrame.querySelectorAll('.ads-slide').forEach(slide => {
       const idx = parseInt(slide.dataset.adIndex, 10);
       const video = slide.querySelector('video');
       if (!video) return;
@@ -1299,12 +1326,8 @@ async function loadBusinesses(reset = true, options = {}) {
       bs.value = '';
     }
   }
-  if (!locationSearchWasTyped) {
-    const ls = document.getElementById('locationSearchInput');
-    if (ls && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ls.value.trim())) {
-      ls.value = '';
-    }
-  }
+  // The hidden proxy is never visible, so no autofill check is
+  // needed for it.
 
   isLoading = true;
 
@@ -1528,13 +1551,11 @@ async function loadPlatformStats() {
 
 function searchBusinesses() {
   getMarketplaceSearchQuery();
-  getLocationSearchQuery();
   loadBusinesses(true);
 }
 
 function filterBusinesses() {
   getMarketplaceSearchQuery();
-  getLocationSearchQuery();
   loadBusinesses(true);
 }
 
