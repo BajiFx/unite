@@ -63,6 +63,31 @@
 //        #locationSearchInput is a hidden proxy so existing
 //        listeners do not need to be removed.
 //
+//  Section K — Product-name search results
+//        K.6 — The server returns a `products` array alongside
+//              `businesses`. When a customer types "shoes" the
+//              marketplace renders a PRODUCT tile grid above the
+//              business grid so the customer can jump straight to
+//              the item without knowing which shop sells it.
+//        K.7 — A business that matched only because one of its
+//              products matched shows a green blinking
+//              "SELLS: <search word>" banner at the TOP of the
+//              card, so the customer understands why it appeared
+//              even though its own name does not contain the
+//              search word. The banner echoes the customer's
+//              typed word, not the stored product name.
+//        K.8 — Product tiles render into #productMatchSection /
+//              #productMatchGrid.
+//
+//  Section L — Typo-tolerant fallback
+//        L.5 — When the server responds with `search_mode ===
+//              'fuzzy'` (which happens only when the primary
+//              word-boundary search returned zero results and the
+//              pg_trgm fallback found something), a small
+//              "Showing results for …" hint appears above the
+//              product grid so the customer understands the app
+//              corrected their spelling.
+//
 //  Autofill hardening:
 //   Chromium (Edge and Chrome) writes autofilled values directly
 //   into the input's `value` property using native bindings that
@@ -123,6 +148,31 @@ const locationValuesCache = {};
 let locationSearchText = '';
 let locationSearchDebounceTimer = null;
 const LOCATION_SEARCH_DEBOUNCE_MS = 350;
+
+// ------------------------------------------------------------
+// Section K — Product-match state for the current search.
+//
+// `lastProductMatches` holds the products returned by the last
+// /api/businesses call. It is reset when a new search starts and
+// appended to when the customer paginates the business grid.
+//
+// `lastSearchHadProducts` lets searchBusinesses() decide whether
+// to show "no products found" messaging without re-querying.
+//
+// `lastSearchWord` is the customer's typed search word (e.g.
+// "blanket", "shoes"). It is used by the "SELLS: …" banner so
+// the label echoes exactly what the customer searched for, not
+// the stored product name.
+//
+// `lastSearchMode` is 'exact' | 'fuzzy' | null. When it is
+// 'fuzzy' the frontend shows a small "Showing results for …"
+// hint above the product grid so the customer understands the
+// app corrected their spelling.
+// ------------------------------------------------------------
+let lastProductMatches = [];
+let lastSearchHadProducts = false;
+let lastSearchWord = '';
+let lastSearchMode = null;
 
 // ------------------------------------------------------------
 // Section J — Marketplace ad slider state
@@ -1347,6 +1397,239 @@ function handleAdditionalCategoryChange() {
 }
 
 // ============================================================
+//  SECTION K — PRODUCT-MATCH RENDERING HELPERS
+//
+//  K.6 — renderProductMatches() paints the `products` array from
+//        the server into #productMatchSection / #productMatchGrid.
+//        If those nodes are missing, the helper is a no-op so the
+//        marketplace still works exactly as before.
+//
+//  K.7 — getBusinessSellsLabel() builds the label shown on each
+//        business card. It uses the customer's typed search word
+//        (matched_word) so the label echoes exactly what the
+//        customer searched for ("SELLS: blanket") rather than the
+//        stored product name ("SELLS: Blanket King Size").
+//
+//  L.5 — renderFuzzySearchHint() renders the "Showing results for
+//        …" line that appears when the server corrected a typo.
+// ============================================================
+
+function escapeProductText(value) {
+  const div = document.createElement('div');
+  div.textContent = String(value ?? '');
+  return div.innerHTML;
+}
+
+function escapeProductAttr(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function productFallbackImage(name) {
+  const label = String(name || 'Product').slice(0, 32).replace(/[<>&]/g, '');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${label}</text></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function formatProductPrice(price) {
+  const num = parseFloat(String(price ?? '').replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(num)) return String(price ?? '');
+  return `Ksh ${num.toFixed(2)}`;
+}
+
+/**
+ * K.7 — Build the "SELLS: …" label for a business card.
+ *
+ * Prefers the customer's typed word (`matched_word`) so every
+ * matching business shows the same green label that reads back
+ * what the customer searched for. Falls back to the stored
+ * product name only if `matched_word` is missing for some reason
+ * (older responses, degraded fallbacks, etc.).
+ *
+ * Returns null when the business did not match via a product.
+ */
+function getBusinessSellsLabel(business) {
+  if (!business || !Array.isArray(business.product_matches) || business.product_matches.length === 0) {
+    return null;
+  }
+  const first = business.product_matches[0];
+
+  // Prefer the customer-typed word, fall back to the stored name.
+  const word = String(
+    business.matched_word ||
+    (first && first.matched_word) ||
+    (first && first.product_name) ||
+    ''
+  ).trim();
+
+  if (!word) return null;
+  return word;
+}
+
+/** Back-compat alias — some places still call the old name. */
+function businessSellsSearchWord(business) {
+  return getBusinessSellsLabel(business);
+}
+
+function renderProductMatchCard(product) {
+  const image = product.product_image || productFallbackImage(product.product_name);
+  const businessSlug = product.business_slug || '';
+  const productId = product.product_id;
+  const businessParam = businessSlug ? `&business=${encodeURIComponent(businessSlug)}` : '';
+
+  const price = formatProductPrice(product.product_price);
+  const oldPrice = product.product_old_price
+    ? `<span class="product-match-old-price">${formatProductPrice(product.product_old_price)}</span>`
+    : '';
+  const discount = product.product_discount_percent
+    ? `<span class="product-match-discount">-${escapeProductText(product.product_discount_percent)}%</span>`
+    : '';
+
+  const categoryChip = product.product_category_name
+    ? `<span class="product-match-category">${escapeProductText(product.product_category_icon || '📦')} ${escapeProductText(product.product_category_name)}</span>`
+    : '';
+
+  // Small green pill matching the business card label so the
+  // matched word is consistent everywhere it appears.
+  const matchedWordChip = product.matched_word
+    ? `<span class="product-match-matched-word" title="Matched your search">SELLS: ${escapeProductText(product.matched_word)}</span>`
+    : '';
+
+  const distance = product.distance_km !== null && product.distance_km !== undefined && Number.isFinite(Number(product.distance_km))
+    ? `<span class="product-match-distance">📍 ${formatDistance(Number(product.distance_km))}</span>`
+    : '';
+
+  const pausedBadge = product.online_orders_enabled === false
+    ? `<span class="product-match-paused" title="This shop is not accepting online orders right now">🔴 Orders Paused</span>`
+    : '';
+
+  const href = `/product-detail.html?id=${encodeURIComponent(productId)}${businessParam}`;
+
+  return `
+    <a class="product-match-card" href="${href}">
+      <div class="product-match-media">
+        <img src="${escapeProductAttr(image)}" alt="${escapeProductAttr(product.product_name)}" loading="lazy">
+        ${categoryChip}
+      </div>
+      <div class="product-match-body">
+        <div class="product-match-name">${escapeProductText(product.product_name)}</div>
+        <div class="product-match-price-row">
+          <span class="product-match-price">${escapeProductText(price)}</span>
+          ${oldPrice}
+          ${discount}
+        </div>
+        <div class="product-match-business">
+          <span class="product-match-business-name">🏪 ${escapeProductText(product.business_name || 'Shop')}</span>
+          ${distance}
+        </div>
+        ${matchedWordChip}
+        ${pausedBadge}
+      </div>
+    </a>
+  `;
+}
+
+/**
+ * Render (or append to) the product-match grid.
+ *
+ * - reset=true  → replaces the grid contents and resets state.
+ * - reset=false → appends the new batch (used by load-more).
+ *
+ * If the DOM containers are missing the whole thing is a silent
+ * no-op so the page keeps working exactly as it did before.
+ */
+function renderProductMatches(reset, products) {
+  const section = document.getElementById('productMatchSection');
+  const grid = document.getElementById('productMatchGrid');
+  const title = document.getElementById('productMatchTitle');
+  if (!section || !grid) return;
+
+  const list = Array.isArray(products) ? products : [];
+
+  if (reset) {
+    lastProductMatches = list.slice();
+  } else {
+    lastProductMatches = lastProductMatches.concat(list);
+  }
+  lastSearchHadProducts = lastProductMatches.length > 0;
+
+  // Only show the section when there is at least one product AND
+  // the customer is actively searching. Otherwise it stays hidden
+  // so the default browse view is unchanged.
+  const activeSearch = lastSearchWord || getCombinedSearchText();
+  if (!activeSearch || lastProductMatches.length === 0) {
+    section.hidden = true;
+    if (reset) grid.innerHTML = '';
+    renderFuzzySearchHint(false);
+    return;
+  }
+
+  section.hidden = false;
+
+  const html = (reset ? lastProductMatches : list)
+    .map(renderProductMatchCard)
+    .join('');
+
+  if (reset) {
+    grid.innerHTML = html;
+  } else {
+    grid.insertAdjacentHTML('beforeend', html);
+  }
+
+  if (title) {
+    const count = lastProductMatches.length;
+    title.textContent = `🛍️ Products matching "${activeSearch}" (${count})`;
+  }
+
+  // L.5 — Show the "Showing results for …" hint only when the
+  // server corrected a typo (mode === 'fuzzy').
+  renderFuzzySearchHint(lastSearchMode === 'fuzzy', activeSearch);
+}
+
+/**
+ * L.5 — Small, non-intrusive hint that appears above the product
+ * grid when the server used the trigram fallback to correct a
+ * typo. Uses a dedicated node so the hint never competes with
+ * the product title.
+ */
+function renderFuzzySearchHint(show, word) {
+  const hintId = 'fuzzySearchHint';
+  const existing = document.getElementById(hintId);
+
+  if (!show) {
+    if (existing) existing.remove();
+    return;
+  }
+
+  const section = document.getElementById('productMatchSection');
+  if (!section) return;
+
+  const text = word || lastSearchWord || '';
+
+  if (existing) {
+    existing.textContent = `🔎 Showing results for "${text}"`;
+    return;
+  }
+
+  const hint = document.createElement('div');
+  hint.id = hintId;
+  hint.className = 'fuzzy-search-hint';
+  hint.textContent = `🔎 Showing results for "${text}"`;
+
+  // Insert above the grid, just after the header.
+  const grid = document.getElementById('productMatchGrid');
+  if (grid && grid.parentElement === section) {
+    section.insertBefore(hint, grid);
+  } else {
+    section.appendChild(hint);
+  }
+}
+
+// ============================================================
 //  LOAD BUSINESSES (Section D — smart search)
 // ============================================================
 
@@ -1355,6 +1638,9 @@ async function loadBusinesses(reset = true, options = {}) {
     currentPage = 1;
     hasMore = true;
     allBusinesses = [];
+    // Section K — clear any previous product matches on a new search.
+    lastProductMatches = [];
+    lastSearchHadProducts = false;
   }
   if (isLoading || !hasMore) return;
 
@@ -1420,6 +1706,17 @@ async function loadBusinesses(reset = true, options = {}) {
 
     window.__lastSearchAnchor = data.anchor || null;
 
+    // Section K / L — remember the customer's typed word and the
+    // mode the server settled on so every card and tile can echo
+    // the correct label.
+    if (search) {
+      lastSearchWord = data.search_word || search;
+      lastSearchMode = data.search_mode || 'exact';
+    } else {
+      lastSearchWord = '';
+      lastSearchMode = null;
+    }
+
     if (reset) {
       allBusinesses = businesses;
       renderBusinesses();
@@ -1428,6 +1725,19 @@ async function loadBusinesses(reset = true, options = {}) {
       appendBusinesses();
     }
     currentPage++;
+
+    // Section K — render the product tiles.
+    //
+    // The server returns `products` on every call (empty when no
+    // search text, or when nothing matched). We only keep them
+    // when the customer is actively searching so the default
+    // browse view stays unchanged.
+    const products = Array.isArray(data.products) ? data.products : [];
+    if (search) {
+      renderProductMatches(reset, products);
+    } else {
+      renderProductMatches(true, []);
+    }
 
     const loadMoreBtn = document.getElementById('loadMoreBtn');
     if (loadMoreBtn) {
@@ -1472,6 +1782,8 @@ function appendBusinesses() {
 // ============================================================
 //  BUSINESS CARD (Section D.4 — distance badge)
 //  Section H.6 — 🟢 / 🔴 order-status badge
+//  Section K.7 — green blinking "SELLS: …" banner at the top
+//                when the shop matched via one of its products
 // ============================================================
 
 function getOrderStatusBadge(business) {
@@ -1503,6 +1815,19 @@ function createBusinessCard(business) {
 
   badges.push(getOrderStatusBadge(business));
 
+  // Section K.7 — green blinking "SELLS: …" banner at the very
+  // top of the card body, above the business name.
+  //
+  // The label echoes the customer's typed word (`matched_word`)
+  // so every matching business shows the same green banner.
+  const sellsWord = getBusinessSellsLabel(business);
+  const sellsBannerHtml = sellsWord
+    ? `<div class="business-sells-banner" title="This shop sells a product that matches your search">
+         <span class="business-sells-dot" aria-hidden="true"></span>
+         <span class="business-sells-text">SELLS: ${escapeProductText(sellsWord)}</span>
+       </div>`
+    : '';
+
   const description = business.description || '';
   const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
   const productCount = business.product_count || 0;
@@ -1527,6 +1852,7 @@ function createBusinessCard(business) {
         </div>
       </div>
       <div class="card-body">
+        ${sellsBannerHtml}
         <div class="business-name">${business.business_name}</div>
         <div class="business-location">📍 ${business.location || 'Kenya'}</div>
         ${distanceBadge}
@@ -1584,11 +1910,24 @@ async function loadPlatformStats() {
 
 function searchBusinesses() {
   getMarketplaceSearchQuery();
+  // Section K — clear stale product matches immediately so the
+  // customer never sees products from the previous query while
+  // the new one is loading.
+  lastProductMatches = [];
+  lastSearchHadProducts = false;
+  lastSearchWord = '';
+  lastSearchMode = null;
+  renderProductMatches(true, []);
   loadBusinesses(true);
 }
 
 function filterBusinesses() {
   getMarketplaceSearchQuery();
+  lastProductMatches = [];
+  lastSearchHadProducts = false;
+  lastSearchWord = '';
+  lastSearchMode = null;
+  renderProductMatches(true, []);
   loadBusinesses(true);
 }
 
@@ -2264,6 +2603,15 @@ window.loadAds = loadAds;
 window.goToAd = goToAd;
 window.handleAdClick = handleAdClick;
 
+// Section K / L exposures — so the account page and any future
+// surface can reuse the same product-tile renderer and label
+// builder without duplicating logic.
+window.renderProductMatches = renderProductMatches;
+window.renderProductMatchCard = renderProductMatchCard;
+window.getBusinessSellsLabel = getBusinessSellsLabel;
+window.businessSellsSearchWord = businessSellsSearchWord;
+window.renderFuzzySearchHint = renderFuzzySearchHint;
+
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
 // ============================================================
@@ -2666,6 +3014,10 @@ async function handleLogout() {
   gpsUpgradeAttempted = false;
   locationSearchText = '';
   marketplaceSearchWasTyped = false;
+  lastProductMatches = [];
+  lastSearchHadProducts = false;
+  lastSearchWord = '';
+  lastSearchMode = null;
   hideLocationBanner();
   updateLocationStatusChip();
   updateLocationFiltersCount();

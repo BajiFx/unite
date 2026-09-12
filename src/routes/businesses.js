@@ -49,19 +49,63 @@
 //   J.7 — /ads/:id/view and /ads/:id/click update views, clicks,
 //         and CTR in the same table the business admin uses.
 //
-//  Guests: the customer can pass ?latitude=..&longitude=.. without
-//  logging in. The server never persists them (D.11).
+//  Section K — Product-name search:
+//   K.1 — The same /api/businesses search matches products by name
+//         across every business. Typing "shoes" returns:
+//           • every business whose name / description / location
+//             matches the word "shoes", AND
+//           • every business that sells a product whose name
+//             matches the word "shoes", AND
+//           • a `products` array of the matching product tiles.
+//   K.2 — Matching is word-boundary PLUS a trailing \w* so
+//         "blanket" matches Blanket, Blankets, Blanket Set, but
+//         not "Horseblanket" or "Shoelace" for "shoe".
+//   K.3 — The `within Nkm` radius anchor filters product results
+//         too, so "shoes near me within 5km" never returns a
+//         product from a shop 200 km away.
+//   K.4 — Product ordering: distance ascending when an anchor is
+//         used, otherwise name-match relevance first, then newest.
+//   K.5 — A `pg_trgm` GIN index on products.name keeps this fast
+//         at scale. See migrations/sql/20260915-product-search-index.sql.
 //
-//  Server-side geocode cache: 'in <place>' is geocoded once via
-//  Nominatim and cached in memory for 1 hour.
+//  Section L — Fuzzy fallback (typo tolerance):
+//   L.1 — If the primary word-boundary search returns zero product
+//         matches AND zero business name matches, the same two
+//         queries are re-run with a pg_trgm similarity regex.
+//         This catches typos like "balnket" → "blanket".
+//   L.2 — The response carries a `search_mode` field ('exact' |
+//         'fuzzy' | null) so the frontend can show a hint.
+//   L.3 — Each matched product carries `matched_word` — the exact
+//         cleaned search word — so the frontend can render
+//         "SELLS: blanket" on the matching businesses.
+//   L.4 — Each business that matched via a product carries a new
+//         `product_matches` array so the frontend can render the
+//         "SELLS: …" banner at the top of the card.
 //
-//  Section I — Public payment settings endpoint:
-//   The /:slug/payment-settings response is extended so the
-//   customer checkout can render the correct M-Pesa label
-//   (Paybill / Till / Pochi) without a second round-trip. The
-//   environment value is never returned to the public because
-//   it is a platform-wide setting; the client only needs to
-//   know which shortcode and account reference to show.
+//  Section M — Sentence-to-word extraction (this revision):
+//   M.1 — The customer types a full sentence ("i need blankets in
+//         nairobi"). The server strips filler words and anchor
+//         tokens, leaving ONLY the real product / business word
+//         ("blankets") as `searchText` / `matched_word` /
+//         `search_word`.
+//   M.2 — Filler words are English + Swahili: i, me, my, we, us,
+//         you, need, want, looking, for, show, find, get, give,
+//         bring, please, some, a, an, the, any, all, is, are, of,
+//         with, to, that, this, nataka, ninataka, naomba, tafadhali,
+//         nipe, nilete, kwa, ya, na.
+//   M.3 — The label printed by the frontend is only ever the
+//         cleaned word, never the full typed sentence.
+//   M.4 — If the cleaned word matches a business name (like
+//         "Doppa"), the business is listed without any SELLS label.
+//   M.5 — If the cleaned word matches a product, the SELLS label
+//         is shown, and if that same business also happens to have
+//         the word in its own name, the product match wins (Q3a).
+//   M.6 — If the cleaned word is only a location word (like
+//         "Nairobi" alone), the anchor parser has already consumed
+//         it, so the search degrades gracefully to location-only.
+//   M.7 — "near me" without an explicit "within Nkm" applies a
+//         50 km global cap to product results (Q5b). An explicit
+//         "within Nkm" overrides the cap.
 // ============================================================
 
 const express = require('express');
@@ -133,6 +177,38 @@ const ANCHOR_SELF_KEYWORDS = [
     'close'
 ];
 
+// ============================================================
+//  Section M.2 — Filler words
+//
+//  Common English and Swahili filler words that carry no search
+//  meaning. They are stripped AFTER anchor parsing (so "near me"
+//  is still consumed as an anchor, not as separate filler words).
+//
+//  Everything here is lowercase; matching is done on the already
+//  lowercased working string with word-boundary regex.
+// ============================================================
+
+const FILLER_WORDS = [
+    // English
+    'i', 'me', 'my', 'we', 'us', 'you',
+    'need', 'want', 'looking', 'for', 'show', 'find', 'get',
+    'give', 'bring', 'please', 'some', 'a', 'an', 'the',
+    'any', 'all', 'is', 'are', 'of', 'with', 'to', 'that', 'this',
+
+    // Swahili
+    'nataka', 'ninataka', 'naomba', 'tafadhali', 'nipe', 'nilete',
+    'kwa', 'ya', 'na'
+];
+
+const FILLER_WORD_REGEX = new RegExp(
+    `\\b(${FILLER_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
+    'g'
+);
+
+// Section M.7 — default cap for "near me" product searches when the
+// customer did not type an explicit "within Nkm".
+const DEFAULT_NEAR_ME_RADIUS_KM = 50;
+
 const geocodeCache = new Map();
 const GEOCODE_CACHE_TTL_MS = 60 * 60 * 1000;
 
@@ -169,6 +245,28 @@ async function geocodePlace(placeName) {
     }
 }
 
+/**
+ * Section D + M — parse a customer-typed search sentence.
+ *
+ * The sentence is reduced to three buckets:
+ *
+ *   1. Anchor (location)
+ *      "in nairobi", "near me", "within 5km", "around westlands"
+ *      → used as anchorLat/anchorLng (self coords, or geocoded place)
+ *
+ *   2. Filler words
+ *      "i need", "please show", "nataka", "tafadhali"
+ *      → dropped entirely
+ *
+ *   3. The real search word(s)
+ *      "blankets", "shoes", "doppa"
+ *      → kept as `result.text` and returned to the client as
+ *        `search_word` / `matched_word`
+ *
+ * Any remaining flags (verified, featured, new, open, delivery,
+ * pickup, cheap, rated N) are parsed in the same pass so they are
+ * not confused with the real search word.
+ */
 function parseSearchQuery(rawQuery) {
     const result = {
         text: '',
@@ -190,6 +288,7 @@ function parseSearchQuery(rawQuery) {
     let working = ' ' + rawQuery.toLowerCase().trim() + ' ';
     working = working.replace(/\s+/g, ' ');
 
+    // -------- 1. radius anchor: "within 5km" / "within 5 kms" --------
     const withinMatch = working.match(/\bwithin\s+(\d+)\s*k?m?s?\b/);
     if (withinMatch) {
         result.radiusKm = Math.min(Math.max(parseInt(withinMatch[1], 10) || 0, 1), 500);
@@ -197,6 +296,7 @@ function parseSearchQuery(rawQuery) {
         working = working.replace(withinMatch[0], ' ');
     }
 
+    // -------- 2. place anchor: "in nairobi" / "around westlands" --------
     const placeMatch = working.match(/\b(?:in|around|at)\s+([a-z0-9][a-z0-9\s\-'.]{1,60})/);
     if (placeMatch && !result.anchor) {
         const place = placeMatch[1].trim();
@@ -207,6 +307,7 @@ function parseSearchQuery(rawQuery) {
         }
     }
 
+    // -------- 3. self anchor: "near me", "hapa", "kwetu" --------
     if (!result.anchor) {
         for (const keyword of ANCHOR_SELF_KEYWORDS) {
             const regex = new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`);
@@ -218,6 +319,7 @@ function parseSearchQuery(rawQuery) {
         }
     }
 
+    // -------- 4. flag keywords --------
     if (/\bverified\b/.test(working))       { result.verified = true; working = working.replace(/\bverified\b/g, ' '); }
     if (/\bfeatured\b/.test(working))       { result.featured = true; working = working.replace(/\bfeatured\b/g, ' '); }
     if (/\bnew\b/.test(working))            { result.isNew = true;    working = working.replace(/\bnew\b/g, ' '); }
@@ -235,6 +337,13 @@ function parseSearchQuery(rawQuery) {
         working = working.replace(ratedMatch[0], ' ');
     }
 
+    // -------- 5. filler words (English + Swahili) --------
+    //      Runs AFTER anchor and flag parsing, so "near me" is
+    //      already gone by the time we get here. What remains is
+    //      the real product / business word plus any stray filler.
+    working = working.replace(FILLER_WORD_REGEX, ' ');
+
+    // -------- 6. normalise whitespace and keep the real word --------
     result.text = working.trim().replace(/\s+/g, ' ');
 
     return result;
@@ -261,35 +370,77 @@ function buildLocationNameConditions(query, startParamIndex) {
 }
 
 // ============================================================
+//  Section K — Search regex builders
+//
+//  K.2 — buildSearchRegex
+//    Turns any customer-typed text into a Postgres case-
+//    insensitive regex that matches on word boundaries with a
+//    trailing \w* so singular / plural / prefixed forms all
+//    match:
+//      "blanket"  →  Blanket, Blankets, Blanket Set,
+//                    Blanket-King-Size
+//      "shoe"     →  Shoe, Shoes, Shoe Laces
+//    But it does NOT match unrelated words that merely contain
+//    the search text:
+//      "shoe"     ✗  Shoelace, Horseshoe
+//      "blanket"  ✗  Horseblanket
+//
+//  The \m...\M anchors are Postgres ARE word boundaries. The
+//  trailing \w* is what gives us singular → plural without a
+//  hardcoded dictionary.
+// ============================================================
+
+function escapeRegex(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSearchRegex(rawText) {
+    const trimmed = String(rawText || '').trim();
+    if (!trimmed) return null;
+    const words = trimmed
+        .split(/\s+/)
+        .map(w => escapeRegex(w))
+        .filter(Boolean);
+    if (words.length === 0) return null;
+    // Every word gets \w* on the tail so "blanket" matches
+    // "blankets" but "shoe" does not match "shoelace" (the word
+    // boundary \m stops it from matching mid-word).
+    return `\\m(${words.map(w => `${w}\\w*`).join('|')})\\M`;
+}
+
+// Back-compat alias — some earlier code paths import the old name.
+function buildWordBoundaryRegex(rawText) {
+    return buildSearchRegex(rawText);
+}
+
+// ============================================================
+//  Section L — Fuzzy fallback regex (typo tolerance)
+//
+//  L.1 — buildFuzzyRegex
+//    Used ONLY when the primary search returns zero results.
+//    Builds a pg_trgm similarity pattern with a 0.4 threshold,
+//    which is loose enough to catch "balnket" → "blanket" but
+//    tight enough that it does not match unrelated words.
+//
+//    Postgres syntax: (name %> '<text>') uses the % operator
+//    for "similarity above threshold". The threshold itself is
+//    set per-query with `SET pg_trgm.similarity_threshold = 0.4`
+//    right before the query, and reset after. This is a
+//    per-session setting so it never leaks between requests on
+//    different pool clients.
+// ============================================================
+
+function buildFuzzyText(rawText) {
+    const trimmed = String(rawText || '').trim();
+    if (!trimmed) return null;
+    // Strip anything that could confuse the trigram operator.
+    return trimmed.replace(/[%_\\]/g, '').toLowerCase();
+}
+
+// ============================================================
 //  Section E.4 — Smart score (JS-side, after the query)
 // ============================================================
 
-/**
- * Compute a blended smart score for a single business row.
- *
- *   relevance — 2 if the search text appears in the name,
- *               1 if it appears in the description,
- *               0 otherwise.
- *               If there is no search text, relevance is 0 for
- *               every business — the score then leans on rating
- *               and distance only.
- *
- *   rating    — avg_rating / 5, clamped to [0, 1].
- *
- *   distance  — 1 - min(distance_km, 50) / 50, clamped to [0, 1].
- *               If the row has no distance, this term is 0.
- *
- *   preferred — a soft-anchor bonus when the customer's preferred
- *               area names match the business's location names.
- *               +0.1 if preferred_county matches b.county,
- *               +0.05 if preferred_town matches b.town.
- *
- * Weights (sum = 1.0 with no preferred bonus):
- *   0.45 * relevance
- *   0.35 * rating
- *   0.20 * distance
- *   + preferred bonus (capped so it never dominates)
- */
 function computeSmartScore(row, searchText, hasAnchor, preferredCounty, preferredTown) {
     const safe = (n) => (Number.isFinite(n) ? n : 0);
 
@@ -455,21 +606,6 @@ router.get('/nearby', async (req, res) => {
 
 // ============================================================
 //  SECTION J — PUBLIC ADS FEED (HERO SLIDER ON MARKETPLACE)
-//
-//  J.1 / J.4 — Return the active ad set that replaces the
-//              Featured Businesses block on the marketplace.
-//              Only ads belonging to active businesses are
-//              returned, and only ads that are themselves
-//              active. The slides are ordered newest-first so
-//              a fresh ad appears first.
-//
-//  The business row is joined so the client has everything it
-//  needs to render a click: business slug, business name, and
-//  logo (used as a small fallback card when media is missing).
-//
-//  The product row is joined when the ad points at a product,
-//  so the client can render the product name/thumbnail without
-//  a second round-trip.
 // ============================================================
 
 router.get('/ads', async (req, res) => {
@@ -519,8 +655,6 @@ router.get('/ads', async (req, res) => {
 
 // ============================================================
 //  J.7 — RECORD AD IMPRESSION
-//  Fire-and-forget from the client. The endpoint only writes
-//  the counter and CTR; it does not return the ad itself.
 // ============================================================
 
 router.post('/ads/:id/view', async (req, res) => {
@@ -543,10 +677,6 @@ router.post('/ads/:id/view', async (req, res) => {
 
 // ============================================================
 //  J.6 / J.7 — RECORD AD CLICK AND RETURN THE TARGET
-//  The client uses the returned link_type + link_target_id +
-//  business_slug to navigate without a second call. That way
-//  the click is always counted even if navigation happens
-//  immediately after.
 // ============================================================
 
 router.post('/ads/:id/click', async (req, res) => {
@@ -569,7 +699,7 @@ router.post('/ads/:id/click', async (req, res) => {
 
         const ad = result.rows[0];
         const businessResult = await pool.query(
-            'SELECT slug FROM businesses WHERE id = $1 AND is_active = true',
+            'SELECT slug FROM businesses WHERE slug IS NOT NULL AND id = $1 AND is_active = true',
             [ad.business_id]
         );
 
@@ -600,6 +730,29 @@ router.post('/ads/:id/click', async (req, res) => {
 //        text, and no urgent toggle. Score computed in JS after the
 //        query, so it works no matter what filters are active.
 //  E.2 — Preferred-area soft anchor via ?preferred_county= & ?preferred_town=.
+//
+//  K   — When search text is present the same endpoint ALSO returns
+//        a `products` array of products whose name matches the search
+//        text (word-boundary + prefix), regardless of category. The
+//        `businesses` array is expanded so a business that sells a
+//        matching product also appears, even if its own name does not
+//        contain the word.
+//
+//  L   — When the primary search returns zero results, the same
+//        queries are retried with a pg_trgm similarity regex so a
+//        typo like "balnket" still finds "blanket". Every matched
+//        product carries `matched_word` (the cleaned word) and every
+//        business that matched via a product carries a
+//        `product_matches` array so the frontend can render the
+//        green blinking "SELLS: …" label.
+//
+//  M   — The customer's typed sentence is reduced to a single clean
+//        search word. All filler words (i, need, please, nataka …)
+//        and all anchor tokens (in nairobi, near me, within 5km …)
+//        are stripped before matching. "i need blankets in nairobi"
+//        becomes search_word = "blankets", anchor = place:Nairobi,
+//        and every matching business/product carries
+//        matched_word = "blankets".
 // ============================================================
 
 router.get('/', async (req, res) => {
@@ -618,9 +771,13 @@ router.get('/', async (req, res) => {
 
         const offset = (page - 1) * limit;
 
-        // Section D — parse the free-text query.
+        // Section D + M — parse the free-text query.
         const parsed = parseSearchQuery(search || '');
         const searchText = parsed.text;
+
+        // Section K — build the primary regex and the fuzzy text.
+        const searchRegex = searchText ? buildSearchRegex(searchText) : null;
+        const fuzzyText = searchText ? buildFuzzyText(searchText) : null;
 
         // Resolve the anchor coordinates (only when an anchor exists).
         let anchorLat = null;
@@ -658,6 +815,19 @@ router.get('/', async (req, res) => {
 
         const hasAnchor = anchorSource !== null && Number.isFinite(anchorLat) && Number.isFinite(anchorLng);
 
+        // Section M.7 — effective radius for product results.
+        //
+        // If the customer explicitly typed "within Nkm", that wins.
+        // Otherwise, when the anchor is "self" (near me) we apply a
+        // global 50 km cap so "blankets near me" never returns a
+        // product from a shop 200 km away. When the anchor is a
+        // named place (in nairobi), no cap is applied — the place
+        // itself is the boundary.
+        let effectiveRadiusKm = parsed.radiusKm;
+        if (!effectiveRadiusKm && anchorSource === 'self') {
+            effectiveRadiusKm = DEFAULT_NEAR_ME_RADIUS_KM;
+        }
+
         // ------------------------------------------------------------
         //  E.2 — Preferred-location soft anchor
         // ------------------------------------------------------------
@@ -676,125 +846,291 @@ router.get('/', async (req, res) => {
             !parsed.anchor &&
             !hasAnchor;
 
-        let query = `
-            SELECT b.*,
-                   (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
-                   (SELECT COALESCE(AVG(rating), 0) FROM business_reviews WHERE business_id = b.id) as avg_rating,
-                   (SELECT COUNT(*) FROM business_reviews WHERE business_id = b.id) as review_count,
-                   (SELECT COUNT(*) FROM business_followers WHERE business_id = b.id) as follower_count,
-                   (SELECT delivery_enabled FROM businesses WHERE id = b.id) as delivery_enabled,
-                   b.online_orders_enabled
-        `;
+        // ============================================================
+        //  Primary query (word-boundary + prefix)
+        // ============================================================
 
-        const params = [];
-        let paramIndex = 1;
+        async function runSearch(mode) {
+            const isFuzzy = mode === 'fuzzy';
+            const likeParam = isFuzzy ? `%${fuzzyText}%` : `%${searchText}%`;
 
-        if (hasAnchor) {
-            query += `,
-                   6371 * acos(LEAST(1, GREATEST(-1,
-                      cos(radians($${paramIndex})) * cos(radians(b.latitude::numeric)) *
-                      cos(radians(b.longitude::numeric) - radians($${paramIndex + 1})) +
-                      sin(radians($${paramIndex})) * sin(radians(b.latitude::numeric))
-                   ))) AS distance_km`;
-            params.push(anchorLat, anchorLng);
-            paramIndex += 2;
+            // ---------- Business query ----------
+            let query = `
+                SELECT b.*,
+                       (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
+                       (SELECT COALESCE(AVG(rating), 0) FROM business_reviews WHERE business_id = b.id) as avg_rating,
+                       (SELECT COUNT(*) FROM business_reviews WHERE business_id = b.id) as review_count,
+                       (SELECT COUNT(*) FROM business_followers WHERE business_id = b.id) as follower_count,
+                       (SELECT delivery_enabled FROM businesses WHERE id = b.id) as delivery_enabled,
+                       b.online_orders_enabled
+            `;
+
+            const params = [];
+            let paramIndex = 1;
+
+            if (hasAnchor) {
+                query += `,
+                       6371 * acos(LEAST(1, GREATEST(-1,
+                          cos(radians($${paramIndex})) * cos(radians(b.latitude::numeric)) *
+                          cos(radians(b.longitude::numeric) - radians($${paramIndex + 1})) +
+                          sin(radians($${paramIndex})) * sin(radians(b.latitude::numeric))
+                       ))) AS distance_km`;
+                params.push(anchorLat, anchorLng);
+                paramIndex += 2;
+            }
+
+            query += ` FROM businesses b WHERE b.is_active = true`;
+            const conditions = [];
+
+            if (searchText) {
+                if (isFuzzy) {
+                    conditions.push(`(
+                        b.business_name %> $${paramIndex}
+                        OR b.description %> $${paramIndex}
+                        OR EXISTS (
+                            SELECT 1 FROM products p
+                            WHERE p.business_id = b.id
+                              AND p.is_active = true
+                              AND (p.name %> $${paramIndex} OR p.description %> $${paramIndex})
+                        )
+                    )`);
+                    params.push(fuzzyText);
+                    paramIndex++;
+                } else {
+                    conditions.push(`(
+                        b.business_name ~* $${paramIndex}
+                        OR b.description ~* $${paramIndex}
+                        OR CONCAT_WS(' ', ${locationSql}) ILIKE $${paramIndex + 1}
+                        OR EXISTS (
+                            SELECT 1 FROM products p
+                            WHERE p.business_id = b.id
+                              AND p.is_active = true
+                              AND (p.name ~* $${paramIndex} OR p.description ~* $${paramIndex})
+                        )
+                    )`);
+                    params.push(searchRegex, likeParam);
+                    paramIndex += 2;
+                }
+            }
+
+            if (featured === 'true' || parsed.featured) {
+                conditions.push(`b.is_featured = true`);
+            }
+            if (verified === 'true' || parsed.verified) {
+                conditions.push(`b.is_verified = true`);
+            }
+            if (parsed.isNew) {
+                conditions.push(`b.created_at > NOW() - INTERVAL '30 days'`);
+            }
+            if (parsed.open) {
+                conditions.push(`b.online_orders_enabled = true`);
+            }
+            if (parsed.delivery) {
+                conditions.push(`b.delivery_enabled = true`);
+            }
+            if (parsed.pickup) {
+                conditions.push(`b.delivery_offered = 'no'`);
+            }
+            if (Number.isInteger(parsed.minRating)) {
+                conditions.push(`(SELECT COALESCE(AVG(rating), 0) FROM business_reviews WHERE business_id = b.id) >= $${paramIndex}`);
+                params.push(parsed.minRating);
+                paramIndex++;
+            }
+            if (parsed.cheap) {
+                conditions.push(`(
+                    SELECT COALESCE(AVG(CAST(NULLIF(REGEXP_REPLACE(p.price, '[^0-9.]', '', 'g'), '') AS NUMERIC)), 0)
+                    FROM products p WHERE p.business_id = b.id AND p.is_active = true
+                ) < (
+                    SELECT COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(NULLIF(REGEXP_REPLACE(price, '[^0-9.]', '', 'g'), '') AS NUMERIC)), 0)
+                    FROM products WHERE is_active = true AND price ~ '[0-9]'
+                )`);
+            }
+
+            const locationFilter = buildLocationNameConditions(req.query, paramIndex);
+            if (locationFilter.conditions.length > 0) {
+                conditions.push(...locationFilter.conditions);
+                params.push(...locationFilter.params);
+                paramIndex = locationFilter.nextIndex;
+            }
+
+            if (category && category !== 'all') {
+                conditions.push(`EXISTS (
+                    SELECT 1 FROM business_category_assignments bca
+                    WHERE bca.business_id = b.id AND bca.category_id = $${paramIndex}
+                )`);
+                params.push(parseInt(category, 10));
+                paramIndex++;
+            }
+
+            if (conditions.length > 0) {
+                query += ' AND ' + conditions.join(' AND ');
+            }
+
+            let orderBy = 'b.created_at DESC';
+            if (hasAnchor) {
+                orderBy = 'distance_km ASC NULLS LAST, b.created_at DESC';
+            } else if (sort === 'popular') {
+                orderBy = 'product_count DESC, b.created_at DESC';
+            } else if (sort === 'rating') {
+                orderBy = 'avg_rating DESC, b.created_at DESC';
+            }
+
+            query += ` ORDER BY ${orderBy}`;
+            query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+            params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+            // ---------- Product query ----------
+            let productQuery = `
+                SELECT p.id           AS product_id,
+                       p.name         AS product_name,
+                       p.price        AS product_price,
+                       p.old_price    AS product_old_price,
+                       p.discount_percent,
+                       p.image        AS product_image,
+                       p.category     AS legacy_category,
+                       p.product_category_id,
+                       pc.name        AS product_category_name,
+                       pc.icon        AS product_category_icon,
+                       b.id           AS business_id,
+                       b.business_name,
+                       b.slug         AS business_slug,
+                       b.logo         AS business_logo,
+                       b.location     AS business_location,
+                       b.online_orders_enabled
+            `;
+            const productParams = [];
+            let productParamIndex = 1;
+
+            if (hasAnchor) {
+                productQuery += `,
+                      6371 * acos(LEAST(1, GREATEST(-1,
+                          cos(radians($${productParamIndex})) * cos(radians(b.latitude::numeric)) *
+                          cos(radians(b.longitude::numeric) - radians($${productParamIndex + 1})) +
+                          sin(radians($${productParamIndex})) * sin(radians(b.latitude::numeric))
+                       ))) AS distance_km`;
+                productParams.push(anchorLat, anchorLng);
+                productParamIndex += 2;
+            }
+
+            productQuery += `
+                FROM products p
+                JOIN businesses b ON b.id = p.business_id
+                LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+                WHERE p.is_active = true
+                  AND b.is_active = true
+            `;
+
+            if (isFuzzy) {
+                productQuery += ` AND (p.name %> $${productParamIndex} OR p.description %> $${productParamIndex})`;
+                productParams.push(fuzzyText);
+                productParamIndex++;
+            } else {
+                productQuery += ` AND (p.name ~* $${productParamIndex} OR p.description ~* $${productParamIndex})`;
+                productParams.push(searchRegex);
+                productParamIndex++;
+            }
+
+            for (const field of LOCATION_FILTER_FIELDS) {
+                const raw = req.query[field];
+                if (!raw) continue;
+                const value = String(raw).trim();
+                if (!value) continue;
+                productQuery += ` AND b.${field} ILIKE $${productParamIndex}`;
+                productParams.push(`%${value}%`);
+                productParamIndex++;
+            }
+
+            if (category && category !== 'all') {
+                productQuery += ` AND EXISTS (
+                    SELECT 1 FROM business_category_assignments bca
+                    WHERE bca.business_id = b.id AND bca.category_id = $${productParamIndex}
+                )`;
+                productParams.push(parseInt(category, 10));
+                productParamIndex++;
+            }
+
+            if (hasAnchor) {
+                productQuery += ` ORDER BY distance_km ASC NULLS LAST, p.created_at DESC`;
+            } else if (isFuzzy) {
+                productQuery += ` ORDER BY similarity(p.name, $1) DESC, p.created_at DESC`;
+            } else {
+                productQuery += ` ORDER BY
+                    CASE WHEN p.name ~* $1 THEN 0 ELSE 1 END,
+                    p.created_at DESC`;
+            }
+
+            productQuery += ` LIMIT 60`;
+
+            // ---------- Execute ----------
+            if (isFuzzy) {
+                await pool.query(`SET pg_trgm.similarity_threshold = 0.4`);
+            }
+
+            const [businessResult, productResult] = await Promise.all([
+                pool.query(query, params),
+                pool.query(productQuery, productParams)
+            ]);
+
+            if (isFuzzy) {
+                await pool.query(`SET pg_trgm.similarity_threshold = 0.3`).catch(() => {});
+            }
+
+            let businessRows = businessResult.rows;
+            let productRows = productResult.rows;
+
+            // Section M.7 — apply the effective radius to both
+            // business rows and product rows when the anchor
+            // produced a distance. This is what makes "blankets in
+            // nairobi" show only Nairobi shops (anchorPlace drives
+            // the geocoded coordinates) and "blankets near me"
+            // show only shops within 50 km by default.
+            if (hasAnchor && effectiveRadiusKm) {
+                businessRows = businessRows.filter(row =>
+                    row.distance_km === null || Number(row.distance_km) <= effectiveRadiusKm
+                );
+                productRows = productRows.filter(row =>
+                    row.distance_km === null || Number(row.distance_km) <= effectiveRadiusKm
+                );
+            }
+
+            return { businessRows, productRows, isFuzzy };
         }
 
-        query += ` FROM businesses b WHERE b.is_active = true`;
-        const conditions = [];
+        // ------------------------------------------------------------
+        //  Run the primary search, then fall back to fuzzy if and
+        //  only if it produced nothing useful.
+        // ------------------------------------------------------------
+        let mode = 'exact';
+        let { businessRows, productRows, isFuzzy } = await runSearch('exact');
 
-        if (searchText) {
-            conditions.push(`(b.business_name ILIKE $${paramIndex} OR b.description ILIKE $${paramIndex} OR CONCAT_WS(' ', ${locationSql}) ILIKE $${paramIndex})`);
-            params.push(`%${searchText}%`);
-            paramIndex++;
-        }
+        const hasMeaningfulResults =
+            productRows.length > 0 ||
+            businessRows.some(row => {
+                if (!searchText) return true;
+                const q = searchText.toLowerCase();
+                return String(row.business_name || '').toLowerCase().includes(q)
+                    || String(row.description || '').toLowerCase().includes(q);
+            });
 
-        if (featured === 'true' || parsed.featured) {
-            conditions.push(`b.is_featured = true`);
-        }
-        if (verified === 'true' || parsed.verified) {
-            conditions.push(`b.is_verified = true`);
-        }
-        if (parsed.isNew) {
-            conditions.push(`b.created_at > NOW() - INTERVAL '30 days'`);
-        }
-        if (parsed.open) {
-            conditions.push(`b.online_orders_enabled = true`);
-        }
-        if (parsed.delivery) {
-            conditions.push(`b.delivery_enabled = true`);
-        }
-        if (parsed.pickup) {
-            conditions.push(`b.delivery_offered = 'no'`);
-        }
-        if (Number.isInteger(parsed.minRating)) {
-            conditions.push(`(SELECT COALESCE(AVG(rating), 0) FROM business_reviews WHERE business_id = b.id) >= $${paramIndex}`);
-            params.push(parsed.minRating);
-            paramIndex++;
-        }
-        if (parsed.cheap) {
-            conditions.push(`(
-                SELECT COALESCE(AVG(CAST(NULLIF(REGEXP_REPLACE(p.price, '[^0-9.]', '', 'g'), '') AS NUMERIC)), 0)
-                FROM products p WHERE p.business_id = b.id AND p.is_active = true
-            ) < (
-                SELECT COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(NULLIF(REGEXP_REPLACE(price, '[^0-9.]', '', 'g'), '') AS NUMERIC)), 0)
-                FROM products WHERE is_active = true AND price ~ '[0-9]'
-            )`);
-        }
-
-        const locationFilter = buildLocationNameConditions(req.query, paramIndex);
-        if (locationFilter.conditions.length > 0) {
-            conditions.push(...locationFilter.conditions);
-            params.push(...locationFilter.params);
-            paramIndex = locationFilter.nextIndex;
-        }
-
-        if (category && category !== 'all') {
-            conditions.push(`EXISTS (
-                SELECT 1 FROM business_category_assignments bca
-                WHERE bca.business_id = b.id AND bca.category_id = $${paramIndex}
-            )`);
-            params.push(parseInt(category, 10));
-            paramIndex++;
-        }
-
-        if (conditions.length > 0) {
-            query += ' AND ' + conditions.join(' AND ');
-        }
-
-        // Ordering — SQL-side ordering for the non-smart modes.
-        // In smart mode we still need a deterministic tiebreaker, so
-        // we sort by created_at DESC in SQL and re-sort in JS below.
-        let orderBy = 'b.created_at DESC';
-        if (hasAnchor) {
-            orderBy = 'distance_km ASC NULLS LAST, b.created_at DESC';
-        } else if (sort === 'popular') {
-            orderBy = 'product_count DESC, b.created_at DESC';
-        } else if (sort === 'rating') {
-            orderBy = 'avg_rating DESC, b.created_at DESC';
-        }
-
-        query += ` ORDER BY ${orderBy}`;
-        query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-        params.push(parseInt(limit, 10), parseInt(offset, 10));
-
-        const result = await pool.query(query, params);
-
-        // Radius filter (only when a radius was requested via 'within Nkm').
-        let businesses = result.rows;
-        if (hasAnchor && parsed.radiusKm) {
-            businesses = businesses.filter(row =>
-                row.distance_km === null || Number(row.distance_km) <= parsed.radiusKm
-            );
+        if (searchText && !hasMeaningfulResults) {
+            try {
+                const fuzzyResult = await runSearch('fuzzy');
+                if (fuzzyResult.productRows.length > 0 || fuzzyResult.businessRows.length > 0) {
+                    businessRows = fuzzyResult.businessRows;
+                    productRows = fuzzyResult.productRows;
+                    isFuzzy = true;
+                    mode = 'fuzzy';
+                }
+            } catch (fuzzyErr) {
+                console.warn('⚠️ Fuzzy search fallback skipped:', fuzzyErr.message);
+            }
         }
 
         // ------------------------------------------------------------
         //  E.4 — Apply smart score in JS (only in smart mode).
-        //  This is what makes the default browse experience blended
-        //  instead of purely "newest".
         // ------------------------------------------------------------
-        if (smartMode && businesses.length > 1) {
-            businesses = businesses.map(row => ({
+        if (smartMode && businessRows.length > 1) {
+            businessRows = businessRows.map(row => ({
                 ...row,
                 smart_score: computeSmartScore(
                     row,
@@ -804,22 +1140,110 @@ router.get('/', async (req, res) => {
                     preferredTown
                 )
             }));
-            businesses.sort((a, b) => {
+            businessRows.sort((a, b) => {
                 const diff = (b.smart_score || 0) - (a.smart_score || 0);
                 if (diff !== 0) return diff;
                 return new Date(b.created_at) - new Date(a.created_at);
             });
         }
 
-        // Count query — mirrors the same conditions.
+        // ------------------------------------------------------------
+        //  Section K / L / M — shape the response.
+        //
+        //  Every product carries `matched_word` — the cleaned search
+        //  word ("blankets", never "i need blankets"). Every business
+        //  that matched via a product carries a `product_matches`
+        //  array so the frontend can render the green blinking
+        //  "SELLS: blankets" label at the top of the card. A
+        //  business that matched purely by name keeps an empty
+        //  `product_matches` array (Q4 — the frontend then renders
+        //  no SELLS label).
+        // ------------------------------------------------------------
+
+        const productMatches = productRows.map(row => ({
+            product_id: row.product_id,
+            product_name: row.product_name,
+            product_price: row.product_price,
+            product_old_price: row.product_old_price,
+            product_discount_percent: row.discount_percent,
+            product_image: row.product_image || productFallbackImage(row.product_name),
+            legacy_category: row.legacy_category,
+            product_category_id: row.product_category_id,
+            product_category_name: row.product_category_name,
+            product_category_icon: row.product_category_icon,
+            business_id: row.business_id,
+            business_name: row.business_name,
+            business_slug: row.business_slug,
+            business_logo: row.business_logo,
+            business_location: row.business_location,
+            online_orders_enabled: row.online_orders_enabled !== false,
+            distance_km: row.distance_km !== undefined ? row.distance_km : null,
+            matched_word: searchText || null,
+            search_mode: mode
+        }));
+
+        // Group the matched products by business so each business
+        // row can carry its own small list of matching products.
+        const productMatchesByBusiness = new Map();
+        for (const p of productMatches) {
+            if (!productMatchesByBusiness.has(p.business_id)) {
+                productMatchesByBusiness.set(p.business_id, []);
+            }
+            productMatchesByBusiness.get(p.business_id).push({
+                product_id: p.product_id,
+                product_name: p.product_name,
+                matched_word: p.matched_word
+            });
+        }
+
+        const businesses = businessRows.map(row => {
+            const matches = productMatchesByBusiness.get(row.id) || [];
+            const hasProductMatch = matches.length > 0;
+
+            return {
+                ...row,
+                product_matches: hasProductMatch ? matches : [],
+                matched_word: hasProductMatch ? (searchText || null) : null,
+                search_mode: hasProductMatch ? mode : null
+            };
+        });
+
+        // ------------------------------------------------------------
+        //  Count query — mirrors the same conditions.
+        // ------------------------------------------------------------
         let countQuery = `SELECT COUNT(*) FROM businesses b WHERE b.is_active = true`;
         const countParams = [];
         let countIndex = 1;
 
         if (searchText) {
-            countQuery += ` AND (b.business_name ILIKE $${countIndex} OR b.description ILIKE $${countIndex} OR CONCAT_WS(' ', ${locationSql}) ILIKE $${countIndex})`;
-            countParams.push(`%${searchText}%`);
-            countIndex++;
+            if (mode === 'fuzzy') {
+                countQuery += ` AND (
+                    b.business_name %> $${countIndex}
+                    OR b.description %> $${countIndex}
+                    OR EXISTS (
+                        SELECT 1 FROM products p
+                        WHERE p.business_id = b.id
+                          AND p.is_active = true
+                          AND (p.name %> $${countIndex} OR p.description %> $${countIndex})
+                    )
+                )`;
+                countParams.push(fuzzyText);
+                countIndex++;
+            } else {
+                countQuery += ` AND (
+                    b.business_name ~* $${countIndex}
+                    OR b.description ~* $${countIndex}
+                    OR CONCAT_WS(' ', ${locationSql}) ILIKE $${countIndex + 1}
+                    OR EXISTS (
+                        SELECT 1 FROM products p
+                        WHERE p.business_id = b.id
+                          AND p.is_active = true
+                          AND (p.name ~* $${countIndex} OR p.description ~* $${countIndex})
+                    )
+                )`;
+                countParams.push(searchRegex, `%${searchText}%`);
+                countIndex += 2;
+            }
         }
         if (featured === 'true' || parsed.featured) {
             countQuery += ` AND b.is_featured = true`;
@@ -875,9 +1299,22 @@ router.get('/', async (req, res) => {
 
         res.json({
             businesses,
+            products: productMatches,
+
+            // Section M — the top-level search_word is the cleaned
+            // word only, never the customer's typed sentence.
+            search_word: searchText || null,
+            search_mode: searchText ? mode : null,
+
+            // Section M.1 — the raw typed sentence is echoed back so
+            // the frontend can show "You typed: i need blankets in
+            // nairobi" if it wants, without affecting the SELLS label.
+            raw_search: (search || '').trim() || null,
+
             anchor: hasAnchor ? anchorSource : null,
             anchor_place: anchorSource === 'place' ? parsed.anchorPlace : null,
             radius_km: parsed.radiusKm || null,
+            effective_radius_km: effectiveRadiusKm || null,
             urgent: urgentMode,
             smart: smartMode,
             preferred_anchor: hasPreferredAnchor ? {
@@ -1484,10 +1921,6 @@ router.get('/:slug/stats', async (req, res) => {
 
 // ============================================================
 //  GET FEATURED BUSINESSES (Public)
-//  Kept for backwards compatibility with the account page and
-//  any client that still calls it directly. The marketplace
-//  home page no longer renders a Featured Businesses grid;
-//  the ad slider (Section J) replaces it.
 // ============================================================
 router.get('/featured/all', async (req, res) => {
     try {

@@ -56,6 +56,29 @@
                 The dropdown filters live in a separate
                 .location-filters-row that opens only when the
                 Filters button is pressed.
+
+   MOBILE FIX
+                On small screens the text labels next to the
+                filter, refresh, and urgent buttons are now
+                kept visible (only the search-submit label is
+                hidden when it would otherwise overflow). This
+                makes the buttons understandable at a glance.
+
+   Section K additions:
+    K.6 — .product-match-section / .product-match-grid /
+          .product-match-card, the tile grid rendered by
+          renderProductMatches() in index.js when a customer
+          searches a product name like "shoes".
+    K.7 — .business-sells-banner, the green blinking
+          "SELLS: <search word>" banner at the TOP of a business
+          card when the shop matched only because one of its
+          products matched the search. The banner echoes the
+          customer's typed word, not the stored product name.
+
+   Section L additions:
+    L.5 — .fuzzy-search-hint, a small strip that appears above
+          the product grid when the server corrected a typo via
+          the pg_trgm fallback (mode === 'fuzzy').
    ============================================================ */
 
 /* ============================================================
@@ -949,6 +972,13 @@
      5. #findNearMeBtn
      6. #urgentToggle (as a pill)
      7. #locationStatusChip + #turnOffLocationBtn
+
+   MOBILE — text labels are kept visible on small screens for
+   the Filters, Near Me, and Urgent buttons so the user always
+   knows what each control does without having to guess. Only
+   the Search submit label is dropped below 560px, because the
+   magnifying glass icon is universally understood and keeps
+   the search row on one line.
    ============================================================ */
 
 .search-filter-bar {
@@ -1371,11 +1401,11 @@
   }
 }
 
-/* <560px: labels go away, only icons remain — the bar stays one line high */
+/* <560px: only the Search submit label is dropped. The Filters,
+   Near Me, and Urgent labels are kept visible so the buttons stay
+   self-explanatory on small phone screens. */
 @media (max-width: 560px) {
-  .search-filter-bar .search-submit-label,
-  .search-filter-bar .loc-filters-label,
-  .search-filter-bar .loc-pill-label {
+  .search-filter-bar .search-submit-label {
     display: none;
   }
 
@@ -1571,6 +1601,111 @@
 }
 
 /* ============================================================
+   Section K.7 — "SELLS: …" banner on a business card
+
+   Shown by createBusinessCard() when the shop matched only
+   because one of its products matched the search word.
+
+   Rendered at the very TOP of the card body, above the business
+   name, so it is the first thing the eye lands on.
+
+   The banner echoes the customer's typed word (matched_word),
+   not the stored product name, so every matching business shows
+   the same green label.
+
+   The dot blinks to draw attention, and the whole banner is
+   soft-green on soft-green so it stays legible without being
+   garish. Blinking stops when the user has prefers-reduced-motion
+   set.
+   ============================================================ */
+
+.business-card .card-body .business-sells-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0 0 8px 0;
+  padding: 3px 11px 3px 9px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+  color: #14532d;
+  border: 1px solid #4ade80;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  box-shadow: 0 1px 3px rgba(22, 101, 52, 0.18);
+  animation: sellsBannerPulse 1.6s ease-in-out infinite;
+}
+
+.business-card .card-body .business-sells-banner .business-sells-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.28);
+  animation: sellsBannerDot 1.2s ease-in-out infinite;
+}
+
+.business-card .card-body .business-sells-banner .business-sells-text {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Gentle breathing pulse on the pill itself. */
+@keyframes sellsBannerPulse {
+  0%   { box-shadow: 0 1px 3px rgba(22, 101, 52, 0.18); }
+  50%  { box-shadow: 0 1px 12px rgba(22, 163, 74, 0.55); }
+  100% { box-shadow: 0 1px 3px rgba(22, 101, 52, 0.18); }
+}
+
+/* Faster blink on the inner dot. */
+@keyframes sellsBannerDot {
+  0%   { transform: scale(1);   opacity: 1;    }
+  50%  { transform: scale(0.7); opacity: 0.35; }
+  100% { transform: scale(1);   opacity: 1;    }
+}
+
+/* Respect reduced-motion preference: keep the green banner,
+   drop the pulse and blink so nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .business-card .card-body .business-sells-banner,
+  .business-card .card-body .business-sells-banner .business-sells-dot {
+    animation: none;
+  }
+}
+
+/* Back-compat: the old class name is kept around so any older
+   markup still renders as a plain chip instead of a broken node.
+   Nothing new uses it. */
+.business-card .card-body .business-sells-chip {
+  display: inline-block;
+  max-width: 100%;
+  margin: 2px 0 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #166534;
+  border: 1px solid #86efac;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+/* ============================================================
    FEATURED SECTION — kept for compatibility with the account
    page. The marketplace home page no longer renders this block;
    the ad slider (Section J) replaces it.
@@ -1756,6 +1891,17 @@
   .business-card .card-badges .badge.orders-paused {
     font-size: 0.45rem;
     padding: 1px 6px;
+  }
+
+  .business-card .card-body .business-sells-banner {
+    font-size: 0.58rem;
+    padding: 2px 8px 2px 7px;
+    margin-bottom: 6px;
+  }
+
+  .business-card .card-body .business-sells-banner .business-sells-dot {
+    width: 6px;
+    height: 6px;
   }
 }
 
@@ -2256,4 +2402,295 @@ body.workspace-active .marketplace-container {
 @keyframes nearHintFadeIn {
   from { opacity: 0; transform: translateY(-3px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   SECTION K — PRODUCT-MATCH TILE GRID
+   Rendered by renderProductMatches() in public/js/index.js when
+   a customer searches a product name like "shoes", "laptop",
+   "cloth", etc. The tiles let a customer jump straight to the
+   item they want without knowing which shop sells it.
+
+   The entire block is additive: until the HTML adds the
+   #productMatchSection / #productMatchGrid nodes, none of these
+   rules ever apply, and the page keeps working exactly as
+   before.
+   ============================================================ */
+
+/* Wrapper: sits between the merged search bar and the business
+   grid. Hidden by default; index.js unhides it when there is at
+   least one product match and the customer is actively searching. */
+.product-match-section {
+  margin: 0 0 16px 0;
+  padding: 0;
+}
+
+.product-match-section[hidden] {
+  display: none !important;
+}
+
+.product-match-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px 0;
+  padding: 0 2px;
+  flex-wrap: wrap;
+}
+
+.product-match-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+/* Section L.5 — "Showing results for …" hint that appears only
+   when the server corrected a typo via the pg_trgm fallback.
+   It sits above the grid, below the header, and disappears on
+   the next exact search. */
+.fuzzy-search-hint {
+  display: inline-block;
+  margin: 0 0 10px 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* Responsive tile grid:
+   2 columns on phones, 3 on tablets, 4 on desktop. */
+.product-match-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 0;
+}
+
+.product-match-card {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #f0f4f8;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+}
+
+.product-match-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.10);
+  border-color: #c7d2fe;
+}
+
+.product-match-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+
+.product-match-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.product-match-category {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #2563eb;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.product-match-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.product-match-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.25;
+  min-height: 2.4em;
+}
+
+.product-match-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.product-match-price {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #2563eb;
+}
+
+.product-match-old-price {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.product-match-discount {
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #991b1b;
+  letter-spacing: 0.02em;
+}
+
+.product-match-business {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.68rem;
+  color: #64748b;
+  border-top: 1px solid #f1f4f8;
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+.product-match-business-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70%;
+}
+
+.product-match-distance {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+/* Small green pill echoing the business-card SELLS banner so the
+   matched word is consistent wherever it appears. */
+.product-match-matched-word {
+  display: inline-block;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #14532d;
+  border: 1px solid #4ade80;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.product-match-paused {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  align-self: flex-start;
+}
+
+/* Responsive — product tile grid.
+   Tighter gaps and smaller tiles on phones so 2 columns fit
+   comfortably without crowding the screen. */
+@media (max-width: 720px) {
+  .product-match-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .product-match-title {
+    font-size: 0.92rem;
+  }
+
+  .product-match-name {
+    font-size: 0.78rem;
+  }
+
+  .product-match-price {
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .product-match-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .product-match-body {
+    padding: 8px 10px 10px;
+  }
+
+  .product-match-name {
+    font-size: 0.72rem;
+    -webkit-line-clamp: 2;
+  }
+
+  .product-match-price {
+    font-size: 0.78rem;
+  }
+
+  .product-match-business {
+    font-size: 0.6rem;
+  }
+
+  .product-match-category {
+    font-size: 0.55rem;
+    padding: 1px 7px;
+  }
+
+  .product-match-matched-word {
+    font-size: 0.52rem;
+    padding: 1px 7px;
+  }
 }
