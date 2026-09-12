@@ -38,6 +38,21 @@
 //   removed from the About card and moved into the hero media
 //   overlay.
 //
+//  Reviews removal (this revision):
+//   The reviews section and its write-a-review block have been
+//   removed from the customer-facing page. A warm thank-you band
+//   takes their place. The band's business name is injected here
+//   by renderThankYouBand() so it feels personal. The review
+//   tables and routes remain in the backend, untouched; only the
+//   customer-facing surface is gone.
+//
+//  Search tag chip (this revision):
+//   A small click-to-copy chip is rendered in the hero info
+//   panel so a customer who lands on a shop can copy its search
+//   tag and paste it back into the marketplace search bar
+//   later. The chip is hidden when the business has no
+//   confirmed tag.
+//
 //  Hardening:
 //   - businessFallbackImage() strips unpaired surrogates and control
 //     characters before encodeURIComponent, so a corrupted product
@@ -90,9 +105,6 @@ if (typeof window.businessLiveRoute === 'undefined') {
 if (typeof window.businessProfileLoaded === 'undefined') {
     window.businessProfileLoaded = false;
 }
-if (typeof window.reviewRating === 'undefined') {
-    window.reviewRating = 0;
-}
 if (typeof window.isFollowing === 'undefined') {
     window.isFollowing = false;
 }
@@ -126,7 +138,6 @@ let businessLiveMap = window.businessLiveMap;
 let businessLiveMarker = window.businessLiveMarker;
 let businessLiveRoute = window.businessLiveRoute;
 let businessProfileLoaded = window.businessProfileLoaded;
-let reviewRating = window.reviewRating;
 let isFollowing = window.isFollowing;
 let customerLocation = window.customerLocation;
 let isOwnBusiness = window.isOwnBusiness;
@@ -370,7 +381,6 @@ async function loadBusinessProfile() {
         renderBusinessProfile();
         await loadBusinessProducts();
         buildBusinessSlider();
-        loadBusinessReviews();
 
         // Role-scoped calls. Follow and customer location status are
         // customer-only endpoints. For business admins and super
@@ -449,6 +459,10 @@ function renderBusinessProfile() {
     renderHeroMedia(business);
     renderHeroDescriptionOverlay(business);
 
+    // Search tag chip — click to copy. Hidden when the business has
+    // no confirmed tag.
+    renderHeroSearchTagChip(business);
+
     const verifiedBadge = document.getElementById('verifiedBadge');
     if (verifiedBadge) {
         verifiedBadge.style.display = business.is_verified ? 'block' : 'none';
@@ -474,6 +488,91 @@ function renderBusinessProfile() {
     // as soon as the business data is available. This is safe to
     // call even when the blocks are already hidden.
     applyOrderVisibilityState();
+
+    // Thank-you band — replace the old reviews section with a warm,
+    // personalised closing band. The business name is injected here.
+    renderThankYouBand(business);
+}
+
+// ============================================================
+//  HERO SEARCH TAG CHIP
+//
+//  The chip is rendered in the HTML (public/html/business-profile.html)
+//  and this function only fills its text and wires the copy button.
+//  It is hidden when the business has no confirmed search tag.
+// ============================================================
+
+function renderHeroSearchTagChip(business) {
+    const chip = document.getElementById('heroSearchTagChip');
+    const valueEl = document.getElementById('heroSearchTagValue');
+    const btn = document.getElementById('heroSearchTagBtn');
+    if (!chip || !valueEl) return;
+
+    const display = business && business.search_display ? String(business.search_display).trim() : '';
+    const confirmed = business && business.search_tag_confirmed === true;
+
+    if (!display || !confirmed) {
+        chip.style.display = 'none';
+        valueEl.textContent = '';
+        return;
+    }
+
+    chip.style.display = 'block';
+    valueEl.textContent = display;
+
+    if (btn && !btn.dataset.wired) {
+        btn.dataset.wired = 'true';
+        btn.addEventListener('click', () => {
+            const tag = valueEl.textContent || '';
+            if (!tag) return;
+
+            const fallback = () => {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = tag;
+                    ta.setAttribute('readonly', '');
+                    ta.style.position = 'absolute';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    if (typeof showToast === 'function') showToast(`Copied: ${tag}`, 'success');
+                } catch (err) {
+                    if (typeof showToast === 'function') showToast('Could not copy. Please copy it manually.', 'warning');
+                }
+            };
+
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                navigator.clipboard.writeText(tag)
+                    .then(() => { if (typeof showToast === 'function') showToast(`Copied: ${tag}`, 'success'); })
+                    .catch(fallback);
+            } else {
+                fallback();
+            }
+        });
+    }
+}
+
+// ============================================================
+//  THANK-YOU BAND
+//
+//  Replaces the old reviews section. The band is a static DOM
+//  block in public/html/business-profile.html; this function only
+//  injects the business name into it so the band feels personal.
+//
+//  The band is always visible once the business is loaded.
+// ============================================================
+
+function renderThankYouBand(business) {
+    const band = document.getElementById('thankYouBand');
+    const nameEl = document.getElementById('thankYouBusinessName');
+    if (!band) return;
+
+    const name = business && business.business_name ? String(business.business_name).trim() : 'our business';
+    if (nameEl) nameEl.textContent = name;
+
+    band.style.display = '';
 }
 
 // ============================================================
@@ -1172,101 +1271,6 @@ async function toggleBusinessWishlist(productId) {
 }
 
 // ============================================================
-//  LOAD BUSINESS REVIEWS
-// ============================================================
-
-async function loadBusinessReviews() {
-    try {
-        const res = await fetch(`/api/businesses/${businessSlug}/reviews?limit=20`);
-        if (!res.ok) throw new Error('Failed to load reviews');
-        const reviews = await res.json();
-
-        const container = document.getElementById('reviewsList');
-        if (!container) return;
-
-        if (!reviews || reviews.length === 0) {
-            container.innerHTML = '<p style="color:#94a3b8;">No reviews yet. Be the first to write one!</p>';
-            return;
-        }
-
-        container.innerHTML = reviews.map(r => `
-            <div class="review-item">
-                <div class="review-rating">${'⭐'.repeat(Math.min(r.rating, 5))}</div>
-                <div class="review-text">${r.review_text || ''}</div>
-                <div class="review-meta">
-                    <span class="reviewer">${r.customer_name || 'Anonymous'}</span>
-                    <span>${new Date(r.created_at).toLocaleDateString()}</span>
-                </div>
-            </div>
-        `).join('');
-    } catch (err) {
-        console.error('❌ Reviews error:', err);
-        const container = document.getElementById('reviewsList');
-        if (container) {
-            container.innerHTML = '<p style="color:#ef4444;">Error loading reviews.</p>';
-        }
-    }
-}
-
-// ============================================================
-//  SET RATING
-// ============================================================
-
-function setRating(rating) {
-    window.reviewRating = rating;
-    reviewRating = window.reviewRating;
-    const stars = document.querySelectorAll('#reviewStars span');
-    stars.forEach((star, index) => {
-        star.style.color = index < rating ? '#f59e0b' : '#d1d5db';
-    });
-}
-
-// ============================================================
-//  SUBMIT BUSINESS REVIEW
-// ============================================================
-
-async function submitBusinessReview() {
-    if (!isCustomerViewer()) {
-        if (typeof openAuthModal === 'function') openAuthModal('login');
-        return;
-    }
-
-    const text = document.getElementById('reviewText').value.trim();
-    if (!reviewRating) {
-        alert('Please pick a rating first.');
-        return;
-    }
-    if (!text) {
-        alert('Please write a review.');
-        return;
-    }
-
-    try {
-        const res = await fetch(`/api/businesses/${businessSlug}/review`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ rating: reviewRating, review_text: text })
-        });
-        const data = await res.json();
-        if (data.success) {
-            if (typeof showToast === 'function') {
-                showToast('✅ Review submitted!', 'success');
-            }
-            document.getElementById('reviewText').value = '';
-            setRating(0);
-            loadBusinessReviews();
-            loadBusinessProfile();
-        } else {
-            alert('❌ ' + (data.error || 'Could not submit your review. Please try again.'));
-        }
-    } catch (err) {
-        alert('❌ Network error. Please try again.');
-    }
-}
-
-// ============================================================
 //  FOLLOW/UNFOLLOW BUSINESS
 //
 //  Role-scoped. The /follow-status and /follow endpoints require
@@ -1560,8 +1564,6 @@ window.goToMarketplaceCart = goToMarketplaceCart;
 window.changeBusinessSlide = changeBusinessSlide;
 window.loadBusinessProfile = loadBusinessProfile;
 window.toggleBusinessWishlist = toggleBusinessWishlist;
-window.setRating = setRating;
-window.submitBusinessReview = submitBusinessReview;
 window.toggleFollow = toggleFollow;
 window.filterBusinessProducts = filterBusinessProducts;
 window.showToast = showToast;
@@ -1588,4 +1590,8 @@ window.renderOrdersPausedContactBlock = renderOrdersPausedContactBlock;
 window.renderHeroMedia = renderHeroMedia;
 window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
 
-console.log('✅ Business Profile JS loaded successfully (FIXED - No circular dependency)');
+// Thank-you band + search tag chip exposures.
+window.renderThankYouBand = renderThankYouBand;
+window.renderHeroSearchTagChip = renderHeroSearchTagChip;
+
+console.log('✅ Business Profile JS loaded successfully (FIXED - reviews removed, thank-you band added)');

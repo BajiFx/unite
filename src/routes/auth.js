@@ -25,6 +25,26 @@
 //   value supplied is saved against the requesting customer's own
 //   row. Nothing is exposed on GET /customer/verify (D.11
 //   preserved).
+//
+//  Section — Business Search Tag (new):
+//   Every business now has a short, unique, human-typable tag of
+//   the form <digits><name> (e.g. 3734Doppa Beddings). The owner
+//   picks the digits (3 or 4) and the name during registration,
+//   and the server rejects the choice if the combination is
+//   already used by another business.
+//
+//   - GET  /check-business-tag   → availability check used by the
+//                                  registration form to mark the
+//                                  prefix input red when taken.
+//   - POST /business/register    → accepts search_prefix and
+//                                  search_name, validates them,
+//                                  rejects duplicates, and lets
+//                                  the DB trigger fill in the
+//                                  normalized search_tag.
+//
+//   Normalization and the final tag shape are handled by the
+//   database trigger defined in migrations/sql/004_business_search_tag.sql,
+//   so the write path and the search path can never drift apart.
 // ============================================================
 
 const express = require('express');
@@ -130,6 +150,56 @@ function normalisePreferred(value) {
 }
 
 // ============================================================
+//  BUSINESS SEARCH TAG — helpers
+//
+//  A tag is <digits><name> where digits are 3 or 4 numeric
+//  characters and name is any non-empty string. The DB trigger
+//  in 004_business_search_tag.sql normalizes both pieces, but
+//  we also do a defensive server-side check here so the register
+//  route can respond with a clean 400 before touching the
+//  database.
+// ============================================================
+
+function normalizeSearchTagPart(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function buildSearchTag(prefix, name) {
+    const p = normalizeSearchTagPart(prefix);
+    const n = normalizeSearchTagPart(name);
+    return p && n ? p + n : null;
+}
+
+function validateSearchPrefix(prefix) {
+    const str = String(prefix || '').trim();
+    if (!/^[0-9]{3,4}$/.test(str)) {
+        return {
+            ok: false,
+            error: 'Search number must be 3 or 4 digits (e.g. 363 or 3734).'
+        };
+    }
+    return { ok: true, value: str };
+}
+
+function validateSearchName(name) {
+    const str = String(name || '').trim();
+    if (str.length < 2) {
+        return {
+            ok: false,
+            error: 'Search name must be at least 2 characters.'
+        };
+    }
+    if (str.length > 120) {
+        return {
+            ok: false,
+            error: 'Search name must be 120 characters or fewer.'
+        };
+    }
+    return { ok: true, value: str };
+}
+
+// ============================================================
 //  CHECK USERNAME AVAILABILITY
 // ============================================================
 
@@ -163,6 +233,85 @@ router.get('/check-username', async (req, res) => {
     } catch (err) {
         console.error('❌ Username check error:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+//  CHECK BUSINESS SEARCH TAG AVAILABILITY
+//
+//  Called by the registration form (debounced on input) and by
+//  the business-admin panel when the owner changes their tag.
+//  The response tells the UI whether the digits + name combo is
+//  free so it can turn the prefix input red and show the message
+//  "This number is already used. Please try another."
+//
+//  Query params:
+//    prefix   — the 3–4 digit number (required)
+//    name     — the name the owner wants customers to type (required)
+//    exclude  — optional business id to ignore (used when the
+//               owner is editing their own tag and the row
+//               already holds the same values)
+// ============================================================
+
+router.get('/check-business-tag', async (req, res) => {
+    try {
+        const prefixCheck = validateSearchPrefix(req.query.prefix);
+        if (!prefixCheck.ok) {
+            return res.status(400).json({
+                available: false,
+                error: prefixCheck.error
+            });
+        }
+
+        const nameCheck = validateSearchName(req.query.name);
+        if (!nameCheck.ok) {
+            return res.status(400).json({
+                available: false,
+                error: nameCheck.error
+            });
+        }
+
+        const excludeId = Number.parseInt(req.query.exclude, 10);
+        const hasExclude = Number.isInteger(excludeId) && excludeId > 0;
+
+        // The DB trigger recomputes search_tag from
+        // search_prefix + search_name, and the stored value is
+        // already normalized (lowercase, only [a-z0-9]). We use
+        // the same normalization here so the check matches the
+        // unique index exactly.
+        const candidateTag = buildSearchTag(prefixCheck.value, nameCheck.value);
+
+        const params = [candidateTag];
+        let query =
+            'SELECT id, business_name, search_display FROM businesses WHERE search_tag = $1';
+
+        if (hasExclude) {
+            query += ' AND id <> $2';
+            params.push(excludeId);
+        }
+
+        const result = await pool.query(query, params);
+
+        if (result.rows.length > 0) {
+            return res.json({
+                available: false,
+                message: 'This number is already used. Please try another.',
+                taken_by: result.rows[0].business_name || null,
+                display: result.rows[0].search_display || null
+            });
+        }
+
+        return res.json({
+            available: true,
+            message: 'This search tag is available.',
+            display: `${prefixCheck.value}${nameCheck.value}`
+        });
+    } catch (err) {
+        console.error('❌ Check business tag error:', err);
+        res.status(500).json({
+            available: false,
+            error: 'Could not check the search tag right now. Please try again.'
+        });
     }
 });
 
@@ -389,6 +538,15 @@ router.post('/customer/login', loginLimiter, [
 //  A.4 — Validate category
 //  A.5 — Save selected category with the business record
 //  A.6 — Support primary + additional categories
+//
+//  Search tag (new):
+//   - accepts `search_prefix` (3 or 4 digits) and `search_name`
+//     (the name the owner wants customers to type);
+//   - validates both, checks that the normalized combination is
+//     not already used by another business, and rejects the
+//     request with 409 if it is;
+//   - stores the raw prefix and name on the row; the DB trigger
+//     fills in search_tag and search_display automatically.
 // ============================================================
 
 router.post('/business/register', upload.fields([
@@ -410,6 +568,8 @@ router.post('/business/register', upload.fields([
     console.log('📝 Username:', req.body.username);
     console.log('📝 Category:', req.body.category);
     console.log('📝 Additional categories:', req.body.additional_categories);
+    console.log('📝 Search prefix:', req.body.search_prefix);
+    console.log('📝 Search name:', req.body.search_name);
 
     const validationErrors = validationResult(req);
     if (!validationErrors.isEmpty()) {
@@ -427,7 +587,9 @@ router.post('/business/register', upload.fields([
       shipping_policy, return_policy, terms_policy, privacy_policy,
       delivery_enabled, online_orders_enabled,
       username,
-      category
+      category,
+      search_prefix,
+      search_name
     } = req.body;
 
     const additional_categories = req.body.additional_categories;
@@ -488,6 +650,44 @@ router.post('/business/register', upload.fields([
       });
     }
 
+    // ----------------------------------------------------------
+    //  Business Search Tag — validate the two pieces
+    // ----------------------------------------------------------
+    const prefixCheck = validateSearchPrefix(search_prefix);
+    if (!prefixCheck.ok) {
+      return res.status(400).json({
+        error: prefixCheck.error,
+        field: 'search_prefix'
+      });
+    }
+
+    const nameCheck = validateSearchName(search_name);
+    if (!nameCheck.ok) {
+      return res.status(400).json({
+        error: nameCheck.error,
+        field: 'search_name'
+      });
+    }
+
+    const candidateTag = buildSearchTag(prefixCheck.value, nameCheck.value);
+
+    const tagConflict = await pool.query(
+      'SELECT id, business_name FROM businesses WHERE search_tag = $1 LIMIT 1',
+      [candidateTag]
+    );
+
+    if (tagConflict.rows.length > 0) {
+      return res.status(409).json({
+        error: 'This number is already used. Please try another.',
+        field: 'search_prefix',
+        taken_by: tagConflict.rows[0].business_name || null
+      });
+    }
+
+    // ----------------------------------------------------------
+    //  Existing username + email checks
+    // ----------------------------------------------------------
+
     const existingUsername = await pool.query(
       'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
       [username]
@@ -537,6 +737,15 @@ router.post('/business/register', upload.fields([
     const adminId = adminResult.rows[0].id;
     console.log('✅ Admin user created:', adminId);
 
+    // ----------------------------------------------------------
+    //  Insert the business row.
+    //
+    //  search_prefix and search_name are written raw. The DB
+    //  trigger set_business_search_tag() fills in search_tag,
+    //  search_display and search_tag_updated_at in the same
+    //  statement. search_tag_confirmed is set TRUE here because
+    //  the owner is choosing it deliberately during registration.
+    // ----------------------------------------------------------
     const businessResult = await pool.query(`
       INSERT INTO businesses (
         business_name, slug, owner_id, location, address,
@@ -549,9 +758,10 @@ router.post('/business/register', upload.fields([
         paypal_enabled, paypal_email,
         shipping_policy, return_policy, terms_policy, privacy_policy,
         delivery_enabled, online_orders_enabled,
-        is_verified, is_active
+        is_verified, is_active,
+        search_prefix, search_name, search_tag_confirmed
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)
       RETURNING id
     `, [
       business_name.trim(), slug, adminId,
@@ -572,7 +782,8 @@ router.post('/business/register', upload.fields([
       shipping_policy || null, return_policy || null,
       terms_policy || null, privacy_policy || null,
       delivery_enabled !== 'false', online_orders_enabled !== 'false',
-      true, true
+      true, true,
+      prefixCheck.value, nameCheck.value, true
     ]);
     const businessId = businessResult.rows[0].id;
     console.log('✅ Business created:', businessId);
@@ -595,26 +806,43 @@ router.post('/business/register', upload.fields([
     const token = generateToken(email, 'business_admin', adminId);
     setAuthCookie(res, token);
 
+    const savedBusiness = businessData.rows[0];
+
     console.log('✅ Business registered successfully:', business_name);
     console.log('✅ Email:', email);
     console.log('✅ Username:', username);
     console.log('✅ Business ID:', businessId);
     console.log('✅ Category IDs saved:', allCategoryIds.join(', '));
+    console.log('✅ Search tag saved:', savedBusiness.search_display || '(none)');
 
     res.status(201).json({
       success: true,
       role: 'business_admin',
       business_id: businessId,
-      business: businessData.rows[0],
+      business: savedBusiness,
       slug: slug,
       category_ids: allCategoryIds,
       primary_category_id: primaryCategoryId,
       additional_category_ids: additionalCategoryIds,
+      search_display: savedBusiness.search_display || null,
+      search_tag: savedBusiness.search_tag || null,
       message: 'Business registered successfully!'
     });
 
   } catch (err) {
     await pool.query('ROLLBACK');
+
+    // The unique index on search_tag is the last line of defense
+    // against a race between two simultaneous registrations that
+    // picked the same digits + name. Convert the raw Postgres
+    // error into the same friendly message the pre-check returns.
+    if (err && err.code === '23505' && err.constraint === 'idx_businesses_search_tag_unique') {
+      return res.status(409).json({
+        error: 'This number is already used. Please try another.',
+        field: 'search_prefix'
+      });
+    }
+
     console.error('❌ Business registration error:', err);
     res.status(500).json({ error: err.message });
   }
@@ -724,6 +952,11 @@ router.get('/verify', authMiddleware, (req, res) => {
 //  Section B: returns `has_business_category` so the admin UI can
 //  warn businesses that registered before Section B and have no
 //  business category assigned yet.
+//
+//  Search tag: returns search_prefix / search_name / search_tag /
+//  search_display / search_tag_confirmed so the business admin
+//  panel can show the owner their current tag and let them change
+//  it without a second request.
 // ============================================================
 
 router.get('/my-business', authMiddleware, async (req, res) => {
@@ -806,16 +1039,105 @@ router.get('/my-business', authMiddleware, async (req, res) => {
     const business = businessResult.rows[0];
     console.log('✅ Business found:', business.business_name);
     console.log('✅ Business category count:', business.business_category_count);
+    console.log('✅ Search tag:', business.search_display || '(none)');
 
     res.json({
       business,
       role: user.role,
-      has_business_category: parseInt(business.business_category_count, 10) > 0
+      has_business_category: parseInt(business.business_category_count, 10) > 0,
+      has_search_tag: Boolean(business.search_tag) && business.search_tag_confirmed === true
     });
 
   } catch (err) {
     console.error('❌ Get my business error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  UPDATE MY BUSINESS SEARCH TAG
+//
+//  Lets a business admin change the search tag from the admin
+//  panel after registration. Uses the same validation and
+//  uniqueness rules as the register route, and returns the new
+//  tag so the UI can render it immediately.
+//
+//  Body:
+//    search_prefix   — 3 or 4 digits
+//    search_name     — the name customers will type
+// ============================================================
+
+router.put('/my-business/search-tag', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+  try {
+    const { search_prefix, search_name } = req.body || {};
+
+    const prefixCheck = validateSearchPrefix(search_prefix);
+    if (!prefixCheck.ok) {
+      return res.status(400).json({ error: prefixCheck.error, field: 'search_prefix' });
+    }
+
+    const nameCheck = validateSearchName(search_name);
+    if (!nameCheck.ok) {
+      return res.status(400).json({ error: nameCheck.error, field: 'search_name' });
+    }
+
+    const candidateTag = buildSearchTag(prefixCheck.value, nameCheck.value);
+
+    const conflict = await pool.query(
+      'SELECT id, business_name FROM businesses WHERE search_tag = $1 AND id <> $2 LIMIT 1',
+      [candidateTag, req.businessId]
+    );
+
+    if (conflict.rows.length > 0) {
+      return res.status(409).json({
+        error: 'This number is already used. Please try another.',
+        field: 'search_prefix',
+        taken_by: conflict.rows[0].business_name || null
+      });
+    }
+
+    const result = await pool.query(`
+      UPDATE businesses
+      SET search_prefix = $1,
+          search_name = $2,
+          search_tag_confirmed = TRUE,
+          updated_at = NOW()
+      WHERE id = $3
+      RETURNING id, business_name, search_prefix, search_name,
+                search_tag, search_display, search_tag_confirmed,
+                search_tag_updated_at
+    `, [prefixCheck.value, nameCheck.value, req.businessId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    const row = result.rows[0];
+    await logAdminActivity(req.userId, 'UPDATE_SEARCH_TAG', {
+      businessId: req.businessId,
+      search_display: row.search_display
+    });
+
+    res.json({
+      success: true,
+      business: {
+        search_prefix: row.search_prefix,
+        search_name: row.search_name,
+        search_tag: row.search_tag,
+        search_display: row.search_display,
+        search_tag_confirmed: row.search_tag_confirmed,
+        search_tag_updated_at: row.search_tag_updated_at
+      }
+    });
+  } catch (err) {
+    if (err && err.code === '23505' && err.constraint === 'idx_businesses_search_tag_unique') {
+      return res.status(409).json({
+        error: 'This number is already used. Please try another.',
+        field: 'search_prefix'
+      });
+    }
+    console.error('❌ Update search tag error:', err);
+    res.status(500).json({ error: 'Unable to save the search tag right now.' });
   }
 });
 

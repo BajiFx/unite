@@ -6,6 +6,17 @@
 //   - The product's defined category is rendered as a chip.
 //   - The related filter dropdown now surfaces defined product
 //     categories alongside the legacy free-text categories.
+//
+//  Reviews removal (this revision):
+//   The customer-facing write-a-review form and the reviews list
+//   have been removed from the page. A warm thank-you band takes
+//   their place. The band's business name is injected here by
+//   renderThankYouBand() so it feels personal. The review tables
+//   and routes remain in the backend, untouched; only the
+//   customer-facing surface is gone.
+//
+//   The aggregate star rating in the product info section is a
+//   different feature and is intentionally kept.
 // ============================================================
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -15,7 +26,6 @@ if (!productId) {
 }
 
 let detailQty = 1;
-let detailReviewRating = 0;
 let currentVariantId = null;
 let currentMediaIndex = 0;
 let currentProduct = null;
@@ -97,7 +107,7 @@ async function loadProductDetail() {
       if (filtered.length > 0) related = filtered;
     }
 
-    renderDetail(data.product, data.reviews || [], related);
+    renderDetail(data.product, related);
   } catch (err) {
     document.getElementById('detailContent').innerHTML = `<p style="color:#ef4444;">Error: ${err.message}</p>`;
   }
@@ -106,7 +116,7 @@ async function loadProductDetail() {
 // ============================================================
 //  RENDER DETAIL
 // ============================================================
-function renderDetail(product, reviews, related) {
+function renderDetail(product, related) {
   const container = document.getElementById('detailContent');
 
   let variant = allVariants.find(v => v.id === currentVariantId) || allVariants[0];
@@ -188,7 +198,7 @@ function renderDetail(product, reviews, related) {
     </div>
   `;
 
-  // Rating
+  // Rating (aggregate only — no write-a-review form and no reviews list)
   const ratingValue = parseFloat(product.rating) || 0;
   const fullStars = Math.round(ratingValue);
   let ratingHtml = '';
@@ -281,26 +291,6 @@ function renderDetail(product, reviews, related) {
     </div>
   `;
 
-  // Reviews
-  let reviewsHtml = '';
-  if (reviews && reviews.length > 0) {
-    reviewsHtml = reviews.slice(0, 4).map(r => `
-      <div class="review-item">
-        <div class="rating">${'⭐'.repeat(Math.min(r.rating, 5))}</div>
-        <div class="review-text">${r.review_text || ''}</div>
-        <div class="review-meta">
-          <span class="reviewer">${r.customer_name || 'Anonymous'}</span>
-          <span>${new Date(r.created_at).toLocaleDateString()}</span>
-        </div>
-      </div>
-    `).join('');
-    if (reviews.length > 4) {
-      reviewsHtml += `<div class="review-more" onclick="loadAllReviews()">+ ${reviews.length - 4} more reviews</div>`;
-    }
-  } else {
-    reviewsHtml = `<div class="review-empty">No reviews yet. Be the first to review!</div>`;
-  }
-
   // Related
   let relatedHtml = '';
   // A product without an uploaded photo still receives a deterministic visual
@@ -389,34 +379,6 @@ function renderDetail(product, reviews, related) {
       </div>
     </div>
 
-    <div class="reviews-wrapper">
-      <div class="write-review">
-        <h4><i class="fas fa-pen" style="color:#2563eb;"></i> Write a Review</h4>
-        <div class="stars-row">
-          <span class="stars" id="reviewStars">
-            <span onclick="setRating(1)">⭐</span>
-            <span onclick="setRating(2)">⭐</span>
-            <span onclick="setRating(3)">⭐</span>
-            <span onclick="setRating(4)">⭐</span>
-            <span onclick="setRating(5)">⭐</span>
-          </span>
-          <span class="rating-hint">👆 Click a star to rate this product</span>
-        </div>
-        <textarea id="reviewText" placeholder="Share your experience with this product..." rows="2"></textarea>
-        <button class="btn-submit" onclick="submitReview(${product.id})">Submit Review</button>
-      </div>
-
-      <div class="reviews-section">
-        <h3>
-          ⭐ Reviews
-          <span class="review-count-badge">${reviews ? reviews.length : 0}</span>
-        </h3>
-        <div class="reviews-list">
-          ${reviewsHtml}
-        </div>
-      </div>
-    </div>
-
     <div class="related-products">
       <h3>You may also like</h3>
       <div class="products-filters related-filters">
@@ -426,13 +388,34 @@ function renderDetail(product, reviews, related) {
       <div class="related-grid">${relatedHtml}</div>
     </div>
   `;
+
+  // Thank-you band — replace the old write-a-review form and reviews
+  // list with a warm, personalised closing band. The business name is
+  // injected here.
+  renderThankYouBand(product);
 }
 
 // ============================================================
-//  LOAD ALL REVIEWS (EXPAND)
+//  THANK-YOU BAND
+//
+//  Replaces the old reviews section. The band is a static DOM
+//  block in public/html/product-detail.html; this function only
+//  injects the business name into it so the band feels personal.
+//
+//  The band is always visible once the product is loaded.
 // ============================================================
-function loadAllReviews() {
-  loadProductDetail();
+
+function renderThankYouBand(product) {
+  const band = document.getElementById('thankYouBand');
+  const nameEl = document.getElementById('thankYouBusinessName');
+  if (!band) return;
+
+  const name = product && product.business_name
+    ? String(product.business_name).trim()
+    : 'our business';
+  if (nameEl) nameEl.textContent = name;
+
+  band.style.display = '';
 }
 
 // ============================================================
@@ -520,42 +503,6 @@ function buyNow() {
 }
 
 // ============================================================
-//  REVIEW
-// ============================================================
-function setRating(rating) {
-  detailReviewRating = rating;
-  const stars = document.querySelectorAll('#reviewStars span');
-  stars.forEach((star, index) => {
-    star.style.color = index < rating ? '#f59e0b' : '#d1d5db';
-  });
-}
-
-function submitReview(productId) {
-  const text = document.getElementById('reviewText').value.trim();
-  if (!detailReviewRating) { alert('Please select a rating.'); return; }
-  if (!text) { alert('Please write a review.'); return; }
-  const token = window.customerToken;
-  if (!token) { alert('Please login first.'); return; }
-  fetch(`/api/products/${productId}/review`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ rating: detailReviewRating, review_text: text })
-  })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        showToast('✅ Review submitted!', 'success');
-        document.getElementById('reviewText').value = '';
-        setRating(0);
-        loadProductDetail();
-      } else {
-        showToast('❌ Failed to submit review.', 'error');
-      }
-    })
-    .catch(() => showToast('❌ Network error.', 'error'));
-}
-
-// ============================================================
 //  INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -589,9 +536,7 @@ window.selectMedia = selectMedia;
 window.changeDetailQty = changeDetailQty;
 window.addVariantToCart = addVariantToCart;
 window.buyNow = buyNow;
-window.setRating = setRating;
-window.submitReview = submitReview;
 window.loadProductDetail = loadProductDetail;
-window.loadAllReviews = loadAllReviews;
 window.fallbackMediaUrl = fallbackMediaUrl;
 window.filterRelatedProducts = filterRelatedProducts;
+window.renderThankYouBand = renderThankYouBand;

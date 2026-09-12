@@ -51,15 +51,17 @@
 //        list are driven by ad-management.js which is loaded
 //        on the same page.
 //
-//        On first entry the helper window.initAdManagement() is
-//        called so the drop zone, form events, product picker,
-//        and ad list are wired up. On later visits we only call
-//        window.loadAds() to refresh the list.
-//
-//        Both calls are guarded, so if ad-management.js has not
-//        loaded yet (slow network, script order) the page does
-//        not throw — the section simply shows its built-in
-//        "Loading your ads..." placeholder.
+//  Section — Business Search Tag
+//   A read-only card in the Business Profile section shows the
+//   owner their current Search Tag (e.g. 3734Doppa Beddings)
+//   with a copy button. The same card has an "Edit" affordance
+//   that opens a small inline form with the two raw pieces:
+//     - search_prefix (3–4 digits)
+//     - search_name   (the name customers will type)
+//   Availability is checked live against /api/auth/check-business-tag
+//   so the owner sees a red prefix input the moment the combination
+//   collides with another business. Saving calls
+//   PUT /api/auth/my-business/search-tag.
 // ============================================================
 
 // Check if running in embedded mode (inside dashboard panel)
@@ -113,6 +115,20 @@ let currentLocationState = {
 
 // Section I.6 — read-only environment label value from the server
 let currentMpesaEnvironment = 'sandbox';
+
+// Business Search Tag — current cached state from the server.
+let currentSearchTag = {
+    prefix: null,
+    name: null,
+    tag: null,
+    display: null,
+    confirmed: false,
+    updated_at: null
+};
+
+// Business Search Tag — debounce timer for the live availability check.
+let adminSearchTagDebounceTimer = null;
+const ADMIN_SEARCH_TAG_DEBOUNCE_MS = 400;
 
 function escapeHtml(value) {
     const element = document.createElement('div');
@@ -278,6 +294,10 @@ async function verifyBusinessAccess() {
             longitude: data.business.longitude || null
         });
 
+        // Business Search Tag — hydrate the read-only card and cache
+        // the raw pieces so the edit form starts from the right place.
+        hydrateSearchTagFromBusiness(businessData);
+
         initSocket();
         await Promise.all([
             loadBusinessCategories(),
@@ -362,10 +382,6 @@ function applyCategoryWarning(hasCategory) {
 //  Section C — location state helpers
 // ============================================================
 
-/**
- * Central place that turns "what we know about the business location"
- * into visible UI: the status badge (C.8) and the warning (C.9).
- */
 function applyLocationState(state) {
     if (!state) return;
     currentLocationState = {
@@ -379,11 +395,6 @@ function applyLocationState(state) {
     renderLocationWarning(currentLocationState);
 }
 
-/**
- * C.8 — Show the green "✅ Location Activated" badge when the business
- * has an activated location, and the amber "Not Activated" badge
- * otherwise.
- */
 function updateLocationStatusBadge(state = currentLocationState) {
     const activatedBadge = document.getElementById('locationStatusBadge');
     const inactiveBadge = document.getElementById('locationStatusBadgeInactive');
@@ -403,10 +414,6 @@ function updateLocationStatusBadge(state = currentLocationState) {
     }
 }
 
-/**
- * C.9 — Show the warning banner when the business has no coordinates
- * and no town/county. Hide it otherwise.
- */
 function renderLocationWarning(state = currentLocationState) {
     const warning = document.getElementById('businessLocationWarning');
     if (!warning) return;
@@ -424,10 +431,6 @@ function renderLocationWarning(state = currentLocationState) {
     }
 }
 
-/**
- * C.5 — Lazily initialise (or refresh) the Leaflet map for the location
- * preview. The marker is draggable so the admin can adjust the pin.
- */
 function renderBusinessLocationMap(latitude, longitude) {
     const wrapper = document.getElementById('businessLocationMapWrapper');
     const mapContainer = document.getElementById('businessLocationMap');
@@ -456,17 +459,11 @@ function renderBusinessLocationMap(latitude, longitude) {
         businessLocationMarker = L.marker([lat, lng], { draggable: true }).addTo(businessLocationMap);
     }
 
-    // Defer the size recalculation until the map element is visible.
     setTimeout(() => {
         try { businessLocationMap.invalidateSize(); } catch (err) { /* noop */ }
     }, 250);
 }
 
-/**
- * C.3 / C.4 / C.6 — Ask the browser for the current position, then post
- * the coordinates to the server. Re-calling this function refreshes the
- * coordinates (C.6).
- */
 async function activateBusinessLocation() {
     const statusEl = document.getElementById('locationActivationStatus');
     const activateBtn = document.getElementById('activateLocationBtn');
@@ -523,8 +520,6 @@ async function activateBusinessLocation() {
 
                 renderBusinessLocationMap(latitude, longitude);
 
-                // Persist the coordinates in the underlying businessData
-                // so other sections stay consistent.
                 if (businessData) {
                     businessData.latitude = String(latitude);
                     businessData.longitude = String(longitude);
@@ -571,9 +566,6 @@ async function activateBusinessLocation() {
     );
 }
 
-/**
- * C.5 — Save the pin the admin has dragged on the map.
- */
 async function saveAdjustedBusinessPin() {
     if (!businessLocationMarker) {
         showToast('Activate the location first, then drag the pin.', 'warning');
@@ -622,6 +614,474 @@ async function saveAdjustedBusinessPin() {
             statusEl.style.color = '#ef4444';
         }
         showToast('❌ ' + err.message, 'error');
+    }
+}
+
+// ============================================================
+//  BUSINESS SEARCH TAG — admin panel card + edit form
+//
+//  The owner sees a small read-only card in the Business Profile
+//  section showing their current tag. From that card they can:
+//    - Copy the tag (so they can tell customers)
+//    - Edit the two raw pieces (number + name) with live
+//      availability feedback from /api/auth/check-business-tag
+//
+//  The save calls PUT /api/auth/my-business/search-tag, which is
+//  the only endpoint that writes search_prefix / search_name from
+//  the admin panel. The DB trigger handles normalization.
+// ============================================================
+
+/**
+ * Copy the current search tag to the clipboard.
+ * Uses the async clipboard API when available, falls back to a
+ * hidden textarea + execCommand for older browsers.
+ */
+function copySearchTag(tag) {
+    const value = String(tag || currentSearchTag.display || '').trim();
+    if (!value) return;
+
+    const fallback = () => {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = value;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'absolute';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            showToast(`Copied: ${value}`, 'success');
+        } catch (err) {
+            showToast('Could not copy. Please copy it manually.', 'warning');
+        }
+    };
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(value)
+            .then(() => showToast(`Copied: ${value}`, 'success'))
+            .catch(fallback);
+    } else {
+        fallback();
+    }
+}
+
+/**
+ * Read the tag state out of the business row returned by
+ * /api/auth/my-business and store it in `currentSearchTag`, then
+ * render the read-only card. Safe to call more than once.
+ */
+function hydrateSearchTagFromBusiness(business) {
+    if (!business) return;
+
+    currentSearchTag = {
+        prefix: business.search_prefix || null,
+        name: business.search_name || null,
+        tag: business.search_tag || null,
+        display: business.search_display || null,
+        confirmed: business.search_tag_confirmed === true,
+        updated_at: business.search_tag_updated_at || null
+    };
+
+    renderSearchTagCard();
+}
+
+/**
+ * Render the read-only Search Tag card inside the Business Profile
+ * section. Creates the container lazily on first call and re-uses it
+ * afterwards so the section markup stays stable.
+ *
+ * The card hides its Edit form when the owner is not editing, and
+ * shows the current tag with a copy button.
+ */
+function renderSearchTagCard() {
+    const profileSection = document.getElementById('section-profile');
+    if (!profileSection) return;
+
+    let card = document.getElementById('businessSearchTagCard');
+
+    if (!card) {
+        card = document.createElement('div');
+        card.id = 'businessSearchTagCard';
+        card.className = 'settings-section';
+        card.style.cssText = 'margin-bottom:16px; background:#f0fdf4; border:1px solid #86efac;';
+
+        // Insert the card before the first existing settings-section
+        // in the profile section (i.e. above the location card).
+        const firstSettings = profileSection.querySelector('.settings-section');
+        if (firstSettings) {
+            profileSection.insertBefore(card, firstSettings);
+        } else {
+            profileSection.appendChild(card);
+        }
+    }
+
+    const hasTag = Boolean(currentSearchTag.display && currentSearchTag.tag);
+    const isPlaceholder = hasTag
+        && typeof currentSearchTag.tag === 'string'
+        && currentSearchTag.tag.startsWith('000');
+
+    let bodyHtml;
+
+    if (hasTag && !isPlaceholder) {
+        // The happy path: the owner already has a real tag.
+        const confirmedBadge = currentSearchTag.confirmed
+            ? ''
+            : `<span style="font-size:0.65rem; color:#92400e; background:#fef3c7; padding:2px 8px; border-radius:10px; margin-left:6px;">Not yet confirmed</span>`;
+
+        bodyHtml = `
+            <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:220px;">
+                    <div style="font-size:0.7rem; color:#166534; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">
+                        Your search tag ${confirmedBadge}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <span style="font-family:monospace; font-size:1.05rem; font-weight:800; color:#14532d; letter-spacing:0.02em;">
+                            ${escapeHtml(currentSearchTag.display)}
+                        </span>
+                        <button type="button"
+                                onclick="copySearchTag('${escapeHtml(currentSearchTag.display).replace(/'/g, "\\'")}')"
+                                style="background:#16a34a; color:#fff; border:none; padding:4px 12px; border-radius:16px; font-size:0.7rem; font-weight:700; cursor:pointer;">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                    <p style="font-size:0.7rem; color:#166534; margin:6px 0 0 0; line-height:1.4;">
+                        Customers can type this into the marketplace search bar to jump straight to your shop.
+                        Spaces and case do not matter.
+                    </p>
+                </div>
+                <button type="button"
+                        onclick="openSearchTagEdit()"
+                        style="background:#e2e8f0; color:#1e293b; border:1px solid #cbd5e1; padding:6px 14px; border-radius:6px; font-size:0.75rem; font-weight:700; cursor:pointer;">
+                    <i class="fas fa-edit"></i> Change
+                </button>
+            </div>
+            <div id="searchTagEditWrap" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid #bbf7d0;"></div>
+        `;
+    } else {
+        // No tag yet, or the auto-generated placeholder is still in place.
+        const msg = isPlaceholder
+            ? 'Your current tag is a temporary placeholder. Please pick a real one below.'
+            : 'You do not have a search tag yet. Pick a number and a name below so customers can find your shop.';
+
+        bodyHtml = `
+            <div style="font-size:0.7rem; color:#166534; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">
+                Business Search Tag
+            </div>
+            <p style="font-size:0.8rem; color:#166534; margin:0 0 10px 0; line-height:1.5;">
+                ${escapeHtml(msg)}
+            </p>
+            <div id="searchTagEditWrap" style="display:block;"></div>
+        `;
+    }
+
+    card.innerHTML = `
+        <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0; color:#14532d;">
+            🔖 Find me by my search tag
+        </h3>
+        ${bodyHtml}
+    `;
+
+    // If the edit form should be visible right away, render it now.
+    const editWrap = document.getElementById('searchTagEditWrap');
+    if (editWrap && editWrap.style.display !== 'none') {
+        renderSearchTagEditForm(editWrap);
+    }
+}
+
+/**
+ * Draw the inline edit form (number + name + preview + save/cancel).
+ * Called once by openSearchTagEdit() and again by renderSearchTagCard()
+ * when the owner has no tag yet (so the form is shown inline).
+ */
+function renderSearchTagEditForm(container) {
+    if (!container) return;
+
+    const prefix = currentSearchTag.prefix || '';
+    const name = currentSearchTag.name || '';
+
+    container.innerHTML = `
+        <div style="background:#ffffff; border:1px solid #bbf7d0; border-radius:10px; padding:12px;">
+            <div style="font-size:0.75rem; font-weight:700; color:#14532d; margin-bottom:6px;">
+                Choose your search tag
+            </div>
+
+            <div style="display:grid; grid-template-columns:110px 1fr; gap:8px; align-items:start;">
+                <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#334155; display:block; margin-bottom:2px;">
+                        Number
+                    </label>
+                    <input type="text"
+                           id="adminSearchTagPrefix"
+                           placeholder="3734"
+                           maxlength="4"
+                           inputmode="numeric"
+                           autocomplete="off"
+                           value="${escapeHtml(prefix)}"
+                           style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem; font-family:monospace; letter-spacing:0.05em;">
+                    <small style="font-size:0.55rem; color:#64748b;">3 or 4 digits</small>
+                </div>
+                <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#334155; display:block; margin-bottom:2px;">
+                        Name customers will type
+                    </label>
+                    <input type="text"
+                           id="adminSearchTagName"
+                           placeholder="Doppa Beddings"
+                           maxlength="120"
+                           autocomplete="off"
+                           value="${escapeHtml(name)}"
+                           style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem;">
+                    <small style="font-size:0.55rem; color:#64748b;">Can be the same as your business name</small>
+                </div>
+            </div>
+
+            <div id="adminSearchTagPreview"
+                 style="display:none; margin-top:8px; padding:6px 10px; background:#dcfce7; border-radius:6px; border-left:3px solid #16a34a;">
+                <div style="font-size:0.6rem; color:#166534;">Customers will search:</div>
+                <div id="adminSearchTagPreviewValue"
+                     style="font-size:0.85rem; font-weight:800; color:#14532d; font-family:monospace;">
+                </div>
+            </div>
+
+            <div id="adminSearchTagStatus"
+                 style="display:none; margin-top:6px; font-size:0.7rem; line-height:1.4;"></div>
+
+            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                <button type="button"
+                        id="adminSearchTagSaveBtn"
+                        onclick="saveBusinessSearchTag()"
+                        style="background:#16a34a; color:#fff; border:none; padding:8px 18px; border-radius:6px; font-size:0.8rem; font-weight:700; cursor:pointer;">
+                    <i class="fas fa-save"></i> Save tag
+                </button>
+                <button type="button"
+                        onclick="closeSearchTagEdit()"
+                        style="background:#e2e8f0; color:#1e293b; border:1px solid #cbd5e1; padding:8px 16px; border-radius:6px; font-size:0.8rem; font-weight:700; cursor:pointer;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    `;
+
+    // Wire the live preview + debounced availability check.
+    const prefixInput = document.getElementById('adminSearchTagPrefix');
+    const nameInput = document.getElementById('adminSearchTagName');
+
+    if (prefixInput) {
+        prefixInput.addEventListener('input', () => {
+            const cleaned = prefixInput.value.replace(/[^0-9]/g, '').slice(0, 4);
+            if (cleaned !== prefixInput.value) prefixInput.value = cleaned;
+            updateAdminSearchTagPreview();
+            debounceAdminSearchTagCheck();
+        });
+    }
+    if (nameInput) {
+        nameInput.addEventListener('input', () => {
+            updateAdminSearchTagPreview();
+            debounceAdminSearchTagCheck();
+        });
+    }
+
+    updateAdminSearchTagPreview();
+}
+
+function updateAdminSearchTagPreview() {
+    const preview = document.getElementById('adminSearchTagPreview');
+    const valueEl = document.getElementById('adminSearchTagPreviewValue');
+    if (!preview || !valueEl) return;
+
+    const prefix = document.getElementById('adminSearchTagPrefix')?.value.trim() || '';
+    const name = document.getElementById('adminSearchTagName')?.value.trim() || '';
+
+    if (!prefix || !name) {
+        preview.style.display = 'none';
+        valueEl.textContent = '';
+        return;
+    }
+
+    preview.style.display = 'block';
+    valueEl.textContent = `${prefix}${name}`;
+}
+
+function setAdminSearchTagStatus(message, tone) {
+    const el = document.getElementById('adminSearchTagStatus');
+    if (!el) return;
+
+    if (!message) {
+        el.style.display = 'none';
+        el.textContent = '';
+        el.style.color = '';
+        return;
+    }
+
+    el.style.display = 'block';
+    el.textContent = message;
+
+    if (tone === 'ok') el.style.color = '#166534';
+    else if (tone === 'error') el.style.color = '#ef4444';
+    else if (tone === 'checking') el.style.color = '#2563eb';
+    else el.style.color = '#64748b';
+}
+
+async function checkAdminSearchTagAvailability() {
+    const prefixInput = document.getElementById('adminSearchTagPrefix');
+    const nameInput = document.getElementById('adminSearchTagName');
+    if (!prefixInput || !nameInput) return;
+
+    const prefix = prefixInput.value.trim();
+    const name = nameInput.value.trim();
+
+    prefixInput.style.borderColor = '#d1d5db';
+    setAdminSearchTagStatus('', '');
+
+    if (!prefix && !name) return;
+
+    if (!/^[0-9]{3,4}$/.test(prefix)) {
+        if (prefix) {
+            prefixInput.style.borderColor = '#ef4444';
+            setAdminSearchTagStatus('The number must be 3 or 4 digits (e.g. 363 or 3734).', 'error');
+        }
+        return;
+    }
+
+    if (name.length < 2) {
+        if (name) {
+            setAdminSearchTagStatus('Please type the name customers will use (at least 2 characters).', 'error');
+        }
+        return;
+    }
+
+    setAdminSearchTagStatus('Checking availability...', 'checking');
+
+    try {
+        const exclude = businessData && businessData.id ? `&exclude=${encodeURIComponent(businessData.id)}` : '';
+        const url = `/api/auth/check-business-tag?prefix=${encodeURIComponent(prefix)}&name=${encodeURIComponent(name)}${exclude}`;
+        const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        const data = await res.json();
+
+        if (data && data.available) {
+            prefixInput.style.borderColor = '#22c55e';
+            setAdminSearchTagStatus(`✅ "${prefix}${name}" is available.`, 'ok');
+        } else {
+            prefixInput.style.borderColor = '#ef4444';
+            setAdminSearchTagStatus(
+                data && data.message
+                    ? '❌ ' + data.message
+                    : '❌ This number is already used. Please try another.',
+                'error'
+            );
+        }
+    } catch (err) {
+        setAdminSearchTagStatus('Could not check the tag right now. You can still save; the server will check again.', '');
+    }
+}
+
+function debounceAdminSearchTagCheck() {
+    if (adminSearchTagDebounceTimer) clearTimeout(adminSearchTagDebounceTimer);
+    adminSearchTagDebounceTimer = setTimeout(() => {
+        adminSearchTagDebounceTimer = null;
+        checkAdminSearchTagAvailability();
+    }, ADMIN_SEARCH_TAG_DEBOUNCE_MS);
+}
+
+function openSearchTagEdit() {
+    const wrap = document.getElementById('searchTagEditWrap');
+    if (!wrap) return;
+
+    wrap.style.display = 'block';
+    renderSearchTagEditForm(wrap);
+
+    const prefixInput = document.getElementById('adminSearchTagPrefix');
+    if (prefixInput) prefixInput.focus();
+}
+
+function closeSearchTagEdit() {
+    const wrap = document.getElementById('searchTagEditWrap');
+    if (wrap) {
+        wrap.style.display = 'none';
+        wrap.innerHTML = '';
+    }
+}
+
+async function saveBusinessSearchTag() {
+    const prefixInput = document.getElementById('adminSearchTagPrefix');
+    const nameInput = document.getElementById('adminSearchTagName');
+    const saveBtn = document.getElementById('adminSearchTagSaveBtn');
+
+    if (!prefixInput || !nameInput) return;
+
+    const prefix = prefixInput.value.trim();
+    const name = nameInput.value.trim();
+
+    if (!/^[0-9]{3,4}$/.test(prefix)) {
+        prefixInput.style.borderColor = '#ef4444';
+        setAdminSearchTagStatus('The number must be 3 or 4 digits.', 'error');
+        prefixInput.focus();
+        return;
+    }
+    if (name.length < 2) {
+        setAdminSearchTagStatus('Please type the name customers will use.', 'error');
+        nameInput.focus();
+        return;
+    }
+
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    }
+    setAdminSearchTagStatus('Saving...', 'checking');
+
+    try {
+        const res = await fetch('/api/auth/my-business/search-tag', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ search_prefix: prefix, search_name: name })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            if (data && data.field === 'search_prefix') {
+                prefixInput.style.borderColor = '#ef4444';
+                prefixInput.focus();
+            }
+            throw new Error(data.error || 'Failed to save the search tag');
+        }
+
+        const saved = data.business || {};
+        currentSearchTag = {
+            prefix: saved.search_prefix || prefix,
+            name: saved.search_name || name,
+            tag: saved.search_tag || null,
+            display: saved.search_display || `${prefix}${name}`,
+            confirmed: saved.search_tag_confirmed === true,
+            updated_at: saved.search_tag_updated_at || new Date().toISOString()
+        };
+
+        // Keep the cached businessData in sync so a reload does not
+        // show stale values before the next /my-business call.
+        if (businessData) {
+            businessData.search_prefix = currentSearchTag.prefix;
+            businessData.search_name = currentSearchTag.name;
+            businessData.search_tag = currentSearchTag.tag;
+            businessData.search_display = currentSearchTag.display;
+            businessData.search_tag_confirmed = currentSearchTag.confirmed;
+        }
+
+        showToast(`✅ Search tag saved: ${currentSearchTag.display}`, 'success');
+        closeSearchTagEdit();
+        renderSearchTagCard();
+    } catch (err) {
+        console.error('Save search tag error:', err);
+        setAdminSearchTagStatus('❌ ' + err.message, 'error');
+        showToast('❌ ' + err.message, 'error');
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> Save tag';
+        }
     }
 }
 
@@ -754,18 +1214,6 @@ function navigateTo(section) {
             loadOrders();
             break;
         case 'ads':
-            // Section J.2 — the ad form + list live in #section-ads and
-            // are driven by ad-management.js, which is loaded on this
-            // same page.
-            //
-            // First visit: initialise the ad management surface
-            // (fetch business, wire the drop zone, load products for
-            // the target picker, load the ads list).
-            //
-            // Later visits: just refresh the ads list.
-            //
-            // Both calls are guarded so a slow network or script order
-            // problem does not throw here.
             (function openAdsSection() {
                 if (typeof window.initAdManagement !== 'function') {
                     console.warn('⚠️ ad-management.js not loaded yet; the ads section will stay in its placeholder state.');
@@ -777,8 +1225,6 @@ function navigateTo(section) {
                     Promise.resolve(window.initAdManagement())
                         .catch(function (err) {
                             console.error('Ad management init failed:', err);
-                            // Allow a later retry: reset the flag so a
-                            // second click can try again.
                             adManagementInitialised = false;
                         });
                     return;
@@ -1773,11 +2219,6 @@ async function loadCustomers() {
 
 // ============================================================
 //  BUSINESS PROFILE
-//  C.7 — location name fields are read here and written back
-//        by the profile submit handler.
-//  C.5 — once coordinates are known, the map preview is rendered.
-//  C.8 / C.9 — the badge and warning are refreshed from the
-//              profile response.
 // ============================================================
 
 async function loadBusinessProfile() {
@@ -1798,7 +2239,6 @@ async function loadBusinessProfile() {
             bDescription: business.description || '',
             bMission: business.mission || '',
             bVision: business.vision || '',
-            // C.7 — human-readable location names
             bContinent: business.continent || '',
             bCountry: business.country || '',
             bCounty: business.county || '',
@@ -1834,9 +2274,6 @@ async function loadBusinessProfile() {
         const deliveryToggle = document.getElementById('deliveryEnabled');
         if (deliveryToggle) deliveryToggle.checked = business.delivery_enabled !== false;
 
-        // Section C — refresh badge, warning, and (if we have coordinates)
-        // the map preview. The public business response carries the
-        // activation state; the profile response carries the raw coords.
         const publicLocation = publicBusiness.location || {};
         applyLocationState({
             activated: publicLocation.activated === true || business.location_activated === true,
@@ -1848,6 +2285,10 @@ async function loadBusinessProfile() {
         if (business.latitude && business.longitude) {
             renderBusinessLocationMap(business.latitude, business.longitude);
         }
+
+        // Business Search Tag — keep the read-only card in sync if the
+        // profile response carries the freshest values.
+        hydrateSearchTagFromBusiness(business);
 
     } catch (err) {
         console.error('❌ Profile error:', err);
@@ -1903,6 +2344,9 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
 
             // Business categories changed → product categories may have changed.
             await loadProductCategories(true);
+
+            // Refresh the Search Tag card from the freshest business row.
+            hydrateSearchTagFromBusiness(businessData);
         } else {
             if (status) { status.textContent = '❌ ' + (data.error || 'Failed to update'); status.style.color = '#ef4444'; }
         }
@@ -1913,13 +2357,8 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
 
 // ============================================================
 //  PAYMENT SETTINGS
-//  Section I — M-Pesa type selector and per-type fields
 // ============================================================
 
-/**
- * I.2 — Show the field group that matches the selected M-Pesa type.
- * Called on load and whenever a radio changes.
- */
 function updateMpesaFields() {
     const selected = document.querySelector('input[name="mpesa_payment_type"]:checked');
     const type = selected ? selected.value : '';
@@ -1933,10 +2372,6 @@ function updateMpesaFields() {
     if (pochiFields) pochiFields.style.display = type === 'pochi' ? 'block' : 'none';
 }
 
-/**
- * I.6 — Render the read-only environment label. The value comes from
- * the server, not from the browser, and the admin cannot change it here.
- */
 function renderMpesaEnvironmentLabel(environment) {
     const label = document.getElementById('mpesaEnvironmentLabel');
     if (!label) return;
@@ -1951,11 +2386,6 @@ function renderMpesaEnvironmentLabel(environment) {
     `;
 }
 
-/**
- * I.3 — Validate the M-Pesa block based on the selected type.
- * Returns { ok: true } when the record can be saved, or
- * { ok: false, message: '...' } with a clear reason.
- */
 function validateMpesaSettings() {
     const enabled = document.getElementById('pMpesaEnabled')?.checked === true;
     if (!enabled) return { ok: true };
@@ -1999,7 +2429,6 @@ async function loadPaymentSettings() {
         if (!res.ok) throw new Error('Failed to load payment settings');
         const settings = await res.json();
 
-        // Existing providers
         document.getElementById('pMpesaEnabled').checked = settings.mpesa_enabled || false;
         document.getElementById('pAirtelEnabled').checked = settings.airtel_enabled || false;
         document.getElementById('pAirtelNumber').value = settings.airtel_number || '';
@@ -2010,7 +2439,6 @@ async function loadPaymentSettings() {
         document.getElementById('pPaypalEnabled').checked = settings.paypal_enabled || false;
         document.getElementById('pPaypalEmail').value = settings.paypal_email || '';
 
-        // Section I.1 / I.2 — M-Pesa type and per-type fields.
         const paymentType = settings.mpesa_payment_type || 'paybill';
         document.querySelectorAll('input[name="mpesa_payment_type"]').forEach(r => {
             r.checked = r.value === paymentType;
@@ -2028,7 +2456,6 @@ async function loadPaymentSettings() {
 
         updateMpesaFields();
 
-        // I.6 — read-only environment label
         if (settings.mpesa_environment) {
             currentMpesaEnvironment = settings.mpesa_environment;
         }
@@ -2043,7 +2470,6 @@ async function loadPaymentSettings() {
 document.getElementById('paymentSettingsForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
 
-    // Section I.3 — block the save with a clear per-type message.
     const mpesaCheck = validateMpesaSettings();
     if (!mpesaCheck.ok) {
         const status = document.getElementById('paymentStatus');
@@ -2055,7 +2481,6 @@ document.getElementById('paymentSettingsForm')?.addEventListener('submit', async
     const selectedType = document.querySelector('input[name="mpesa_payment_type"]:checked');
 
     const data = {
-        // Section I — M-Pesa type and per-type fields.
         mpesa_enabled: document.getElementById('pMpesaEnabled').checked,
         mpesa_payment_type: selectedType ? selectedType.value : null,
         mpesa_paybill_number: document.getElementById('pMpesaPaybillNumber')?.value.trim() || null,
@@ -2063,7 +2488,6 @@ document.getElementById('paymentSettingsForm')?.addEventListener('submit', async
         mpesa_till_number: document.getElementById('pMpesaTillNumber')?.value.trim() || null,
         pochi_la_biashara_number: document.getElementById('pPochiNumber')?.value.trim() || null,
 
-        // Airtel / Bank / PayPal
         airtel_enabled: document.getElementById('pAirtelEnabled').checked,
         airtel_number: document.getElementById('pAirtelNumber').value,
         bank_enabled: document.getElementById('pBankEnabled').checked,
@@ -2123,7 +2547,6 @@ function toggleDeliveryOffered(value) {
         if (freeValue) toggleDeliveryFree(freeValue);
         updateDeliveryPreview();
     }
-    // Section H.3 — if delivery changed, re-evaluate the orders warning.
     updateOrderDeliveryWarning();
 }
 
@@ -2292,7 +2715,6 @@ async function loadDeliverySettings() {
             loadDeliveryOrders();
         }
 
-        // Section H.3 — refresh the orders warning after delivery loads.
         updateOrderDeliveryWarning();
     } catch (err) {
         console.error('❌ Delivery settings error:', err);
@@ -2345,7 +2767,6 @@ document.getElementById('deliveryForm')?.addEventListener('submit', async functi
             showToast('✅ Delivery settings saved!', 'success');
             updateDeliveryPreview();
             loadDeliveryOrders();
-            // Section H.3 — re-evaluate the orders warning after save.
             updateOrderDeliveryWarning();
         } else {
             status.textContent = '❌ ' + (result.error || 'Failed to save');
@@ -2400,23 +2821,12 @@ async function loadDeliveryOrders() {
 
 // ============================================================
 //  ORDER SETTINGS
-//  H.1 — show_cart_when_disabled
-//  H.2 — order_disabled_message
-//  H.3 — updateOrderDeliveryWarning()
-//  H.7 — updateOrderPreview() reflects the customer-facing state
 // ============================================================
 
-/**
- * H.3 — Warn the admin when online orders are on but delivery is off.
- * The policy is "warn only": we never silently flip a setting.
- */
 function updateOrderDeliveryWarning() {
     const warning = document.getElementById('orderDeliveryWarning');
     if (!warning) return;
 
-    // The delivery state we trust here is whatever the delivery form
-    // currently shows as selected. If the form has not been loaded yet,
-    // fall back to businessData.
     const offeredRadio = document.querySelector('input[name="delivery_offered"]:checked');
     const deliveryOff = offeredRadio
         ? offeredRadio.value === 'no'
@@ -2465,11 +2875,9 @@ async function loadOrderSettings() {
         document.getElementById('orderReturnPolicy').value = settings.return_policy || 'Returns accepted within 14 days of delivery. Products must be in original condition.';
         document.getElementById('orderReturnWindow').value = settings.return_window_days || 14;
 
-        // Section H.1 — cart visibility when orders are off
         const showCartEl = document.getElementById('showCartWhenDisabled');
         if (showCartEl) showCartEl.checked = settings.show_cart_when_disabled === true;
 
-        // Section H.2 — custom message when orders are off
         const disabledMessageEl = document.getElementById('orderDisabledMessageText');
         if (disabledMessageEl) disabledMessageEl.value = settings.order_disabled_message || '';
 
@@ -2489,11 +2897,6 @@ function toggleOrderSettingsVisibility(enabled) {
     if (disabledMessage) disabledMessage.style.display = enabled ? 'none' : 'block';
 }
 
-/**
- * H.7 — Preview that reflects the H.4 / H.5 customer-facing state.
- * When orders are off, the preview shows exactly what the customer will
- * see, including the custom message and the cart visibility choice.
- */
 function updateOrderPreview() {
     const container = document.getElementById('orderPreviewContent');
     if (!container) return;
@@ -2506,7 +2909,6 @@ function updateOrderPreview() {
     const replacementHours = document.getElementById('orderReplacementHours').value || 6;
     const returnWindow = document.getElementById('orderReturnWindow').value || 14;
 
-    // Section H.1 / H.2 — read the new fields for the preview.
     const showCartWhenDisabled = document.getElementById('showCartWhenDisabled')?.checked === true;
     const customMessage = (document.getElementById('orderDisabledMessageText')?.value || '').trim();
     const effectiveMessage = customMessage || DEFAULT_ORDER_DISABLED_MESSAGE;
@@ -2547,7 +2949,6 @@ function updateOrderPreview() {
             </div>
         `;
     } else {
-        // Section H.4 / H.5 — exact customer-facing state when orders are off.
         html += `
             <div style="margin-top:8px; padding:8px 12px; background:#fef2f2; border-radius:6px; border-left:3px solid #ef4444;">
                 <p style="font-size:0.8rem; color:#991b1b; margin:0 0 6px 0;">
@@ -2573,7 +2974,6 @@ function updateOrderPreview() {
 }
 
 async function saveOrderSettings() {
-    // Section H.1 / H.2 — read the two new fields.
     const showCartEl = document.getElementById('showCartWhenDisabled');
     const disabledMessageEl = document.getElementById('orderDisabledMessageText');
 
@@ -2584,7 +2984,6 @@ async function saveOrderSettings() {
         require_pod_agreement: document.getElementById('requirePodAgreement').checked,
         pod_agreement_text: document.getElementById('podAgreementText').value.trim(),
 
-        // Section H.1 / H.2
         show_cart_when_disabled: showCartEl ? showCartEl.checked : false,
         order_disabled_message: disabledMessageEl ? disabledMessageEl.value.trim() : '',
 
@@ -2637,7 +3036,6 @@ function updateOrderSettingsUI() {
     const enabled = document.getElementById('orderOnlineEnabled').checked;
     toggleOrderSettingsVisibility(enabled);
     updateOrderPreview();
-    // Section H.3 — re-evaluate the delivery-vs-orders warning.
     updateOrderDeliveryWarning();
 }
 
@@ -2919,5 +3317,14 @@ window.updateOrderDeliveryWarning = updateOrderDeliveryWarning;
 window.updateMpesaFields = updateMpesaFields;
 window.validateMpesaSettings = validateMpesaSettings;
 window.renderMpesaEnvironmentLabel = renderMpesaEnvironmentLabel;
+
+// Business Search Tag — expose admin panel helpers
+window.renderSearchTagCard = renderSearchTagCard;
+window.copySearchTag = copySearchTag;
+window.openSearchTagEdit = openSearchTagEdit;
+window.closeSearchTagEdit = closeSearchTagEdit;
+window.saveBusinessSearchTag = saveBusinessSearchTag;
+window.checkAdminSearchTagAvailability = checkAdminSearchTagAvailability;
+window.hydrateSearchTagFromBusiness = hydrateSearchTagFromBusiness;
 
 console.log('✅ Business Admin JS loaded successfully');

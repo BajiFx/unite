@@ -35,11 +35,27 @@
   <div id="detailContent"><p style="text-align:center; padding:40px;">Loading...</p></div>
 </div>
 
-<!-- ===== BOTTOM NAV - FIXED ===== -->
+<!-- ============================================================ -->
+<!-- THANK-YOU BAND                                               -->
+<!--                                                              -->
+<!-- Replaces the old reviews section. Warm, positive, and always -->
+<!-- visible. The business name is injected by product-detail.js   -->
+<!-- into #thankYouBusinessName so the band feels personal.        -->
+<!-- No review UI, no stars, no textarea.                          -->
+<!-- ============================================================ -->
+<div class="thank-you-band" id="thankYouBand" role="contentinfo">
+  <div class="thank-you-band-inner">
+    <span class="thank-you-band-icon" aria-hidden="true">🙏</span>
+    <p class="thank-you-band-text">
+      Thank you for visiting <span id="thankYouBusinessName">our business</span>. We value you!
+    </p>
+  </div>
+</div>
+
+<!-- ===== BOTTOM NAV ===== -->
 <div class="bottom-nav">
   <a href="#" id="productBusinessHomeNav"><i class="fas fa-home"></i><span>Home</span></a>
   <a href="/category.html" id="productNavCategory"><i class="fas fa-th-large"></i><span>Category</span></a>
-  <!-- FIXED: Messages tab now opens chat -->
   <a href="#" id="productNavMessages" onclick="openChatTab(); return false;"><i class="fas fa-envelope"></i><span>Messages</span></a>
   <a href="/cart.html" id="productNavCart" style="position:relative;">
     <i class="fas fa-shopping-cart"></i>

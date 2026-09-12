@@ -7,11 +7,27 @@
       H.5 — contact-only container shown in place of cart buttons
             when orders are off
 
+     Reviews removal (this revision):
+      The reviews section and its write-a-review block have been
+      removed from the customer-facing page. A warm thank-you band
+      takes their place. The business name is injected by
+      business-profile.js so the band feels personal. The review
+      tables and routes remain in the backend, untouched; only the
+      customer-facing surface is gone.
+
+     Search tag chip (this revision):
+      A small click-to-copy chip is rendered in the hero info
+      panel so a customer who lands on a shop can copy its search
+      tag and paste it back into the marketplace search bar
+      later. business-profile.js fills the text and wires the
+      copy button. The chip is hidden when the business has no
+      confirmed tag.
+
      Hero redesign:
       The hero is a three-column band on desktop:
         LEFT   — small column, logo only, plain background.
         MIDDLE — writings panel: name, location, address, stats,
-                 Shop Now, Follow, Verified badge.
+                 Shop Now, Follow, Verified badge, search tag chip.
         RIGHT  — media panel: one image OR one video.
                  The description block now rides ON TOP of the
                  media (title, tagline, bullets, location,
@@ -24,8 +40,8 @@
       The slider block that used to sit between the About card
       and the Our Products section has been removed.
 
-     About card (this revision):
-      The About card is now a full-width Mission + Vision band.
+     About card:
+      The About card is a full-width Mission + Vision band.
       The description block that used to live beside it has been
       removed from the About card and moved into the hero media
       column as an overlay.
@@ -127,6 +143,19 @@
         <h1 id="heroTitle" class="hero-title">Welcome</h1>
         <p id="heroLocation" class="hero-meta-line">📍 Nairobi, Kenya</p>
         <p id="heroAddress" class="hero-meta-line"></p>
+
+        <!-- Business Search Tag chip — click to copy. Hidden by
+             business-profile.js when the business has no
+             confirmed tag. -->
+        <div id="heroSearchTagChip" style="display:none; margin-top:6px;">
+          <button
+            type="button"
+            id="heroSearchTagBtn"
+            title="Click to copy this shop's search tag"
+            style="display:inline-flex; align-items:center; gap:6px; padding:4px 12px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:20px; color:#f8fafc; font-size:0.72rem; font-weight:700; font-family:monospace; letter-spacing:0.03em; cursor:pointer; transition:background-color 0.2s ease;">
+            🔖 <span id="heroSearchTagValue"></span>
+          </button>
+        </div>
 
         <div class="hero-meta" id="heroMeta">
           <span><i class="fas fa-box"></i> <span id="productCount">0</span> products</span>
@@ -246,27 +275,23 @@
       </div>
     </div>
 
-    <!-- ===== REVIEWS ===== -->
-    <div class="reviews-section">
-      <h3>⭐ Customer Reviews</h3>
-      <div id="reviewsList"><p style="color:#94a3b8;">Loading reviews...</p></div>
-
-      <div class="write-review" id="writeReviewSection">
-        <h4>✍️ Write a Review</h4>
-        <div class="stars-row">
-          <span class="stars" id="reviewStars">
-            <span onclick="setRating(1)">⭐</span>
-            <span onclick="setRating(2)">⭐</span>
-            <span onclick="setRating(3)">⭐</span>
-            <span onclick="setRating(4)">⭐</span>
-            <span onclick="setRating(5)">⭐</span>
-          </span>
-          <span class="rating-hint">👆 Tap a star to rate this business</span>
-        </div>
-        <textarea id="reviewText" placeholder="Tell us about your experience with this business..." rows="2"></textarea>
-        <button class="btn-submit" onclick="submitBusinessReview()">Submit Review</button>
+    <!-- ============================================================ -->
+    <!-- THANK-YOU BAND                                               -->
+    <!--                                                              -->
+    <!-- Replaces the old reviews section. Warm, positive, and always -->
+    <!-- visible. The business name is injected by                      -->
+    <!-- business-profile.js into #thankYouBusinessName so the band     -->
+    <!-- feels personal. No review UI, no stars, no textarea.           -->
+    <!-- ============================================================ -->
+    <div class="thank-you-band" id="thankYouBand" role="contentinfo">
+      <div class="thank-you-band-inner">
+        <span class="thank-you-band-icon" aria-hidden="true">🙏</span>
+        <p class="thank-you-band-text">
+          Thank you for visiting <span id="thankYouBusinessName">our business</span>. We value you!
+        </p>
       </div>
     </div>
+
   </div>
 </div>
 

@@ -107,6 +107,30 @@
 //   R.7 — The products array returned with the same response is
 //         rotated by the same offset, so the product tiles also
 //         get a fair share of the top of the page.
+//
+//  Section — Business Search Tag (new):
+//   Every business has a short, unique, human-typable tag of the
+//   form <digits><name> (e.g. 3734Doppa Beddings). The owner
+//   picks the digits (3 or 4) and the name during registration,
+//   and the server stores a normalized version of the combination
+//   in `search_tag`.
+//
+//   In this route, the incoming `search` string is normalized
+//   the same way. If it is a prefix of one or more stored
+//   search_tags, the tag-matching businesses become the primary
+//   result set:
+//     - exactly one tag match   → return that one business only
+//     - multiple tag matches    → return those, ranked first,
+//                                 before the normal name/phone
+//                                 matches
+//     - no tag match            → fall through to the existing
+//                                 name / description / phone /
+//                                 location search, unchanged.
+//
+//   The progressive prefix lookup uses LENGTH(search_tag) prefix
+//   matching, so typing "3734", "3734d", "3734doppa", etc. all
+//   narrow the list step by step. A floor of 3 characters stops
+//   a single digit from matching far too many rows.
 // ============================================================
 
 const express = require('express');
@@ -180,23 +204,14 @@ const ANCHOR_SELF_KEYWORDS = [
 
 // ============================================================
 //  Section M.2 — Filler words
-//
-//  Common English and Swahili filler words that carry no search
-//  meaning. They are stripped AFTER anchor parsing (so "near me"
-//  is still consumed as an anchor, not as separate filler words).
-//
-//  Everything here is lowercase; matching is done on the already
-//  lowercased working string with word-boundary regex.
 // ============================================================
 
 const FILLER_WORDS = [
-    // English
     'i', 'me', 'my', 'we', 'us', 'you',
     'need', 'want', 'looking', 'for', 'show', 'find', 'get',
     'give', 'bring', 'please', 'some', 'a', 'an', 'the',
     'any', 'all', 'is', 'are', 'of', 'with', 'to', 'that', 'this',
 
-    // Swahili
     'nataka', 'ninataka', 'naomba', 'tafadhali', 'nipe', 'nilete',
     'kwa', 'ya', 'na'
 ];
@@ -206,8 +221,6 @@ const FILLER_WORD_REGEX = new RegExp(
     'g'
 );
 
-// Section M.7 — default cap for "near me" product searches when the
-// customer did not type an explicit "within Nkm".
 const DEFAULT_NEAR_ME_RADIUS_KM = 50;
 
 const geocodeCache = new Map();
@@ -367,7 +380,6 @@ function buildSearchRegex(rawText) {
     return `\\m(${words.map(w => `${w}\\w*`).join('|')})\\M`;
 }
 
-// Back-compat alias — some earlier code paths import the old name.
 function buildWordBoundaryRegex(rawText) {
     return buildSearchRegex(rawText);
 }
@@ -432,17 +444,6 @@ function computeSmartScore(row, searchText, hasAnchor, preferredCounty, preferre
 
 // ============================================================
 //  Section R — Per-visit business rotation helpers
-//
-//  The seed is stored in an HttpOnly cookie so:
-//    - The server is the single source of truth.
-//    - The client does not need to send anything back.
-//    - The same visit (same cookie jar) always sees the same
-//      order, even across pagination, filters, and reloads.
-//
-//  TTL 30 minutes means a customer who comes back to the
-//  marketplace later gets a fresh seed and therefore a freshly
-//  rotated list. Over a day, every business spends roughly the
-//  same amount of time near the top.
 // ============================================================
 
 const ROTATION_COOKIE_NAME = 'rotation_seed';
@@ -461,10 +462,6 @@ function getOrCreateRotationSeed(req, res) {
         return parseInt(existing, 10);
     }
 
-    // Derive a fresh seed from the clock. Two customers who land
-    // in the same 30-minute window will get very similar seeds,
-    // which is fine: the rotation is meant to advance between
-    // visits, not between every request.
     const fresh = Date.now() % Number.MAX_SAFE_INTEGER;
 
     try {
@@ -476,8 +473,6 @@ function getOrCreateRotationSeed(req, res) {
             path: '/'
         });
     } catch (err) {
-        // Non-fatal: if cookies cannot be set we simply skip
-        // rotation for this request.
         console.warn('Could not set rotation cookie:', err.message);
         return null;
     }
@@ -491,6 +486,93 @@ function rotateArray(list, offset) {
     const normalized = ((offset % n) + n) % n;
     if (normalized === 0) return list;
     return list.slice(normalized).concat(list.slice(0, normalized));
+}
+
+// ============================================================
+//  Business Search Tag — server-side helpers
+//
+//  The tag is <digits><name> (e.g. 3734Doppa Beddings). The
+//  stored `search_tag` column holds the normalized form:
+//  lowercase, only [a-z0-9], no spaces or punctuation.
+//
+//  During a customer search we normalize the incoming text the
+//  same way and match it as a prefix of `search_tag`. If at
+//  least one business's tag starts with what the customer has
+//  typed so far, those businesses become the primary result set.
+//
+//  A floor of 3 characters keeps a single digit from matching
+//  half the marketplace.
+// ============================================================
+
+const SEARCH_TAG_MIN_LENGTH = 3;
+const SEARCH_TAG_MAX_PREFIX_ATTEMPTS = 40;
+
+function normalizeSearchTagText(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Progressive prefix lookup against businesses.search_tag.
+ *
+ * The customer may type:
+ *   3734Doppa Beddings
+ *   3734 Doppa Beddings
+ *   37 34Doppa Beddings
+ *   3734doppa
+ *   doppa 3734
+ *   3734
+ *   Doppa
+ *
+ * We normalize the input to a single lowercase string with only
+ * [a-z0-9], then try the full length first, drop the last
+ * character, try again, and so on until either:
+ *   - at least one business matches, or
+ *   - we reach SEARCH_TAG_MIN_LENGTH characters.
+ *
+ * Only rows with a non-null search_tag (i.e. real tags, not the
+ * "000..." placeholders from the backfill) are considered.
+ *
+ * Returns { rows: [...], normalized: '...' } or null when
+ * nothing matched.
+ */
+async function lookupBusinessesBySearchTag(rawSearch) {
+    const normalized = normalizeSearchTagText(rawSearch);
+    if (!normalized || normalized.length < SEARCH_TAG_MIN_LENGTH) {
+        return null;
+    }
+
+    let attemptLength = Math.min(normalized.length, 160);
+    let attempts = 0;
+
+    while (attemptLength >= SEARCH_TAG_MIN_LENGTH && attempts < SEARCH_TAG_MAX_PREFIX_ATTEMPTS) {
+        const prefix = normalized.slice(0, attemptLength);
+
+        const result = await pool.query(`
+            SELECT b.*,
+                   (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
+                   (SELECT COALESCE(AVG(rating), 0) FROM business_reviews WHERE business_id = b.id) as avg_rating,
+                   (SELECT COUNT(*) FROM business_reviews WHERE business_id = b.id) as review_count,
+                   (SELECT COUNT(*) FROM business_followers WHERE business_id = b.id) as follower_count
+            FROM businesses b
+            WHERE b.is_active = true
+              AND b.search_tag IS NOT NULL
+              AND b.search_tag LIKE $1 || '%'
+            ORDER BY
+                CASE WHEN b.search_tag = $1 THEN 0 ELSE 1 END,
+                b.business_name ASC
+            LIMIT 20
+        `, [prefix]);
+
+        if (result.rows.length > 0) {
+            return { rows: result.rows, normalized: prefix };
+        }
+
+        attemptLength -= 1;
+        attempts += 1;
+    }
+
+    return null;
 }
 
 // ============================================================
@@ -602,33 +684,6 @@ router.get('/nearby', async (req, res) => {
 
 // ============================================================
 //  SECTION J / N — PUBLIC ADS FEED (HERO SLIDER ON MARKETPLACE)
-//
-//  N.6 — THE ROTATION IS SLOT-BASED, NOT TIME-BASED.
-//
-//  The ORDER BY is:
-//      slot ASC, business_id ASC, id ASC
-//
-//  Section J.5 — In addition, the response now publishes the
-//  three numbers the client needs to derive the CURRENT index
-//  from the wall clock:
-//
-//      rotation_slot_duration_ms — how long one ad occupies
-//      rotation_epoch_ms         — reference Unix time (0)
-//      rotation_offset           — fixed integer offset (0)
-//
-//  The client computes:
-//      slot  = floor((Date.now() - epoch) / slot_duration)
-//      index = (slot + offset) mod ads.length
-//
-//  Because the answer depends only on Date.now() and constants,
-//  every browser sees the same ad at the same wall-clock moment,
-//  and the wheel keeps turning while the customer is away.
-//
-//  Per-ad display_duration is deliberately NOT used to shape the
-//  global cycle: uniform 30 s slots keep the wheel from drifting.
-//  The field is still returned for the admin panel and any
-//  future per-ad UI, but the marketplace ignores it for the
-//  clock.
 // ============================================================
 
 const AD_ROTATION_SLOT_MS = 30 * 1000;   // 30 seconds per ad
@@ -679,7 +734,6 @@ router.get('/ads', async (req, res) => {
             interleave_by: 'slot',
             max_slots_per_business: 3,
 
-            // Section J.5 — clock-driven rotation metadata.
             rotation_slot_duration_ms: AD_ROTATION_SLOT_MS,
             rotation_epoch_ms: AD_ROTATION_EPOCH_MS,
             rotation_offset: AD_ROTATION_OFFSET,
@@ -773,19 +827,21 @@ router.post('/ads/:id/click', async (req, res) => {
 //  L   — Fuzzy fallback.
 //  M   — Sentence-to-word extraction.
 //
-//  Section R — Per-visit rotation of the default browse:
-//   R.1 — Only the default browse (no search, no explicit sort,
-//         no urgent toggle) is rotated.
-//   R.2 — The offset comes from a seed the server keeps in an
-//         HttpOnly cookie with a 30-minute TTL.
-//   R.3 — A missing or expired cookie is replaced with a fresh
-//         seed, so a customer who comes back later sees a freshly
-//         rotated list.
-//   R.4 — Pagination and filter changes reuse the same seed.
-//   R.5 — Search and explicit sorts are never rotated.
-//   R.6 — Ads and businesses have independent clocks.
-//   R.7 — The products array is rotated by the same offset so the
-//         product tiles also get a fair share of the top.
+//  Search tag (new) — see lookupBusinessesBySearchTag() above.
+//   - If the normalized search text is a prefix of at least one
+//     business's stored `search_tag`, the tag-matching rows are
+//     used as the primary result set.
+//   - If the tag lookup returns exactly one row, the endpoint
+//     short-circuits and returns that one business. Name/phone
+//     and product searches are not run, because the tag is a
+//     deliberate, precise choice by the customer.
+//   - If the tag lookup returns multiple rows, those rows are
+//     returned first, followed by the normal search results
+//     (deduplicated). Pagination applies to the merged list.
+//   - If the tag lookup returns nothing, the existing behaviour
+//     runs unchanged.
+//
+//  Section R — Per-visit rotation of the default browse.
 // ============================================================
 
 router.get('/', async (req, res) => {
@@ -811,6 +867,100 @@ router.get('/', async (req, res) => {
         // Section K — build the primary regex and the fuzzy text.
         const searchRegex = searchText ? buildSearchRegex(searchText) : null;
         const fuzzyText = searchText ? buildFuzzyText(searchText) : null;
+
+        // ------------------------------------------------------------
+        //  Search tag lookup (new).
+        //
+        //  We run it BEFORE the anchor resolution so a customer who
+        //  types a tag can be served without needing any location
+        //  context at all.
+        //
+        //  A tag match always wins for ranking, but never
+        //  short-circuits the whole endpoint unless it resolves to
+        //  exactly one business.
+        // ------------------------------------------------------------
+        let searchTagMatches = null;
+        let searchTagNormalized = null;
+
+        if (search) {
+            try {
+                const tagResult = await lookupBusinessesBySearchTag(search);
+                if (tagResult && tagResult.rows.length > 0) {
+                    searchTagMatches = tagResult.rows;
+                    searchTagNormalized = tagResult.normalized;
+                }
+            } catch (tagErr) {
+                console.warn('⚠️ Search tag lookup skipped:', tagErr.message);
+            }
+        }
+
+        // ------------------------------------------------------------
+        //  If the tag lookup resolved to exactly one business and the
+        //  caller did not send any other filter that would need to
+        //  apply (category, featured, verified, urgent, etc.), we
+        //  short-circuit and return just that business.
+        // ------------------------------------------------------------
+        const noOtherFilters =
+            (!category || category === 'all') &&
+            featured !== 'true' &&
+            verified !== 'true' &&
+            sort !== 'urgent' &&
+            !parsed.anchor &&
+            !parsed.verified &&
+            !parsed.featured &&
+            !parsed.isNew &&
+            !parsed.open &&
+            !parsed.delivery &&
+            !parsed.pickup &&
+            !parsed.minRating &&
+            !parsed.cheap;
+
+        if (searchTagMatches && searchTagMatches.length === 1 && noOtherFilters) {
+            const only = searchTagMatches[0];
+            return res.json({
+                businesses: [{
+                    ...only,
+                    product_matches: [],
+                    matched_word: searchTagNormalized,
+                    search_mode: 'tag',
+                    search_tag_match: true
+                }],
+                products: [],
+                search_word: searchTagNormalized,
+                search_mode: 'tag',
+                raw_search: (search || '').trim() || null,
+                anchor: null,
+                anchor_place: null,
+                radius_km: null,
+                effective_radius_km: null,
+                urgent: false,
+                smart: false,
+                preferred_anchor: null,
+                rotation: {
+                    applied: false,
+                    seed: null,
+                    cookie_name: ROTATION_COOKIE_NAME,
+                    cookie_ttl_ms: ROTATION_COOKIE_MAX_AGE_MS
+                },
+                parsed: {
+                    text: searchTagNormalized,
+                    verified: false,
+                    featured: false,
+                    new: false,
+                    open: false,
+                    delivery: false,
+                    pickup: false,
+                    min_rating: null,
+                    cheap: false
+                },
+                pagination: {
+                    page: parseInt(page, 10),
+                    limit: parseInt(limit, 10),
+                    total: 1,
+                    pages: 1
+                }
+            });
+        }
 
         // Resolve the anchor coordinates (only when an anchor exists).
         let anchorLat = null;
@@ -863,7 +1013,6 @@ router.get('/', async (req, res) => {
 
         // ------------------------------------------------------------
         //  E.4 — smart mode decision
-        //  smart applies only on pure browse: no sort, no search, no urgent.
         // ------------------------------------------------------------
         const smartMode =
             !sort &&
@@ -874,10 +1023,6 @@ router.get('/', async (req, res) => {
 
         // ------------------------------------------------------------
         //  Section R — per-visit rotation decision
-        //
-        //  Rotate ONLY the default browse. Any explicit sort, any
-        //  search text, or any urgent toggle takes precedence and
-        //  the list is returned in strict ranked order.
         // ------------------------------------------------------------
         const explicitSort = Boolean(sort);
         const rotateListing =
@@ -893,10 +1038,6 @@ router.get('/', async (req, res) => {
         if (rotateListing) {
             rotationSeed = getOrCreateRotationSeed(req, res);
             if (rotationSeed !== null) {
-                // The offset advances with the clock but stays
-                // constant within a single cookie window. We
-                // derive it from the seed itself so the same
-                // cookie always yields the same offset.
                 rotationOffset = rotationSeed;
             }
         }
@@ -1133,9 +1274,6 @@ router.get('/', async (req, res) => {
             let businessRows = businessResult.rows;
             let productRows = productResult.rows;
 
-            // Section M.7 — apply the effective radius to both
-            // business rows and product rows when the anchor
-            // produced a distance.
             if (hasAnchor && effectiveRadiusKm) {
                 businessRows = businessRows.filter(row =>
                     row.distance_km === null || Number(row.distance_km) <= effectiveRadiusKm
@@ -1179,6 +1317,37 @@ router.get('/', async (req, res) => {
         }
 
         // ------------------------------------------------------------
+        //  Search tag results: merge them in front of the normal
+        //  matches. Deduplicate by business id so a tag match that
+        //  also appears in the normal results is not shown twice.
+        //
+        //  Tag matches are marked so the client can style them
+        //  differently if it wants, and `search_mode` is set to
+        //  'tag' when the tag lookup produced anything.
+        // ------------------------------------------------------------
+        if (searchTagMatches && searchTagMatches.length > 0) {
+            const seen = new Set(searchTagMatches.map(r => r.id));
+            const merged = searchTagMatches.map(row => ({
+                ...row,
+                product_matches: [],
+                matched_word: searchTagNormalized,
+                search_mode: 'tag',
+                search_tag_match: true
+            }));
+
+            for (const row of businessRows) {
+                if (seen.has(row.id)) continue;
+                merged.push({
+                    ...row,
+                    search_tag_match: false
+                });
+            }
+
+            businessRows = merged;
+            if (mode === 'exact') mode = 'tag';
+        }
+
+        // ------------------------------------------------------------
         //  E.4 — Apply smart score in JS (only in smart mode).
         // ------------------------------------------------------------
         if (smartMode && businessRows.length > 1) {
@@ -1201,10 +1370,6 @@ router.get('/', async (req, res) => {
 
         // ------------------------------------------------------------
         //  Section R — apply the per-visit rotation.
-        //
-        //  Only when we decided to rotate. The seed may be null when
-        //  cookies are not available; in that case we simply leave
-        //  the list as-is rather than failing the request.
         // ------------------------------------------------------------
         let rotationApplied = false;
         let rotationSeedValue = null;
@@ -1259,12 +1424,17 @@ router.get('/', async (req, res) => {
         const businesses = businessRows.map(row => {
             const matches = productMatchesByBusiness.get(row.id) || [];
             const hasProductMatch = matches.length > 0;
+            const isTagMatch = row.search_tag_match === true;
 
             return {
                 ...row,
                 product_matches: hasProductMatch ? matches : [],
-                matched_word: hasProductMatch ? (searchText || null) : null,
-                search_mode: hasProductMatch ? mode : null
+                matched_word: isTagMatch
+                    ? (searchTagNormalized || null)
+                    : (hasProductMatch ? (searchText || null) : null),
+                search_mode: isTagMatch
+                    ? 'tag'
+                    : (hasProductMatch ? mode : null)
             };
         });
 
@@ -1361,15 +1531,11 @@ router.get('/', async (req, res) => {
             businesses,
             products: productMatches,
 
-            // Section M — the top-level search_word is the cleaned
-            // word only, never the customer's typed sentence.
             search_word: searchText || null,
             search_mode: searchText ? mode : null,
-
-            // Section M.1 — the raw typed sentence is echoed back so
-            // the frontend can show "You typed: i need blankets in
-            // nairobi" if it wants, without affecting the SELLS label.
             raw_search: (search || '').trim() || null,
+
+            search_tag: searchTagNormalized || null,
 
             anchor: hasAnchor ? anchorSource : null,
             anchor_place: anchorSource === 'place' ? parsed.anchorPlace : null,
@@ -1382,10 +1548,6 @@ router.get('/', async (req, res) => {
                 town: preferredTown || null
             } : null,
 
-            // Section R — rotation metadata. The client does not
-            // need to send anything back; the seed lives in an
-            // HttpOnly cookie. These fields are informational so
-            // the frontend can log or debug if it wants.
             rotation: {
                 applied: rotationApplied,
                 seed: rotationSeedValue,
@@ -1488,6 +1650,13 @@ router.get('/:slug', async (req, res) => {
                     specific_area: business.specific_area || null,
                     postal_code: business.postal_code || null
                 }
+            },
+            search_tag: {
+                prefix: business.search_prefix || null,
+                name: business.search_name || null,
+                tag: business.search_tag || null,
+                display: business.search_display || null,
+                confirmed: business.search_tag_confirmed === true
             },
             categories: categoriesResult.rows,
             stats: statsResult.rows[0] || {},

@@ -39,6 +39,17 @@
 //   R.2 — The client does not store or resend the seed; the server
 //         owns it.
 //   R.3 — The client does not re-fetch the first page on a timer.
+//
+//  Section — Business Search Tag (new):
+//   During business registration the owner picks:
+//     - a 3 or 4 digit number (search_prefix)
+//     - the name customers will type (search_name)
+//   The two combine into a search tag, e.g. 3734Doppa Beddings.
+//   As the owner types, the preview updates live and the server
+//   is asked whether the combination is already taken. When it
+//   is, the prefix input is marked red and a message is shown.
+//   The customer-facing card now also renders a small chip with
+//   the tag so a shopper can copy it and search it later.
 // ============================================================
 
 // ============================================================
@@ -100,10 +111,6 @@ const AD_DEFAULTS = Object.freeze({
   videoSeconds: 60
 });
 
-/* Palette used for the image-slide backdrop. Each ad deterministically
-   picks one pair based on its id, so the same ad always looks the same
-   every time the slider loads. All pairs are vibrant and warm, matching
-   the BidhaaLink brand — green, gold, teal, coral, violet, etc. */
 const AD_BACKDROP_PALETTE = [
   ['#16a34a', '#facc15'],  // green → gold
   ['#0ea5e9', '#22c55e'],  // sky → emerald
@@ -117,29 +124,27 @@ const AD_BACKDROP_PALETTE = [
 let adsList = [];
 let adsCurrentIndex = 0;
 
-// Section J.5 — clock state. Fallbacks used only when the server
-// has not yet sent its rotation metadata (older backend).
 let adsRotationMeta = {
   slotDurationMs: 30000,
   epochMs: 0,
   offset: 0
 };
 
-// Section J.5 — the single 500 ms interval that recomputes the
-// index from the clock. `adsClockTimer` is that interval. There is
-// no more `setTimeout` that "advances" the slide.
 let adsClockTimer = null;
 let adsSliderBound = false;
 let adsIsPaused = false;
 
-// Section J.5 — the progress bar is decoupled from the slide
-// advance. It is a pure visual: it counts down the current slot
-// using the clock, and jumps to 100% exactly when the slot does.
 let adsProgressTimer = null;
 
 // Section Q — in-feed ad strips. Tracks how many ads have been
 // consumed so the next strip continues the same global cycle.
 let inFeedAdsConsumed = 0;
+
+// ------------------------------------------------------------
+// Business Search Tag — registration-time state.
+// ------------------------------------------------------------
+let searchTagCheckDebounceTimer = null;
+const SEARCH_TAG_CHECK_DEBOUNCE_MS = 400;
 
 // ============================================================
 //  AUTO-FILL GUARD
@@ -633,6 +638,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   loadBusinessCategoriesForRegistration();
+  bindBusinessSearchTagFields();
 });
 
 // ============================================================
@@ -766,24 +772,6 @@ async function loadCategories() {
 
 // ============================================================
 //  SECTION J.5 — CLOCK-DRIVEN AD ROTATION
-//
-//  The server publishes three numbers:
-//    rotation_slot_duration_ms
-//    rotation_epoch_ms
-//    rotation_offset
-//
-//  We derive the current index locally:
-//    slot  = floor((Date.now() - epoch) / slot_duration)
-//    index = (slot + offset) mod ads.length
-//
-//  A single 500 ms interval recomputes the index and only
-//  re-renders if it has changed. No "advance on timeout".
-//
-//  Prev/next and dots jump the clock forward/backward by
-//  computing a matching index, not by advancing a local counter.
-//
-//  Per-ad display_duration is intentionally ignored for the
-//  global clock. Uniform 30 s slots keep the wheel from drifting.
 // ============================================================
 
 function updateAdRotationMetaFromResponse(data) {
@@ -810,7 +798,6 @@ function startAdClock() {
   stopAdClock();
   if (!Array.isArray(adsList) || adsList.length <= 1) return;
 
-  // Align the initial index with the clock right away.
   const initial = computeCurrentAdIndex();
   if (initial !== adsCurrentIndex) {
     adsCurrentIndex = initial;
@@ -820,10 +807,6 @@ function startAdClock() {
   }
 
   adsClockTimer = setInterval(() => {
-    // While the user has paused (hover / focus), the clock still
-    // ticks in real time. We simply do not re-render until the
-    // pause ends. That keeps "everyone sees the same ad at the
-    // same moment" true — the wheel turns even while paused.
     if (adsIsPaused) return;
     const next = computeCurrentAdIndex();
     if (next !== adsCurrentIndex) {
@@ -866,28 +849,21 @@ function updateAdsProgressBar(ratio) {
   bar.style.width = `${pct}%`;
 }
 
-/* Jump the clock so the target index becomes the current one. */
 function jumpAdClockToIndex(index) {
   if (!Array.isArray(adsList) || adsList.length === 0) return;
   const total = adsList.length;
   const target = ((index % total) + total) % total;
 
-  // Current slot number, from the clock.
   const now = Date.now();
   const currentSlot = Math.floor((now - adsRotationMeta.epochMs) / adsRotationMeta.slotDurationMs);
 
-  // Desired slot number so that (slot + offset) mod total == target.
-  // We pick the smallest shift forward that lands on target.
   const desiredSlotBase =
     target - adsRotationMeta.offset - ((currentSlot + adsRotationMeta.offset) % total);
-  // Normalise to the nearest forward step within the cycle.
   const shift = ((desiredSlotBase % total) + total) % total;
 
-  // Move the epoch so the clock now reads the desired slot.
   adsRotationMeta.epochMs =
     adsRotationMeta.epochMs + shift * adsRotationMeta.slotDurationMs;
 
-  // Immediately re-render.
   const next = computeCurrentAdIndex();
   if (next !== adsCurrentIndex) {
     adsCurrentIndex = next;
@@ -918,9 +894,6 @@ async function loadAds() {
     const data = await res.json();
     adsList = Array.isArray(data.ads) ? data.ads.filter(ad => ad && ad.media_url) : [];
 
-    // Section J.5 — pick up the rotation metadata once. The clock
-    // is anchored to the server's constants, so every browser
-    // derives the same index at the same wall-clock moment.
     updateAdRotationMetaFromResponse(data);
 
     if (adsList.length === 0) {
@@ -965,7 +938,6 @@ function renderAdsSlider() {
   }).join('');
 
   adsImpressionFiredFor = new Set();
-  // Section J.5 — set the initial active slide from the clock.
   adsCurrentIndex = computeCurrentAdIndex();
   adsImpressionFiredFor.add(adsCurrentIndex);
   updateAdsActiveSlide();
@@ -1171,20 +1143,6 @@ function escapeAdsAttr(value) {
 
 // ============================================================
 //  SECTION Q — IN-FEED AD STRIPS
-//
-//  Q.1 — One strip every 10 real business cards.
-//  Q.2 — 4 ads per strip.
-//  Q.3 — The counter only counts business cards.
-//  Q.4 — The strips walk the same global ad cycle as the hero.
-//        The hero is a showcase; the strips are the continuous
-//        scroll experience. Both share the clock.
-//  Q.5 — When the cycle is exhausted, no more strips are
-//        inserted.
-//
-//  The strips are re-inserted every time the business grid
-//  re-renders (i.e. on every loadBusinesses reset or append).
-//  inFeedAdsConsumed tracks how many ads have been pulled from
-//  the pool so far across the whole page.
 // ============================================================
 
 const IN_FEED_EVERY_N_BUSINESSES = 10;
@@ -1195,7 +1153,6 @@ function resetInFeedAdStrips() {
 }
 
 function buildInFeedAdStrip() {
-  // Q.5 — stop when the pool is exhausted.
   if (!Array.isArray(adsList) || adsList.length === 0) return null;
   if (inFeedAdsConsumed >= adsList.length) return null;
 
@@ -1234,12 +1191,8 @@ function insertInFeedAdStrips() {
   const grid = document.getElementById('businessGrid');
   if (!grid) return;
 
-  // Remove any previous strips so a re-render starts clean.
   grid.querySelectorAll('.in-feed-ad-strip').forEach(el => el.remove());
 
-  // The strips are inserted between cards. Cards are the direct
-  // children of #businessGrid. We walk them, and after every Nth
-  // real business card we insert one strip.
   const cards = Array.from(grid.querySelectorAll('.business-card'));
   if (cards.length === 0) return;
 
@@ -1250,8 +1203,7 @@ function insertInFeedAdStrips() {
     if (insertedSince === IN_FEED_EVERY_N_BUSINESSES) {
       insertedSince = 0;
       const strip = buildInFeedAdStrip();
-      if (!strip) break;   // Q.5 — cycle exhausted, stop inserting.
-      // Insert right after the Nth business card.
+      if (!strip) break;
       cards[i].insertAdjacentElement('afterend', strip);
     }
   }
@@ -1368,6 +1320,167 @@ function handleAdditionalCategoryChange() {
   if (errEl) errEl.style.display = 'none';
   const primarySelect = document.getElementById('regBusinessPrimaryCategory');
   if (primarySelect) primarySelect.style.borderColor = '#d1d5db';
+}
+
+// ============================================================
+//  BUSINESS SEARCH TAG — registration form wiring
+//
+//  Two fields, one live preview, one server availability check.
+//
+//   - regBusinessSearchPrefix (3–4 digits)
+//   - regBusinessSearchName   (the name customers will type)
+//
+//  As the owner types:
+//    1. The preview under the two inputs is rebuilt immediately.
+//    2. A debounced call to /api/auth/check-business-tag tells us
+//       whether the combination is already in use.
+//    3. When the server says "taken", the prefix input is turned
+//       red and the message is shown.
+// ============================================================
+
+function normalizeSearchTagPart(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function buildSearchTagDisplay(prefix, name) {
+  const p = String(prefix || '').trim();
+  const n = String(name || '').trim();
+  if (!p || !n) return '';
+  return `${p}${n}`;
+}
+
+function renderBusinessSearchPreview() {
+  const preview = document.getElementById('regBusinessSearchPreview');
+  const previewValue = document.getElementById('regBusinessSearchPreviewValue');
+  if (!preview || !previewValue) return;
+
+  const prefix = document.getElementById('regBusinessSearchPrefix')?.value || '';
+  const name = document.getElementById('regBusinessSearchName')?.value || '';
+
+  const display = buildSearchTagDisplay(prefix, name);
+  if (!display) {
+    preview.style.display = 'none';
+    previewValue.textContent = '';
+    return;
+  }
+
+  preview.style.display = 'block';
+  previewValue.textContent = display;
+}
+
+function setBusinessSearchStatus(message, tone) {
+  const statusEl = document.getElementById('regBusinessSearchStatus');
+  if (!statusEl) return;
+
+  if (!message) {
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
+    statusEl.style.color = '';
+    return;
+  }
+
+  statusEl.style.display = 'block';
+  statusEl.textContent = message;
+
+  if (tone === 'ok') statusEl.style.color = '#166534';
+  else if (tone === 'error') statusEl.style.color = '#ef4444';
+  else if (tone === 'checking') statusEl.style.color = '#2563eb';
+  else statusEl.style.color = '#64748b';
+}
+
+function clearBusinessSearchTagErrors() {
+  const prefixInput = document.getElementById('regBusinessSearchPrefix');
+  if (prefixInput) prefixInput.style.borderColor = '#d1d5db';
+  const errEl = document.getElementById('regBusinessSearchError');
+  if (errEl) errEl.style.display = 'none';
+}
+
+async function checkBusinessSearchTagAvailability() {
+  const prefixInput = document.getElementById('regBusinessSearchPrefix');
+  const nameInput = document.getElementById('regBusinessSearchName');
+  if (!prefixInput || !nameInput) return;
+
+  const prefix = prefixInput.value.trim();
+  const name = nameInput.value.trim();
+
+  clearBusinessSearchTagErrors();
+  setBusinessSearchStatus('', '');
+
+  if (!prefix && !name) return;
+
+  if (!/^[0-9]{3,4}$/.test(prefix)) {
+    if (prefix) {
+      setBusinessSearchStatus('The number must be 3 or 4 digits (e.g. 363 or 3734).', 'error');
+      prefixInput.style.borderColor = '#ef4444';
+    }
+    return;
+  }
+
+  if (name.length < 2) {
+    if (name) {
+      setBusinessSearchStatus('Please type the name customers will use (at least 2 characters).', 'error');
+    }
+    return;
+  }
+
+  setBusinessSearchStatus('Checking availability...', 'checking');
+
+  try {
+    const url = `/api/auth/check-business-tag?prefix=${encodeURIComponent(prefix)}&name=${encodeURIComponent(name)}`;
+    const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json();
+
+    if (data && data.available) {
+      prefixInput.style.borderColor = '#22c55e';
+      setBusinessSearchStatus(`✅ "${prefix}${name}" is available.`, 'ok');
+    } else {
+      prefixInput.style.borderColor = '#ef4444';
+      setBusinessSearchStatus(
+        data && data.message
+          ? '❌ ' + data.message
+          : '❌ This number is already used. Please try another.',
+        'error'
+      );
+    }
+  } catch (err) {
+    setBusinessSearchStatus('Could not check the tag right now. You can still submit; the server will check again.', '');
+  }
+}
+
+function debounceBusinessSearchTagCheck() {
+  if (searchTagCheckDebounceTimer) {
+    clearTimeout(searchTagCheckDebounceTimer);
+  }
+  searchTagCheckDebounceTimer = setTimeout(() => {
+    searchTagCheckDebounceTimer = null;
+    checkBusinessSearchTagAvailability();
+  }, SEARCH_TAG_CHECK_DEBOUNCE_MS);
+}
+
+function bindBusinessSearchTagFields() {
+  const prefixInput = document.getElementById('regBusinessSearchPrefix');
+  const nameInput = document.getElementById('regBusinessSearchName');
+  if (!prefixInput || !nameInput) return;
+
+  // Keep only digits in the prefix field.
+  prefixInput.addEventListener('input', () => {
+    const cleaned = prefixInput.value.replace(/[^0-9]/g, '').slice(0, 4);
+    if (cleaned !== prefixInput.value) prefixInput.value = cleaned;
+
+    clearBusinessSearchTagErrors();
+    renderBusinessSearchPreview();
+    debounceBusinessSearchTagCheck();
+  });
+
+  nameInput.addEventListener('input', () => {
+    clearBusinessSearchTagErrors();
+    renderBusinessSearchPreview();
+    debounceBusinessSearchTagCheck();
+  });
+
+  prefixInput.addEventListener('blur', checkBusinessSearchTagAvailability);
+  nameInput.addEventListener('blur', checkBusinessSearchTagAvailability);
 }
 
 // ============================================================
@@ -1555,11 +1668,6 @@ function renderFuzzySearchHint(show, word) {
 
 // ============================================================
 //  LOAD BUSINESSES (Section D — smart search)
-//
-//  Section R — per-visit rotation:
-//   The server keeps the seed in an HttpOnly cookie. The client
-//   simply sets credentials: 'same-origin' so the cookie
-//   round-trips. The client does not store or resend the seed.
 // ============================================================
 
 async function loadBusinesses(reset = true, options = {}) {
@@ -1570,8 +1678,6 @@ async function loadBusinesses(reset = true, options = {}) {
     lastProductMatches = [];
     lastSearchHadProducts = false;
 
-    // Section Q — start the in-feed strips fresh whenever we
-    // re-render the business grid from scratch.
     resetInFeedAdStrips();
   }
   if (isLoading || !hasMore) return;
@@ -1629,7 +1735,7 @@ async function loadBusinesses(reset = true, options = {}) {
   try {
     const url = `/api/businesses?${params.toString()}`;
     const res = await fetch(url, {
-      credentials: 'same-origin'   // Section R — round-trip the HttpOnly seed cookie.
+      credentials: 'same-origin'
     });
     if (!res.ok) throw new Error('Failed to load businesses');
     const data = await res.json();
@@ -1691,7 +1797,6 @@ function renderBusinesses() {
 
   container.innerHTML = allBusinesses.map(business => createBusinessCard(business)).join('');
 
-  // Section Q — insert in-feed ad strips after the fresh grid.
   insertInFeedAdStrips();
 }
 
@@ -1704,9 +1809,6 @@ function appendBusinesses() {
   const newHtml = newBusinesses.map(business => createBusinessCard(business)).join('');
   container.insertAdjacentHTML('beforeend', newHtml);
 
-  // Section Q — re-run the strip insertion so the new cards also
-  // get their ad breaks. The existing strips are preserved; we
-  // only re-walk the grid.
   insertInFeedAdStrips();
 }
 
@@ -1751,6 +1853,20 @@ function createBusinessCard(business) {
        </div>`
     : '';
 
+  // Search tag chip — only rendered when the business has one and
+  // it is confirmed. Clicking it copies the tag to the clipboard
+  // so a shopper can paste it back into the search bar later.
+  const searchTagDisplay = business.search_display || '';
+  const searchTagChip = (searchTagDisplay && business.search_tag_confirmed === true)
+    ? `<button
+         type="button"
+         class="business-search-tag-chip"
+         data-search-tag="${escapeProductAttr(searchTagDisplay)}"
+         onclick="event.stopPropagation(); copyBusinessSearchTag(this)"
+         title="Click to copy this shop's search tag"
+       >🔖 ${escapeProductText(searchTagDisplay)}</button>`
+    : '';
+
   const description = business.description || '';
   const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
   const productCount = business.product_count || 0;
@@ -1777,6 +1893,7 @@ function createBusinessCard(business) {
       <div class="card-body">
         ${sellsBannerHtml}
         <div class="business-name">${business.business_name}</div>
+        ${searchTagChip}
         <div class="business-location">📍 ${business.location || 'Kenya'}</div>
         ${distanceBadge}
         ${truncatedDesc ? `<div class="business-description">${truncatedDesc}</div>` : ''}
@@ -1789,6 +1906,36 @@ function createBusinessCard(business) {
       </div>
     </div>
   `;
+}
+
+function copyBusinessSearchTag(button) {
+  const tag = button?.dataset?.searchTag || '';
+  if (!tag) return;
+
+  const fallback = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = tag;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast(`Copied: ${tag}`, 'success');
+    } catch (err) {
+      showToast('Could not copy. Please copy it manually.', 'warning');
+    }
+  };
+
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(tag)
+      .then(() => showToast(`Copied: ${tag}`, 'success'))
+      .catch(fallback);
+  } else {
+    fallback();
+  }
 }
 
 function formatDistance(km) {
@@ -1975,6 +2122,10 @@ function selectRegisterType(type) {
     document.getElementById('businessRegisterForm').style.display = 'block';
 
     loadBusinessCategoriesForRegistration();
+    // Refresh the search tag preview in case the owner already typed
+    // values before switching tabs.
+    renderBusinessSearchPreview();
+    bindBusinessSearchTagFields();
   }
 }
 
@@ -2247,6 +2398,10 @@ async function handleCustomerRegister() {
 
 // ============================================================
 //  HANDLE BUSINESS REGISTER
+//
+//  The form now also carries the two Search Tag fields. The
+//  server is the ultimate authority on uniqueness; the live
+//  check above is only a convenience for the owner.
 // ============================================================
 
 async function handleBusinessRegister() {
@@ -2263,13 +2418,51 @@ async function handleBusinessRegister() {
   const status = document.getElementById('businessRegisterStatus');
   const categoryError = document.getElementById('businessCategoryError');
 
+  const searchPrefixInput = document.getElementById('regBusinessSearchPrefix');
+  const searchNameInput = document.getElementById('regBusinessSearchName');
+  const searchTagError = document.getElementById('regBusinessSearchError');
+
+  const searchPrefix = (searchPrefixInput?.value || '').trim();
+  const searchName = (searchNameInput?.value || '').trim();
+
   if (!status) return;
   status.textContent = '';
   status.className = 'auth-status';
 
   if (categoryError) categoryError.style.display = 'none';
   if (primarySelect) primarySelect.style.borderColor = '#d1d5db';
+  if (searchTagError) searchTagError.style.display = 'none';
+  if (searchPrefixInput) searchPrefixInput.style.borderColor = '#d1d5db';
+  if (searchNameInput) searchNameInput.style.borderColor = '#d1d5db';
 
+  // ----------------------------------------------------------
+  //  Search Tag validation (client-side, fast feedback)
+  // ----------------------------------------------------------
+  if (!/^[0-9]{3,4}$/.test(searchPrefix)) {
+    if (searchTagError) searchTagError.style.display = 'block';
+    if (searchPrefixInput) {
+      searchPrefixInput.style.borderColor = '#ef4444';
+      searchPrefixInput.focus();
+    }
+    status.textContent = '❌ Search number must be 3 or 4 digits (e.g. 363 or 3734).';
+    status.className = 'auth-status error';
+    return;
+  }
+
+  if (searchName.length < 2) {
+    if (searchTagError) searchTagError.style.display = 'block';
+    if (searchNameInput) {
+      searchNameInput.style.borderColor = '#ef4444';
+      searchNameInput.focus();
+    }
+    status.textContent = '❌ Please type the name customers will use to find your shop.';
+    status.className = 'auth-status error';
+    return;
+  }
+
+  // ----------------------------------------------------------
+  //  Business category validation
+  // ----------------------------------------------------------
   const additionalCategories = [];
   document.querySelectorAll('.reg-additional-category:checked').forEach(cb => {
     if (cb.value !== primaryCategory) additionalCategories.push(cb.value);
@@ -2298,6 +2491,9 @@ async function handleBusinessRegister() {
     return;
   }
 
+  // ----------------------------------------------------------
+  //  Standard field validation
+  // ----------------------------------------------------------
   if (!username || !businessName || !email || !phone || !location || !password || !confirm) {
     status.textContent = '❌ All fields are required.';
     status.className = 'auth-status error';
@@ -2354,6 +2550,12 @@ async function handleBusinessRegister() {
     formData.append('additional_categories', additionalCategories.join(','));
   }
 
+  // Business Search Tag — the two pieces are the raw values the
+  // owner typed. The server validates them again and stores them
+  // alongside the normalized tag.
+  formData.append('search_prefix', searchPrefix);
+  formData.append('search_name', searchName);
+
   formData.append('mpesa_enabled', 'false');
   formData.append('airtel_enabled', 'false');
   formData.append('bank_enabled', 'true');
@@ -2390,10 +2592,36 @@ async function handleBusinessRegister() {
       document.querySelectorAll('.reg-additional-category:checked').forEach(cb => { cb.checked = false; });
       if (categoryError) categoryError.style.display = 'none';
 
+      // Reset the search tag fields so the next registration starts clean.
+      if (searchPrefixInput) {
+        searchPrefixInput.value = '';
+        searchPrefixInput.style.borderColor = '#d1d5db';
+      }
+      if (searchNameInput) {
+        searchNameInput.value = '';
+        searchNameInput.style.borderColor = '#d1d5db';
+      }
+      renderBusinessSearchPreview();
+      setBusinessSearchStatus('', '');
+      if (searchTagError) searchTagError.style.display = 'none';
+
       closeAuthModal();
-      showToast('✅ Welcome, ' + businessName + '! Business created.', 'success');
+
+      const tag = data.search_display ? ` Your search tag is ${data.search_display}.` : '';
+      showToast('✅ Welcome, ' + businessName + '! Business created.' + tag, 'success');
       checkAuthState();
     } else {
+      // Server-side availability failure lands here with a 409 and
+      // a `field: 'search_prefix'` hint. Turn the input red so the
+      // owner sees exactly where to fix it.
+      if (res.status === 409 && data && data.field === 'search_prefix') {
+        if (searchTagError) searchTagError.style.display = 'block';
+        if (searchPrefixInput) {
+          searchPrefixInput.style.borderColor = '#ef4444';
+          searchPrefixInput.focus();
+        }
+      }
+
       status.textContent = '❌ ' + (data.error || 'Registration failed');
       status.className = 'auth-status error';
     }
@@ -2528,6 +2756,12 @@ window.businessSellsSearchWord = businessSellsSearchWord;
 window.renderFuzzySearchHint = renderFuzzySearchHint;
 
 window.insertInFeedAdStrips = insertInFeedAdStrips;
+
+// Business Search Tag exposures
+window.renderBusinessSearchPreview = renderBusinessSearchPreview;
+window.checkBusinessSearchTagAvailability = checkBusinessSearchTagAvailability;
+window.copyBusinessSearchTag = copyBusinessSearchTag;
+window.buildSearchTagDisplay = buildSearchTagDisplay;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
@@ -2942,6 +3176,20 @@ async function handleLogout() {
   // Section Q — reset the in-feed strips as well.
   resetInFeedAdStrips();
 
+  // Business Search Tag — clear the two inputs and the preview.
+  const searchPrefixInput = document.getElementById('regBusinessSearchPrefix');
+  const searchNameInput = document.getElementById('regBusinessSearchName');
+  if (searchPrefixInput) {
+    searchPrefixInput.value = '';
+    searchPrefixInput.style.borderColor = '#d1d5db';
+  }
+  if (searchNameInput) {
+    searchNameInput.value = '';
+    searchNameInput.style.borderColor = '#d1d5db';
+  }
+  renderBusinessSearchPreview();
+  setBusinessSearchStatus('', '');
+
   showGuestState();
 
   const url = new URL(window.location.href);
@@ -2959,4 +3207,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (clock-driven ads + in-feed strips + per-visit rotation)');
+console.log('✅ Index.js loaded successfully (clock-driven ads + in-feed strips + per-visit rotation + search tag)');
