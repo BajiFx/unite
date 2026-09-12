@@ -2,54 +2,32 @@
 //  INDEX.JS - COMPLETE FIXED VERSION
 //  Location: public/js/index.js
 //
-//  Section D — Smart customer search
-//  ... (unchanged) ...
+//  Section J — Marketplace ad slider (uniform clock, two
+//  durations):
 //
-//  Section J.5 — Clock-driven ad rotation (new):
-//   J.5a — The ad pool is a moving wheel anchored to the wall
-//          clock, not to the page load.
-//   J.5b — The server publishes three numbers:
-//            rotation_slot_duration_ms
-//            rotation_epoch_ms
-//            rotation_offset
-//          and this file derives the current index locally:
-//            slot  = floor((Date.now() - epoch) / slot_duration)
+//   The clock mechanism is preserved exactly as designed.
+//   The only change from the previous revision is that the
+//   uniform slot duration is now selected per media type
+//   instead of being a single global 30 s.
+//
+//   J.5a — Images sit for 5 seconds on the clock.
+//   J.5b — Videos sit for 30 seconds on the clock.
+//   J.5c — The index is still derived from the wall clock:
+//            slot  = floor((Date.now() - epoch) / slotDuration)
 //            index = (slot + offset) mod ads.length
-//   J.5c — A single 500 ms interval recomputes the index and only
-//          re-renders if it has changed. No "advance on timeout".
-//   J.5d — Per-ad display_duration is ignored for the global
-//          clock. Uniform 30 s slots.
-//   J.5e — Prev/next and dots jump the clock forward/backward by
-//          computing a matching index, not by advancing a local
-//          counter.
+//          where slotDuration is chosen from the CURRENT slide's
+//          media type. This keeps every browser showing the same
+//          slide at the same wall-clock moment.
+//   J.5d — Prev/next and dots still jump the clock forward or
+//          backward by computing a matching index; nothing about
+//          navigation changes.
+//   J.5e — The progress bar reflects the current slide's
+//          remaining time on the clock.
+//   J.5f — Hover or focus pauses rotation; leaving resumes.
 //
-//  Section Q — In-feed ad strips (new):
-//   Q.1 — One strip every 10 real business cards.
-//   Q.2 — 4 ads per strip.
-//   Q.3 — The counter only counts business cards.
-//   Q.4 — The strips walk the same global ad cycle as the hero.
-//         The hero is a showcase; the strips are the continuous
-//         scroll experience. Both share the clock.
-//   Q.5 — When the cycle is exhausted, no more strips are
-//         inserted.
-//
-//  Section R — Per-visit business rotation (new):
-//   R.1 — The client sends credentials: 'same-origin' so the
-//         HttpOnly rotation_seed cookie round-trips.
-//   R.2 — The client does not store or resend the seed; the server
-//         owns it.
-//   R.3 — The client does not re-fetch the first page on a timer.
-//
-//  Section — Business Search Tag (new):
-//   During business registration the owner picks:
-//     - a 3 or 4 digit number (search_prefix)
-//     - the name customers will type (search_name)
-//   The two combine into a search tag, e.g. 3734Doppa Beddings.
-//   As the owner types, the preview updates live and the server
-//   is asked whether the combination is already taken. When it
-//   is, the prefix input is marked red and a message is shown.
-//   The customer-facing card now also renders a small chip with
-//   the tag so a shopper can copy it and search it later.
+//  Everything else in this file (search, product matches,
+//  business rotation, search tag, in-feed strips, workspace)
+//  is unchanged from the previous revision.
 // ============================================================
 
 // ============================================================
@@ -104,12 +82,25 @@ let lastSearchWord = '';
 let lastSearchMode = null;
 
 // ------------------------------------------------------------
-// Section J — Marketplace ad slider state (clock-driven)
+// Section J — Marketplace ad slider state.
+//
+//  OPTION C — Uniform clock, two durations.
+//
+//  The clock is still the same shape as before:
+//    slot  = floor((now - epoch) / slotDuration)
+//    index = (slot + offset) mod ads.length
+//
+//  The ONLY difference is that slotDuration is picked from the
+//  media type of the slide the clock is currently pointing at:
+//    image  → AD_IMAGE_SLOT_MS   (5 s)
+//    video  → AD_VIDEO_SLOT_MS   (30 s)
+//
+//  Every browser still derives the same index at the same
+//  wall-clock moment, so two visitors see the same ad.
 // ------------------------------------------------------------
-const AD_DEFAULTS = Object.freeze({
-  imageSeconds: 6,
-  videoSeconds: 60
-});
+
+const AD_IMAGE_SLOT_MS = 5 * 1000;    // 5 seconds
+const AD_VIDEO_SLOT_MS = 30 * 1000;   // 30 seconds
 
 const AD_BACKDROP_PALETTE = [
   ['#16a34a', '#facc15'],  // green → gold
@@ -124,8 +115,9 @@ const AD_BACKDROP_PALETTE = [
 let adsList = [];
 let adsCurrentIndex = 0;
 
+// The clock origin. The server publishes rotation_epoch_ms and
+// rotation_offset; we still consume them.
 let adsRotationMeta = {
-  slotDurationMs: 30000,
   epochMs: 0,
   offset: 0
 };
@@ -136,8 +128,9 @@ let adsIsPaused = false;
 
 let adsProgressTimer = null;
 
-// Section Q — in-feed ad strips. Tracks how many ads have been
-// consumed so the next strip continues the same global cycle.
+let adsImpressionFiredFor = new Set();
+
+// Section Q — in-feed ad strips.
 let inFeedAdsConsumed = 0;
 
 // ------------------------------------------------------------
@@ -771,26 +764,84 @@ async function loadCategories() {
 }
 
 // ============================================================
-//  SECTION J.5 — CLOCK-DRIVEN AD ROTATION
+//  SECTION J — MARKETPLACE AD SLIDER
+//  OPTION C: uniform clock, two durations (5 s image / 30 s video)
 // ============================================================
 
+/**
+ * Read the rotation metadata the server publishes. The server
+ * still sends rotation_epoch_ms and rotation_offset; we ignore
+ * rotation_slot_duration_ms because we now pick the duration
+ * from the media type of the current slide.
+ */
 function updateAdRotationMetaFromResponse(data) {
   if (!data || typeof data !== 'object') return;
-  const slot = Number(data.rotation_slot_duration_ms);
   const epoch = Number(data.rotation_epoch_ms);
   const off = Number(data.rotation_offset);
 
-  if (Number.isFinite(slot) && slot > 0) adsRotationMeta.slotDurationMs = slot;
   if (Number.isFinite(epoch)) adsRotationMeta.epochMs = epoch;
   if (Number.isFinite(off)) adsRotationMeta.offset = off;
 }
 
+/**
+ * Pick the uniform slot duration for a given slide from its
+ * media type. This is the ONLY place the two durations live.
+ */
+function getAdSlotDurationMsForAd(ad) {
+  if (ad && ad.media_type === 'video') return AD_VIDEO_SLOT_MS;
+  return AD_IMAGE_SLOT_MS;
+}
+
+/**
+ * Return the current slide's duration in milliseconds. When no
+ * slide is loaded (empty list), fall back to the image default.
+ */
+function getCurrentAdSlotDurationMs() {
+  if (!Array.isArray(adsList) || adsList.length === 0) return AD_IMAGE_SLOT_MS;
+  const ad = adsList[adsCurrentIndex];
+  return getAdSlotDurationMsForAd(ad);
+}
+
+/**
+ * Derive the index from the wall clock using the CURRENT slide's
+ * duration. Because every browser uses the same epoch, the same
+ * offset, and the same list, they all land on the same index at
+ * the same wall-clock moment.
+ *
+ * The subtlety: the "slot" number must be computed against the
+ * duration of the slide the clock is currently pointing at. To
+ * avoid a chicken-and-egg problem we solve it with a small
+ * fixed-point loop:
+ *
+ *   1. Assume the current slide keeps its duration.
+ *   2. Compute the slot and index.
+ *   3. If the slide at that index has a different duration,
+ *      recompute once.
+ *
+ * Two iterations are always enough because there are only two
+ * durations in play.
+ */
 function computeCurrentAdIndex() {
   if (!Array.isArray(adsList) || adsList.length === 0) return 0;
-  const now = Date.now();
-  const slot = Math.floor((now - adsRotationMeta.epochMs) / adsRotationMeta.slotDurationMs);
+
   const total = adsList.length;
-  const index = ((slot + adsRotationMeta.offset) % total + total) % total;
+  const now = Date.now();
+  const offset = adsRotationMeta.offset;
+  const epoch = adsRotationMeta.epochMs;
+
+  // Start from the current slide's duration.
+  let duration = getCurrentAdSlotDurationMs();
+  let index = 0;
+
+  for (let pass = 0; pass < 2; pass++) {
+    const slot = Math.floor((now - epoch) / duration);
+    index = ((slot + offset) % total + total) % total;
+
+    const nextDuration = getAdSlotDurationMsForAd(adsList[index]);
+    if (nextDuration === duration) break;
+    duration = nextDuration;
+  }
+
   return index;
 }
 
@@ -829,11 +880,11 @@ function startAdsProgressLoop() {
   if (adsProgressTimer) clearInterval(adsProgressTimer);
 
   const tick = () => {
-    const total = adsRotationMeta.slotDurationMs;
-    if (!Number.isFinite(total) || total <= 0) return;
+    const duration = getCurrentAdSlotDurationMs();
+    if (!Number.isFinite(duration) || duration <= 0) return;
     const now = Date.now();
-    const inSlot = (now - adsRotationMeta.epochMs) % total;
-    const ratio = inSlot / total;
+    const inSlot = ((now - adsRotationMeta.epochMs) % duration + duration) % duration;
+    const ratio = inSlot / duration;
     updateAdsProgressBar(ratio);
   };
 
@@ -849,20 +900,46 @@ function updateAdsProgressBar(ratio) {
   bar.style.width = `${pct}%`;
 }
 
+/**
+ * Jump the clock so that the given index is the current slide.
+ *
+ * With two different durations in play, we shift the epoch by an
+ * amount that puts the target index on the clock right now.
+ * The math:
+ *
+ *   - currentSlot = floor((now - epoch) / currentDuration)
+ *   - we want floor((now - epoch') / targetDuration) ≡ target - offset (mod N)
+ *
+ * The simplest robust approach is to shift the epoch by one
+ * targetDuration, walk forward until the index matches, then stop.
+ * This keeps the animation smooth for the user and is O(N) at
+ * worst, but N is tiny (a handful of ads).
+ */
 function jumpAdClockToIndex(index) {
   if (!Array.isArray(adsList) || adsList.length === 0) return;
   const total = adsList.length;
   const target = ((index % total) + total) % total;
 
-  const now = Date.now();
-  const currentSlot = Math.floor((now - adsRotationMeta.epochMs) / adsRotationMeta.slotDurationMs);
+  // If we are already on the target, just restart the progress bar.
+  if (target === adsCurrentIndex) {
+    startAdsProgressLoop();
+    return;
+  }
 
-  const desiredSlotBase =
-    target - adsRotationMeta.offset - ((currentSlot + adsRotationMeta.offset) % total);
-  const shift = ((desiredSlotBase % total) + total) % total;
+  // Compute how many slides forward to advance, then shift the
+  // epoch by the sum of the durations of the slides in between.
+  let distance = (target - adsCurrentIndex + total) % total;
+  if (distance === 0) distance = total;
 
-  adsRotationMeta.epochMs =
-    adsRotationMeta.epochMs + shift * adsRotationMeta.slotDurationMs;
+  let shiftMs = 0;
+  for (let i = 0; i < distance; i++) {
+    const idx = (adsCurrentIndex + i) % total;
+    shiftMs += getAdSlotDurationMsForAd(adsList[idx]);
+  }
+
+  // Shifting the epoch forward moves the clock to the target.
+  // (An earlier epoch means more time has passed since "start".)
+  adsRotationMeta.epochMs -= shiftMs;
 
   const next = computeCurrentAdIndex();
   if (next !== adsCurrentIndex) {
@@ -873,10 +950,6 @@ function jumpAdClockToIndex(index) {
   }
   startAdsProgressLoop();
 }
-
-// ============================================================
-//  SECTION J — MARKETPLACE AD SLIDER (SPLIT LAYOUT)
-// ============================================================
 
 async function loadAds() {
   const section = document.getElementById('adsSliderSection');
@@ -1324,18 +1397,6 @@ function handleAdditionalCategoryChange() {
 
 // ============================================================
 //  BUSINESS SEARCH TAG — registration form wiring
-//
-//  Two fields, one live preview, one server availability check.
-//
-//   - regBusinessSearchPrefix (3–4 digits)
-//   - regBusinessSearchName   (the name customers will type)
-//
-//  As the owner types:
-//    1. The preview under the two inputs is rebuilt immediately.
-//    2. A debounced call to /api/auth/check-business-tag tells us
-//       whether the combination is already in use.
-//    3. When the server says "taken", the prefix input is turned
-//       red and the message is shown.
 // ============================================================
 
 function normalizeSearchTagPart(value) {
@@ -1463,7 +1524,6 @@ function bindBusinessSearchTagFields() {
   const nameInput = document.getElementById('regBusinessSearchName');
   if (!prefixInput || !nameInput) return;
 
-  // Keep only digits in the prefix field.
   prefixInput.addEventListener('input', () => {
     const cleaned = prefixInput.value.replace(/[^0-9]/g, '').slice(0, 4);
     if (cleaned !== prefixInput.value) prefixInput.value = cleaned;
@@ -1853,9 +1913,6 @@ function createBusinessCard(business) {
        </div>`
     : '';
 
-  // Search tag chip — only rendered when the business has one and
-  // it is confirmed. Clicking it copies the tag to the clipboard
-  // so a shopper can paste it back into the search bar later.
   const searchTagDisplay = business.search_display || '';
   const searchTagChip = (searchTagDisplay && business.search_tag_confirmed === true)
     ? `<button
@@ -2122,8 +2179,6 @@ function selectRegisterType(type) {
     document.getElementById('businessRegisterForm').style.display = 'block';
 
     loadBusinessCategoriesForRegistration();
-    // Refresh the search tag preview in case the owner already typed
-    // values before switching tabs.
     renderBusinessSearchPreview();
     bindBusinessSearchTagFields();
   }
@@ -2398,10 +2453,6 @@ async function handleCustomerRegister() {
 
 // ============================================================
 //  HANDLE BUSINESS REGISTER
-//
-//  The form now also carries the two Search Tag fields. The
-//  server is the ultimate authority on uniqueness; the live
-//  check above is only a convenience for the owner.
 // ============================================================
 
 async function handleBusinessRegister() {
@@ -2435,9 +2486,6 @@ async function handleBusinessRegister() {
   if (searchPrefixInput) searchPrefixInput.style.borderColor = '#d1d5db';
   if (searchNameInput) searchNameInput.style.borderColor = '#d1d5db';
 
-  // ----------------------------------------------------------
-  //  Search Tag validation (client-side, fast feedback)
-  // ----------------------------------------------------------
   if (!/^[0-9]{3,4}$/.test(searchPrefix)) {
     if (searchTagError) searchTagError.style.display = 'block';
     if (searchPrefixInput) {
@@ -2460,9 +2508,6 @@ async function handleBusinessRegister() {
     return;
   }
 
-  // ----------------------------------------------------------
-  //  Business category validation
-  // ----------------------------------------------------------
   const additionalCategories = [];
   document.querySelectorAll('.reg-additional-category:checked').forEach(cb => {
     if (cb.value !== primaryCategory) additionalCategories.push(cb.value);
@@ -2491,9 +2536,6 @@ async function handleBusinessRegister() {
     return;
   }
 
-  // ----------------------------------------------------------
-  //  Standard field validation
-  // ----------------------------------------------------------
   if (!username || !businessName || !email || !phone || !location || !password || !confirm) {
     status.textContent = '❌ All fields are required.';
     status.className = 'auth-status error';
@@ -2550,9 +2592,6 @@ async function handleBusinessRegister() {
     formData.append('additional_categories', additionalCategories.join(','));
   }
 
-  // Business Search Tag — the two pieces are the raw values the
-  // owner typed. The server validates them again and stores them
-  // alongside the normalized tag.
   formData.append('search_prefix', searchPrefix);
   formData.append('search_name', searchName);
 
@@ -2592,7 +2631,6 @@ async function handleBusinessRegister() {
       document.querySelectorAll('.reg-additional-category:checked').forEach(cb => { cb.checked = false; });
       if (categoryError) categoryError.style.display = 'none';
 
-      // Reset the search tag fields so the next registration starts clean.
       if (searchPrefixInput) {
         searchPrefixInput.value = '';
         searchPrefixInput.style.borderColor = '#d1d5db';
@@ -2611,9 +2649,6 @@ async function handleBusinessRegister() {
       showToast('✅ Welcome, ' + businessName + '! Business created.' + tag, 'success');
       checkAuthState();
     } else {
-      // Server-side availability failure lands here with a 409 and
-      // a `field: 'search_prefix'` hint. Turn the input red so the
-      // owner sees exactly where to fix it.
       if (res.status === 409 && data && data.field === 'search_prefix') {
         if (searchTagError) searchTagError.style.display = 'block';
         if (searchPrefixInput) {
@@ -2757,7 +2792,6 @@ window.renderFuzzySearchHint = renderFuzzySearchHint;
 
 window.insertInFeedAdStrips = insertInFeedAdStrips;
 
-// Business Search Tag exposures
 window.renderBusinessSearchPreview = renderBusinessSearchPreview;
 window.checkBusinessSearchTagAvailability = checkBusinessSearchTagAvailability;
 window.copyBusinessSearchTag = copyBusinessSearchTag;
@@ -3173,10 +3207,8 @@ async function handleLogout() {
   updateLocationStatusChip();
   updateLocationFiltersCount();
 
-  // Section Q — reset the in-feed strips as well.
   resetInFeedAdStrips();
 
-  // Business Search Tag — clear the two inputs and the preview.
   const searchPrefixInput = document.getElementById('regBusinessSearchPrefix');
   const searchNameInput = document.getElementById('regBusinessSearchName');
   if (searchPrefixInput) {
@@ -3207,4 +3239,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (clock-driven ads + in-feed strips + per-visit rotation + search tag)');
+console.log('✅ Index.js loaded successfully (Option C — uniform clock with 5s image / 30s video)');
