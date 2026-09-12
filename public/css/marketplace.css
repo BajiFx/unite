@@ -79,6 +79,15 @@
     L.5 — .fuzzy-search-hint, a small strip that appears above
           the product grid when the server corrected a typo via
           the pg_trgm fallback (mode === 'fuzzy').
+
+   Section Q additions:
+    Q.1 — .in-feed-ad-strip / .in-feed-ad-card, the in-feed ad
+          strips inserted every 10 business cards by
+          insertInFeedAdStrips() in index.js.
+    Q.2 — 4 ad cards per strip on desktop, 2 on phones.
+    Q.3 — The counter only counts business cards.
+    Q.4 — The strips share the same global ad cycle as the hero.
+    Q.5 — When the cycle is exhausted, no more strips appear.
    ============================================================ */
 
 /* ============================================================
@@ -2692,5 +2701,228 @@ body.workspace-active .marketplace-container {
   .product-match-matched-word {
     font-size: 0.52rem;
     padding: 1px 7px;
+  }
+}
+
+/* ============================================================
+   SECTION Q — IN-FEED AD STRIPS
+   Rendered by insertInFeedAdStrips() in public/js/index.js.
+
+   Q.1 — One strip every 10 business cards.
+   Q.2 — 4 ads per strip.
+   Q.3 — The counter only counts business cards.
+   Q.4 — The strips walk the same global ad cycle as the hero.
+         The hero is a showcase; the strips are the continuous
+         scroll experience. Both share the clock.
+   Q.5 — When the cycle is exhausted, no more strips.
+
+   Visual notes:
+    - A strip is a full-width row inside the .business-grid, so
+      it spans every column and reads as a horizontal break
+      between business rows.
+    - Inside, 4 small ad cards sit in the same visual rhythm as
+      the business cards: same border radius, same shadow, same
+      hover lift.
+    - Each card reuses the existing .ads-slide / .ads-media /
+      .ads-caption primitives already defined for the hero so
+      no new markup is invented.
+    - On phones the 4 cards fall to 2 columns, and on very small
+      screens to 1 column, matching the business grid behaviour.
+   ============================================================ */
+
+.in-feed-ad-strip {
+  /* Span every column of the parent business grid so the strip
+     reads as a full-width horizontal band between business rows. */
+  grid-column: 1 / -1;
+
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin: 6px 0 10px;
+  padding: 12px;
+  border: 1px dashed #c7e3c7;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+}
+
+/* The heading is optional. If index.js later adds a "Sponsored"
+   label above the strip it will look right out of the box. */
+.in-feed-ad-strip::before {
+  content: 'Sponsored';
+  grid-column: 1 / -1;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #4d6b53;
+  margin: -4px 0 4px 2px;
+}
+
+.in-feed-ad-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid #f0f4f8;
+  cursor: pointer;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.in-feed-ad-card:hover,
+.in-feed-ad-card:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.10);
+  border-color: #c7d2fe;
+  outline: none;
+}
+
+/* The strip reuses the hero slide markup. Inside a strip card
+   the slide is always the active one, so we force it visible
+   and pin it to the card box. */
+.in-feed-ad-card .ads-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  pointer-events: auto;
+  transition: none;
+}
+
+.in-feed-ad-card .ads-media-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Same colourful gradient backdrop treatment as the hero, so a
+   strip card never looks grey or empty. */
+.in-feed-ad-card .ads-media-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.in-feed-ad-card .ads-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+}
+
+.in-feed-ad-card .ads-slide.is-video .ads-media {
+  object-fit: cover;
+}
+
+/* Compact caption inside the small strip card. */
+.in-feed-ad-card .ads-caption {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  z-index: 3;
+  gap: 2px;
+}
+
+.in-feed-ad-card .ads-business {
+  font-size: 0.5rem;
+  padding: 1px 7px;
+  margin-bottom: 2px;
+}
+
+.in-feed-ad-card .ads-title {
+  font-size: 0.72rem;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.in-feed-ad-card .ads-description {
+  display: none;   /* too small a box for a description */
+}
+
+.in-feed-ad-card .ads-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.05) 40%, rgba(0, 0, 0, 0.72) 100%);
+}
+
+/* The strip cards do not need the hero's nav buttons, dots, or
+   progress bar. Hide them if any parent CSS ever bleeds in. */
+.in-feed-ad-card .ads-nav,
+.in-feed-ad-card .ads-progress {
+  display: none !important;
+}
+
+/* Respect reduced-motion: keep the colourful backdrop, drop the
+   Ken Burns drift inside strip cards. */
+@media (prefers-reduced-motion: reduce) {
+  .in-feed-ad-card .ads-slide .ads-media-bg {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------
+   Section Q — responsive
+   ------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  .in-feed-ad-strip {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+}
+
+@media (max-width: 720px) {
+  .in-feed-ad-strip {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    padding: 10px;
+    border-radius: 12px;
+  }
+
+  .in-feed-ad-card .ads-title {
+    font-size: 0.66rem;
+  }
+
+  .in-feed-ad-card .ads-business {
+    font-size: 0.46rem;
+    padding: 1px 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .in-feed-ad-strip {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .in-feed-ad-card {
+    border-radius: 10px;
+  }
+
+  .in-feed-ad-card .ads-title {
+    font-size: 0.6rem;
+  }
+
+  .in-feed-ad-card .ads-business {
+    font-size: 0.42rem;
+    padding: 1px 5px;
+  }
+
+  .in-feed-ad-strip::before {
+    font-size: 0.55rem;
+    margin-bottom: 2px;
   }
 }

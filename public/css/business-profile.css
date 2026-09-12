@@ -6,6 +6,36 @@
     H.4 — styles for #ordersPausedBanner and #ordersPausedMessage
     H.5 — styles for #ordersPausedContactBlock, its icon row,
           the empty-state hint, and the per-icon anchors
+
+   Hero redesign:
+    The hero is a three-column band on desktop, sized as a share
+    of the full hero width:
+      LEFT   — 25% : logo only, plain background, no writing.
+      MIDDLE — 35% : info panel (name, location, address, stats,
+                     Shop Now, Follow, Verified badge).
+      RIGHT  — 45% : media panel, one image OR one video.
+                     The business description now overlays the
+                     media and scrolls slowly upward when the
+                     text is longer than the frame.
+    On phones the CSS reorders to logo → media → info, each
+    stacked full-width.
+
+   Slider removal:
+    The auto-rotating slider block that used to sit between the
+    About card and the Our Products section has been removed.
+
+   About swap (this revision):
+    The About card is a two-column layout:
+      LEFT  — tagline, feature bullets, location, contact line
+      RIGHT — Mission on top, Vision below
+    Phones stack these two columns vertically.
+
+   Hero description overlay (this revision):
+    .hero-description-overlay sits inside the hero media column
+    and is populated by business-profile.js. When the text is
+    longer than the frame, the .hero-description-track scrolls
+    slowly upward on a seamless loop so the full text is always
+    readable.
    ============================================================ */
 
 /* ===== BACK LINK TO MARKETPLACE ===== */
@@ -47,199 +77,384 @@
   }
 }
 
-/* ===== HERO SECTION ===== */
+/* ============================================================
+   HERO — three-column band
+   LEFT   : 25% logo column (plain, no writing)
+   MIDDLE : 35% info panel (all the text)
+   RIGHT  : 45% media panel + description overlay
+   ============================================================ */
+
 .business-hero {
+  display: grid;
+  grid-template-columns: 25% 35% 45%;
+  gap: 12px;
+  margin: 0 0 12px 0;
+  padding: 16px;
   background: linear-gradient(135deg, #0f172a, #1e293b);
-  background-size: cover;
-  background-position: center;
-  min-height: 340px;
+  border-radius: 14px;
+  align-items: stretch;
+  min-height: 280px;
+}
+
+/* ---- LEFT: logo column ---- */
+.hero-col--logo {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-  margin: 0 0 12px 0;
-  padding: 24px 16px;
-}
-
-.business-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 1;
-}
-
-.business-hero .hero-overlay {
-  position: relative;
-  z-index: 2;
-  width: 100%;
-  max-width: 1200px;
-  display: flex;
-  align-items: center;
-  gap: 30px;
-  padding: 20px 0;
-}
-
-/* ===== LOGO - LARGER (180px) ===== */
-.hero-logo-wrapper {
-  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 8px;
+  overflow: hidden;
 }
 
 .hero-logo {
-  width: 180px;
-  height: 180px;
+  width: 95%;
+  height: 95%;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   object-fit: cover;
-  border: 4px solid rgba(255,255,255,0.95);
-  box-shadow: 0 0 50px rgba(255,107,107,0.3);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  background: #ffffff;
   display: block;
-  background: white;
 }
 
-/* ===== HERO CONTENT ===== */
-.hero-content {
-  flex: 1;
-  color: white;
+/* ---- MIDDLE: info column ---- */
+.hero-col--info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  min-width: 0;
 }
 
-.hero-content h1 {
-  font-size: 1.8rem;
+.hero-col--info .hero-title {
+  font-size: 1.6rem;
   font-weight: 800;
   margin: 0 0 4px 0;
   letter-spacing: -0.02em;
+  color: #ffffff;
+  line-height: 1.15;
+  word-break: break-word;
 }
 
-.hero-content p {
-  font-size: 0.9rem;
-  opacity: 0.9;
-  margin: 2px 0;
+.hero-col--info .hero-meta-line {
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  margin: 0;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
-.hero-meta {
+.hero-col--info .hero-meta {
   display: flex;
-  gap: 18px;
+  gap: 14px;
   flex-wrap: wrap;
-  font-size: 0.8rem;
-  margin: 8px 0 12px;
-  opacity: 0.85;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  margin: 8px 0 4px;
 }
 
-.hero-meta span {
-  display: flex;
+.hero-col--info .hero-meta span {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
-.hero-actions {
+.hero-col--info .hero-actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: 10px;
 }
 
-.hero-actions .btn {
-  padding: 8px 20px;
+.hero-col--info .hero-actions .btn {
+  padding: 8px 18px;
   border-radius: 30px;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 700;
   border: none;
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: transform 0.2s;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-.hero-actions .btn:hover {
-  transform: scale(1.05);
+.hero-col--info .hero-actions .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
 }
 
-.hero-actions .btn-primary {
+.hero-col--info .hero-actions .btn-primary {
   background: #2563eb;
-  color: white;
+  color: #ffffff;
 }
 
-.hero-actions .btn-success {
+.hero-col--info .hero-actions .btn-success {
   background: #25D366;
-  color: white;
+  color: #ffffff;
 }
 
-.hero-actions .btn-following {
+.hero-col--info .hero-actions .btn-following {
   background: #22c55e;
-  color: white;
+  color: #ffffff;
 }
 
-.verified-badge {
+.hero-col--info .verified-badge {
   margin-top: 8px;
 }
 
-.verified-badge .badge {
+.hero-col--info .verified-badge .badge {
+  display: inline-block;
   padding: 4px 14px;
   border-radius: 20px;
   font-size: 0.7rem;
   font-weight: 700;
   background: #22c55e;
-  color: white;
-  display: inline-block;
+  color: #ffffff;
 }
 
-/* ===== RESPONSIVE HERO ===== */
-@media (max-width: 768px) {
+/* ---- RIGHT: media column ---- */
+.hero-col--media {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  min-height: 240px;
+}
+
+.hero-col--media .hero-media-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 25% 20%,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.04) 40%,
+      transparent 70%
+    ),
+    linear-gradient(135deg, #16a34a 0%, #facc15 100%);
+}
+
+.hero-col--media .hero-media-slot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.hero-col--media .hero-media-slot img.hero-media-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  user-select: none;
+}
+
+.hero-col--media .hero-media-slot video.hero-media-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #0f172a;
+}
+
+/* ------------------------------------------------------------
+   HERO DESCRIPTION OVERLAY
+   The business description now rides over the media. A dark
+   gradient keeps the text readable on any image or video, and
+   a slow upward scroll runs forever when the text is longer
+   than the frame.
+   ------------------------------------------------------------ */
+
+.hero-description-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0) 0%,
+    rgba(15, 23, 42, 0.35) 35%,
+    rgba(15, 23, 42, 0.75) 70%,
+    rgba(15, 23, 42, 0.9) 100%
+  );
+}
+
+.hero-description-track {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  color: #f1f5f9;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  font-weight: 500;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* When JS adds the .is-scrolling class (text taller than the
+   frame), the track slides up slowly and seamlessly. The
+   animation duration is set inline by JS based on the number
+   of overflowing pixels, so longer text scrolls more slowly. */
+.hero-description-overlay.is-scrolling .hero-description-track {
+  animation-name: heroDescriptionScroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes heroDescriptionScroll {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(var(--hero-desc-scroll, -50%)); }
+}
+
+/* Respect reduced-motion: keep the text readable but stop the
+   infinite scroll. JS still marks the overlay as scrolling so
+   the description is not clipped. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-description-overlay.is-scrolling .hero-description-track {
+    animation: none;
+  }
+}
+
+/* ---- Responsive hero ---- */
+
+@media (max-width: 1024px) {
   .business-hero {
-    min-height: 280px;
-    padding: 16px;
+    grid-template-columns: 22% 38% 40%;
+    padding: 14px;
+    gap: 10px;
   }
 
-  .business-hero .hero-overlay {
-    flex-direction: column;
-    text-align: center;
-    gap: 16px;
+  .hero-col--info .hero-title {
+    font-size: 1.4rem;
+  }
+
+  .hero-col--info {
+    padding: 14px 16px;
+  }
+
+  .hero-col--media {
+    min-height: 220px;
+  }
+
+  .hero-description-track {
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .business-hero {
+    grid-template-columns: 1fr;
+    padding: 12px;
+    gap: 10px;
+    min-height: 0;
+  }
+
+  .hero-col--logo {
+    order: 1;
+    padding: 14px;
   }
 
   .hero-logo {
-    width: 130px;
-    height: 130px;
+    width: 95%;
+    height: auto;
+    max-width: 130px;
+    max-height: 130px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
   }
 
-  .hero-content h1 {
-    font-size: 1.3rem;
+  .hero-col--media {
+    order: 2;
+    aspect-ratio: 4 / 3;
+    min-height: 200px;
   }
 
-  .hero-content p {
-    font-size: 0.8rem;
+  .hero-col--info {
+    order: 3;
+    padding: 16px;
   }
 
-  .hero-meta {
-    justify-content: center;
+  .hero-col--info .hero-title {
+    font-size: 1.25rem;
+  }
+
+  .hero-col--info .hero-meta {
     gap: 10px;
-    font-size: 0.7rem;
+    font-size: 0.72rem;
   }
 
-  .hero-actions {
-    justify-content: center;
+  .hero-col--info .hero-actions {
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 480px) {
-  .hero-logo {
-    width: 100px;
-    height: 100px;
-  }
-
   .business-hero {
-    min-height: 240px;
+    padding: 10px;
+    gap: 8px;
+    border-radius: 12px;
   }
 
-  .hero-content h1 {
+  .hero-logo {
+    max-width: 110px;
+    max-height: 110px;
+  }
+
+  .hero-col--media {
+    aspect-ratio: 1 / 1;
+    min-height: 180px;
+  }
+
+  .hero-col--info .hero-title {
     font-size: 1.1rem;
+  }
+
+  .hero-col--info .hero-meta-line {
+    font-size: 0.78rem;
+  }
+
+  .hero-col--info .hero-meta {
+    font-size: 0.68rem;
+  }
+
+  .hero-col--info .hero-actions .btn {
+    padding: 7px 14px;
+    font-size: 0.75rem;
+  }
+
+  .hero-description-track {
+    font-size: 0.75rem;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
   }
 }
 
 /* ============================================================
    Section H.4 — Orders paused banner
-   The HTML element carries inline styles too, but this layer
-   keeps the banner readable across browsers and gives it a
-   clean mobile stacking behaviour.
    ============================================================ */
 #ordersPausedBanner {
   display: none;
@@ -266,7 +481,6 @@
 
 /* ============================================================
    Section H.5 — Contact-only block
-   Shown in place of the cart-enabled flow when orders are off.
    ============================================================ */
 #ordersPausedContactBlock {
   display: none;
@@ -315,8 +529,6 @@
   font-style: italic;
 }
 
-/* Mobile — the contact icons stack and fill the row so they stay
-   easy to tap, and the banner's inner content reflows cleanly. */
 @media (max-width: 640px) {
   #ordersPausedBanner {
     padding: 14px 16px !important;
@@ -352,7 +564,7 @@
   }
 }
 
-/* ===== ABOUT CARD ===== */
+/* ===== ABOUT CARD (legacy wrapper, kept for compatibility) ===== */
 .about-card {
   background: #fff;
   border-radius: 12px;
@@ -406,6 +618,147 @@
   line-height: 1.6;
   margin: 0;
   white-space: pre-wrap;
+}
+
+/* ============================================================
+   ABOUT CARD — COMPACT 2-COLUMN LAYOUT (SWAPPED)
+   LEFT  — tagline, feature bullets, location, contact line
+   RIGHT — Mission on top, Vision below
+   Phones stack these two columns vertically.
+   ============================================================ */
+
+.about-card--compact {
+  padding: 14px;
+}
+
+.about-compact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+/* LEFT column — description block */
+.about-compact-desc {
+  background: #f8fafc;
+  border-left: 4px solid #2563eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.about-compact-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 6px 0;
+  line-height: 1.3;
+}
+
+.about-compact-tagline {
+  font-size: 0.8rem;
+  color: #475569;
+  margin: 0 0 10px 0;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.about-compact-bullets {
+  list-style: none;
+  margin: 0 0 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.about-compact-bullets li {
+  font-size: 0.78rem;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.about-compact-meta {
+  font-size: 0.75rem;
+  color: #475569;
+  margin: 2px 0 0 0;
+  line-height: 1.5;
+}
+
+/* RIGHT column — Mission + Vision stacked vertically.
+   Mission is first (top), Vision second (below). */
+.about-compact-mv {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.about-compact-mv .about-item {
+  padding: 12px 14px;
+  margin: 0;
+  text-align: center;
+}
+
+.about-compact-mv .about-item i {
+  font-size: 1.4rem;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.about-compact-mv .about-item h3 {
+  font-size: 0.85rem;
+  font-weight: 800;
+  margin: 0 0 4px 0;
+  color: #0f172a;
+}
+
+.about-compact-mv .about-item p {
+  font-size: 0.75rem;
+  color: #475569;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Tablets — keep the two columns but tighten the gap. */
+@media (max-width: 900px) {
+  .about-compact-grid {
+    gap: 12px;
+  }
+
+  .about-compact-mv {
+    gap: 8px;
+  }
+
+  .about-compact-title {
+    font-size: 0.85rem;
+  }
+
+  .about-compact-tagline,
+  .about-compact-bullets li,
+  .about-compact-meta {
+    font-size: 0.72rem;
+  }
+}
+
+/* Phones — stack everything vertically. */
+@media (max-width: 640px) {
+  .about-card--compact {
+    padding: 12px;
+    margin: 10px 8px;
+  }
+
+  .about-compact-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .about-compact-mv {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .about-compact-desc {
+    padding: 12px 14px;
+  }
 }
 
 /* ===== PRODUCTS SECTION ===== */
@@ -582,68 +935,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
-}
-
-/* ===== SLIDER SECTION ===== */
-.slider-section {
-  padding: 0 12px;
-  margin: 16px 0;
-}
-
-.slider-container {
-  position: relative;
-  overflow: hidden;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-}
-
-.slider-wrapper {
-  display: flex;
-  transition: transform 0.5s ease;
-}
-
-.slide {
-  min-width: 100%;
-  height: 180px;
-  background: #e2e8f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1rem;
-  color: #475569;
-}
-
-.slide img,
-.slide video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.slider-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(0,0,0,0.5);
-  color: white;
-  border: none;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 1rem;
-  border-radius: 50%;
-  z-index: 10;
-}
-
-.slider-btn:hover {
-  background: rgba(255,107,107,0.8);
-}
-
-.prev {
-  left: 6px;
-}
-
-.next {
-  right: 6px;
 }
 
 /* ===== CONTACT SECTION ===== */
@@ -876,10 +1167,6 @@
     height: 130px;
   }
 
-  .slide {
-    height: 140px;
-  }
-
   .products-filters input {
     min-width: 180px;
   }
@@ -905,10 +1192,6 @@
 
   .product-card .product-price {
     font-size: 0.8rem;
-  }
-
-  .slide {
-    height: 120px;
   }
 
   .products-filters {

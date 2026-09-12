@@ -1,5 +1,5 @@
 // ============================================================
-//  AD MANAGEMENT JAVASCRIPT - Section J
+//  AD MANAGEMENT JAVASCRIPT - Section J / N
 //  Location: public/js/ad-management.js
 //
 //  J.2 — Business admins upload image or video, set title /
@@ -9,6 +9,23 @@
 //  J.6 — When the admin picks "product", only that business's
 //        own active products are offered. The server validates
 //        this again on save.
+//
+//  Section N — Fixed ad slots:
+//  N.1 — Each business has exactly three ad slots: 1, 2, 3.
+//  N.2 — A new ad is placed in the smallest free slot by the
+//        server. The frontend only reads that decision; it never
+//        invents a slot number.
+//  N.3 — Editing an ad never changes its slot. The form is kept
+//        usable while editing even when all three slots are
+//        taken, because editing does not consume a slot.
+//  N.4 — Deleting an ad frees its slot. The list is re-rendered
+//        in slot order; the frontend never re-sorts by time.
+//  N.5 — When all three slots are taken, the create form is
+//        disabled and the server's 409 message ("Delete or edit
+//        an existing ad to free a slot.") is surfaced verbatim.
+//  N.6 — The slot-usage badge ("Ad X of 3") and the "N slots
+//        free" hint are driven by the server's `slot_usage`
+//        object. No `created_at` ordering anywhere.
 //
 //  Section J.2 — in-page integration notes:
 //
@@ -41,6 +58,10 @@
   if (typeof window.selectedMediaFile === 'undefined') window.selectedMediaFile = null;
   if (typeof window.selectedMediaType === 'undefined') window.selectedMediaType = null;
 
+  // N.1 — mirror of the server-side cap. Used only as a fallback
+  // when the server does not return `slot_usage` (older backend).
+  if (typeof window.AD_MAX_SLOTS_PER_BUSINESS === 'undefined') window.AD_MAX_SLOTS_PER_BUSINESS = 3;
+
   // Per-ad display defaults (Section J.5) — exposed so business-admin.js
   // can reuse them when it renders the placeholder values in the form.
   if (typeof window.AD_DEFAULT_IMAGE_DURATION === 'undefined') window.AD_DEFAULT_IMAGE_DURATION = 6;
@@ -48,10 +69,17 @@
 
   var DEFAULT_IMAGE_DURATION = window.AD_DEFAULT_IMAGE_DURATION;
   var DEFAULT_VIDEO_DURATION = window.AD_DEFAULT_VIDEO_DURATION;
+  var MAX_SLOTS = window.AD_MAX_SLOTS_PER_BUSINESS;
 
   // Whether the form + list have already been wired once. Prevents
   // duplicate event listeners if initAdManagement() is called again.
   var adFormWired = false;
+
+  // N.6 — the latest slot-usage picture returned by the server.
+  // Shape: { max, count, used: [1,2], free: [3], isFull: false }
+  // When the server is older and does not return it, this stays
+  // null and the UI degrades to "count only".
+  var slotUsage = null;
 
   // ============================================================
   //  SECTION LOOKUP HELPERS
@@ -155,6 +183,141 @@
   }
 
   // ============================================================
+  //  N — SLOT USAGE BADGE + FORM CAP
+  // ============================================================
+
+  /**
+   * N.6 — Render the slot-usage block just above the form.
+   *
+   * The block shows:
+   *   - "Ad 2 of 3" (or the equivalent count)
+   *   - the list of free slot numbers, or an explicit "no slots free"
+   *     warning when the cap is reached
+   *
+   * The block is created lazily on first use and lives at the top
+   * of #adForm's parent settings-section so it never interferes
+   * with the form's own markup.
+   */
+  function renderSlotUsage() {
+    var form = byId('adForm');
+    if (!form) return;
+
+    var host = form.closest('.settings-section') || form.parentElement;
+    if (!host) return;
+
+    var block = byId('adSlotUsageBlock');
+    if (!block) {
+      block = document.createElement('div');
+      block.id = 'adSlotUsageBlock';
+      block.style.cssText =
+        'margin:0 0 14px 0; padding:10px 14px; border-radius:10px;' +
+        'display:flex; align-items:center; gap:12px; flex-wrap:wrap;' +
+        'font-size:0.85rem; line-height:1.4;';
+      host.insertBefore(block, form);
+    }
+
+    // Fall back to a count-only view when the server did not send
+    // `slot_usage` (older backend). We still want the admin to see
+    // how many ads they have.
+    var used = slotUsage && Array.isArray(slotUsage.used) ? slotUsage.used : [];
+    var free = slotUsage && Array.isArray(slotUsage.free) ? slotUsage.free : [];
+    var max = slotUsage && Number.isFinite(slotUsage.max) ? slotUsage.max : MAX_SLOTS;
+    var count = slotUsage && Number.isFinite(slotUsage.count) ? slotUsage.count : used.length;
+    var isFull = slotUsage && slotUsage.isFull === true;
+
+    var isEditing = Boolean(window.editingAdId);
+
+    var bg = isFull && !isEditing
+      ? '#fef2f2'
+      : '#eff6ff';
+    var border = isFull && !isEditing
+      ? '1px solid #fca5a5'
+      : '1px solid #bfdbfe';
+    var color = isFull && !isEditing
+      ? '#991b1b'
+      : '#1e40af';
+
+    block.style.background = bg;
+    block.style.border = border;
+    block.style.color = color;
+
+    var slotWord = count === 1 ? 'slot' : 'slots';
+    var badgeText = 'Ad ' + count + ' of ' + max;
+
+    var tail;
+    if (isFull && !isEditing) {
+      tail =
+        '<span style="font-weight:700;">All ' + max + ' slots are in use.</span>' +
+        ' Delete or edit an existing ad below to free a slot.';
+    } else if (isFull && isEditing) {
+      tail =
+        'Editing an existing ad. Slot ' + (used.length ? used.join(', ') : '—') +
+        ' stays where it is — editing never moves an ad in the rotation.';
+    } else {
+      var freeList = free.length ? free.join(', ') : '—';
+      tail =
+        'You have <strong>' + free.length + '</strong> ' +
+        (free.length === 1 ? 'slot' : 'slots') +
+        ' free (slot ' + freeList + '). A new ad will be placed in the smallest free slot.';
+    }
+
+    block.innerHTML =
+      '<span style="display:inline-flex; align-items:center; gap:6px;' +
+        'padding:3px 12px; border-radius:20px; background:#fff;' +
+        'font-weight:700; font-size:0.75rem; border:1px solid rgba(0,0,0,0.06);">' +
+        '<i class="fas fa-layer-group"></i> ' + escapeHtml(badgeText) +
+      '</span>' +
+      '<span style="flex:1; min-width:180px;">' + tail + '</span>';
+  }
+
+  /**
+   * N.5 — Disable the create form when the cap is reached.
+   *
+   * `editing: true` keeps the form usable even when the cap is
+   * full, because editing an existing ad does not consume a slot.
+   */
+  function applySlotCapToForm(options) {
+    options = options || {};
+    var isEditing = options.editing === true;
+
+    var form = byId('adForm');
+    if (!form) return;
+
+    var isFull = slotUsage && slotUsage.isFull === true;
+    var shouldDisable = isFull && !isEditing;
+
+    // Disable every input/select/textarea/button inside the form
+    // (except the cancel-edit button, which must always work).
+    var controls = form.querySelectorAll('input, select, textarea, button[type="submit"]');
+    controls.forEach(function (el) {
+      if (el.id === 'adCancelBtn') return;
+      el.disabled = shouldDisable;
+    });
+
+    // Show a small inline note when the form is disabled by the cap.
+    var note = byId('adFormCapNote');
+    if (shouldDisable) {
+      if (!note) {
+        note = document.createElement('p');
+        note.id = 'adFormCapNote';
+        note.style.cssText =
+          'margin:8px 0 0 0; padding:8px 12px; border-radius:8px;' +
+          'background:#fef2f2; color:#991b1b; font-size:0.8rem;' +
+          'border-left:3px solid #ef4444;';
+        note.textContent =
+          'You have reached the maximum of ' + MAX_SLOTS +
+          ' ads. Delete or edit an existing ad below to free a slot.';
+        form.appendChild(note);
+      }
+      note.style.display = 'block';
+    } else if (note) {
+      note.style.display = 'none';
+    }
+
+    renderSlotUsage();
+  }
+
+  // ============================================================
   //  PRODUCT PICKER (for link_type = 'product')
   // ============================================================
 
@@ -241,10 +404,12 @@
       drop.addEventListener('click', function (e) {
         // Let clicks on the inner remove button bubble without opening the picker.
         if (e.target.closest('.media-remove')) return;
+        if (input.disabled) return;
         input.click();
       });
       drop.addEventListener('dragover', function (e) {
         e.preventDefault();
+        if (input.disabled) return;
         drop.classList.add('dragging');
       });
       drop.addEventListener('dragleave', function () {
@@ -253,6 +418,7 @@
       drop.addEventListener('drop', function (e) {
         e.preventDefault();
         drop.classList.remove('dragging');
+        if (input.disabled) return;
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
           handleMediaSelection(e.dataTransfer.files[0]);
         }
@@ -368,6 +534,17 @@
       return;
     }
 
+    // N.5 — refuse early on create when all slots are taken. The
+    // server also enforces this, but a local check gives an
+    // instant message without a round-trip.
+    if (!isEdit && slotUsage && slotUsage.isFull === true) {
+      showFormStatus(
+        '❌ All ' + MAX_SLOTS + ' slots are taken. Delete or edit an existing ad first.',
+        'error'
+      );
+      return;
+    }
+
     if (linkType === 'product' && !linkTargetId) {
       showFormStatus('❌ Please choose which product this ad should open.', 'error');
       return;
@@ -406,7 +583,16 @@
       var data = await res.json();
 
       if (!res.ok) {
+        // N.5 — the server's 409 message is the canonical one
+        // ("You have reached the maximum of 3 ads. Delete or edit
+        // an existing ad to free a slot."). Surface it verbatim.
         throw new Error(data.error || 'Failed to save ad');
+      }
+
+      // N.6 — pick up the slot-usage update the server just sent
+      // so the badge and form cap refresh without a second call.
+      if (data.slot_usage) {
+        slotUsage = data.slot_usage;
       }
 
       showFormStatus(isEdit ? '✅ Ad updated successfully!' : '✅ Ad created successfully!', 'success');
@@ -455,6 +641,10 @@
     if (cancelBtn) cancelBtn.style.display = 'none';
 
     showFormStatus('', '');
+
+    // N.5 — after reset we are back to "create" mode, so re-apply
+    // the slot cap if the business is full.
+    applySlotCapToForm({ editing: false });
   }
 
   function cancelEdit() {
@@ -462,7 +652,11 @@
   }
 
   // ============================================================
-  //  LOAD ADS LIST
+  //  N — LOAD ADS LIST
+  //
+  //  N.6 — The server returns { ads, slot_usage }. The list is
+  //  already ordered by slot ascending; we never re-sort it.
+  //  slot_usage is cached so the badge and form cap stay in sync.
   // ============================================================
 
   async function loadAds() {
@@ -479,11 +673,27 @@
       });
 
       if (!res.ok) throw new Error('Failed to load ads');
-      var ads = await res.json();
+      var payload = await res.json();
 
-      if (badge) badge.textContent = String(Array.isArray(ads) ? ads.length : 0);
+      // Backward-compatible: accept either { ads, slot_usage }
+      // (new) or a bare array (old server).
+      var ads;
+      if (Array.isArray(payload)) {
+        ads = payload;
+        slotUsage = null;
+      } else {
+        ads = Array.isArray(payload.ads) ? payload.ads : [];
+        slotUsage = payload.slot_usage || null;
+      }
 
-      if (!Array.isArray(ads) || ads.length === 0) {
+      if (badge) badge.textContent = String(ads.length);
+
+      // N.5 / N.6 — refresh the badge and the form cap from the
+      // latest slot usage.
+      renderSlotUsage();
+      applySlotCapToForm({ editing: Boolean(window.editingAdId) });
+
+      if (!ads || ads.length === 0) {
         container.innerHTML =
           '<div class="empty-msg">' +
             '<i class="fas fa-bullhorn"></i>' +
@@ -502,7 +712,10 @@
   }
 
   // ============================================================
-  //  AD CARD
+  //  N — AD CARD
+  //
+  //  Each card shows the ad's slot number so the admin can see at
+  //  a glance that the position is stable across edits.
   // ============================================================
 
   function renderAdCard(ad) {
@@ -518,6 +731,15 @@
     var statusPill = ad.is_active
       ? '<span class="status-pill active">● Active</span>'
       : '<span class="status-pill paused">● Paused</span>';
+
+    // N.6 — slot pill. Falls back to "—" when the server has not
+    // sent a slot (older backend).
+    var slotNumber = Number.isInteger(Number(ad.slot)) ? Number(ad.slot) : null;
+    var slotPill = slotNumber !== null
+      ? '<span class="status-pill" style="background:#e0e7ff; color:#3730a3;">' +
+          '<i class="fas fa-layer-group"></i> Slot ' + slotNumber +
+        '</span>'
+      : '';
 
     // Target label
     var targetLabel = '<span class="target-label"><i class="fas fa-store"></i> Business profile</span>';
@@ -544,7 +766,7 @@
     }
 
     return '' +
-      '<div class="ad-card ' + (ad.is_active ? '' : 'is-paused') + '" data-id="' + ad.id + '">' +
+      '<div class="ad-card ' + (ad.is_active ? '' : 'is-paused') + '" data-id="' + ad.id + '" data-slot="' + (slotNumber || '') + '">' +
         '<div class="ad-card-media">' +
           mediaThumb +
           mediaBadge +
@@ -552,7 +774,10 @@
         '<div class="ad-card-body">' +
           '<div class="ad-card-header">' +
             '<h3 class="ad-card-title">' + (ad.title ? escapeHtml(ad.title) : '<em>Untitled ad</em>') + '</h3>' +
-            statusPill +
+            '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
+              slotPill +
+              statusPill +
+            '</div>' +
           '</div>' +
           (ad.description ? '<p class="ad-card-desc">' + escapeHtml(ad.description) + '</p>' : '') +
           '<div class="ad-card-meta">' +
@@ -600,7 +825,9 @@
         cache: 'no-store'
       });
       if (!res.ok) throw new Error('Failed to load ad');
-      var ads = await res.json();
+      var payload = await res.json();
+      var ads = Array.isArray(payload) ? payload : (payload.ads || []);
+
       var ad = ads.find(function (a) { return Number(a.id) === Number(adId); });
       if (!ad) throw new Error('Ad not found');
 
@@ -652,13 +879,20 @@
       }
 
       var formTitle = byId('formTitle');
-      if (formTitle) formTitle.innerHTML = '<i class="fas fa-edit"></i> Edit Ad';
+      if (formTitle) {
+        var slotNote = Number.isInteger(Number(ad.slot)) ? ' (slot ' + ad.slot + ')' : '';
+        formTitle.innerHTML = '<i class="fas fa-edit"></i> Edit Ad' + slotNote;
+      }
 
       var submitBtn = byId('adSubmitBtn');
       if (submitBtn) submitBtn.innerHTML = '<i class="fas fa-check"></i> Save Changes';
 
       var cancelBtn = byId('adCancelBtn');
       if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+
+      // N.3 — editing never consumes a slot, so keep the form
+      // usable even when all three slots are taken.
+      applySlotCapToForm({ editing: true });
 
       // Scroll the ad form into view. The business-admin shell owns
       // the scroll container, so we target the section itself.
@@ -684,6 +918,9 @@
       });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to toggle ad');
+
+      if (data.slot_usage) slotUsage = data.slot_usage;
+
       showToast(data.ad && data.ad.is_active ? '✅ Ad activated.' : '⏸️ Ad paused.', 'success');
       await loadAds();
     } catch (err) {
@@ -693,7 +930,7 @@
   }
 
   async function deleteAd(adId) {
-    if (!confirm('Delete this ad permanently? This cannot be undone.')) return;
+    if (!confirm('Delete this ad permanently? This cannot be undone. Its slot will be freed for a new ad.')) return;
 
     try {
       var res = await fetch('/api/business-admin/ads/' + adId, {
@@ -702,7 +939,13 @@
       });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete ad');
-      showToast('✅ Ad deleted.', 'success');
+
+      // N.4 — the freed slot is reported back so we can update the
+      // badge immediately even before loadAds() re-fetches.
+      if (data.slot_usage) slotUsage = data.slot_usage;
+
+      var freed = Number.isInteger(Number(data.freed_slot)) ? ' Slot ' + data.freed_slot + ' is now free.' : '';
+      showToast('✅ Ad deleted.' + freed, 'success');
       await loadAds();
     } catch (err) {
       console.error('Delete ad error:', err);
@@ -821,6 +1064,11 @@
   window.filterProductOptions  = filterProductOptions;
   window.clearMediaSelection   = clearMediaSelection;
 
+  // N.5 / N.6 — expose the slot helpers so business-admin.js can
+  // re-apply them if it ever needs to. Names are stable.
+  window.renderAdSlotUsage  = renderSlotUsage;
+  window.applyAdSlotCapToForm = applySlotCapToForm;
+
   // The legacy standalone shell used to call these from inline HTML.
   // Keep them defined so any stale markup still works, but they are
   // not required for the in-page section.
@@ -841,5 +1089,5 @@
     window.location.href = '/';
   };
 
-  console.log('✅ Ad Management JS loaded (Section J.2 in-page mode)');
+  console.log('✅ Ad Management JS loaded (Section J.2 / N — slot-based rotation)');
 })();

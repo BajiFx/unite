@@ -7,19 +7,38 @@
       H.5 — contact-only container shown in place of cart buttons
             when orders are off
 
-     Hero layout:
-      On wide screens (min-width: 900px), the hero is a three-column
-      grid:
-        LEFT   — cover media (full image or synced video)
-        MIDDLE — the business logo (full, nothing over it)
-        RIGHT  — cover media + the business info overlay (name,
-                 location, meta, actions) floating on top with a
-                 text-shadow so the cover stays fully visible.
-      Both side columns show the SAME cover media (image or video),
-      uncropped and unstretched (object-fit: contain).
+     Hero redesign:
+      The hero is a three-column band on desktop:
+        LEFT   — small column, logo only, plain background,
+                 no writing on top of it.
+        MIDDLE — writings panel: name, location, address, stats,
+                 Shop Now, Follow, Verified badge. Plain brand
+                 gradient background so the text stays crisp.
+        RIGHT  — clear media column: one image OR one video.
+                 The business description now scrolls slowly up
+                 over the media when it is long.
+      On phones the CSS reorders the three columns to
+        logo → media → writings.
 
-      On phones (max-width: 899px), the hero falls back to a single
-      cover image/video rendered behind the logo, exactly as before.
+     Slider removal:
+      The slider block that used to sit between the About card
+      and the Our Products section has been removed. The page
+      goes straight from About to Products.
+
+     About swap (this revision):
+      The About card is now a two-column layout:
+        LEFT  — tagline, feature bullets, location and
+                contact line (previously on the right)
+        RIGHT — Mission on top, Vision below
+                (previously on the left)
+      Phones stack these two columns vertically.
+
+     Hero description overlay (this revision):
+      #heroDescriptionOverlay sits inside the hero media column
+      and is populated by business-profile.js with the business
+      description. When the text is longer than the frame, the
+      overlay scrolls slowly upward on an infinite loop so the
+      full text is always readable.
      ============================================================ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -93,78 +112,62 @@
   <div id="businessContent" style="display:none;">
 
     <!-- ============================================================ -->
-    <!-- HERO — three-column on desktop, single-cover on phone        -->
+    <!-- HERO — three-column band                                      -->
     <!--                                                              -->
     <!--  Desktop layout:                                              -->
-    <!--    [left cover]   [logo]   [right: cover + info overlay]      -->
-    <!--  Both side columns show the SAME cover (image or video).      -->
-    <!--  The info block sits in the right column, floating over the   -->
-    <!--  cover with a text-shadow so the media stays fully visible.   -->
-    <!--  On phones the two .hero-media frames are hidden and the      -->
-    <!--  hero falls back to the single-cover look it had before.      -->
+    <!--    [ logo ]   [ writings panel ]   [ media + description ]    -->
+    <!--                                                              -->
+    <!--  LEFT   — small, logo only, plain background                  -->
+    <!--  MIDDLE — all the text, plain brand gradient background       -->
+    <!--  RIGHT  — media column. The business description now          -->
+    <!--           overlays the media and slowly scrolls upward        -->
+    <!--           when the text is long.                              -->
+    <!--                                                              -->
+    <!--  Phones reorder to: logo → media → writings                   -->
     <!-- ============================================================ -->
     <div class="business-hero" id="heroSection">
 
-      <!-- LEFT cover frame (desktop only) -->
-      <div class="hero-media hero-media-left" id="heroMediaLeft" aria-hidden="true"></div>
-
-      <!-- MIDDLE: the business logo -->
-      <div class="hero-logo-wrapper">
+      <!-- LEFT: logo column (small, plain) -->
+      <div class="hero-col hero-col--logo" id="heroColLogo">
         <img id="heroLogo" src="" alt="Business Logo" class="hero-logo">
       </div>
 
-      <!-- RIGHT cover frame (desktop only) + the info overlay -->
-      <div class="hero-media hero-media-right" id="heroMediaRight" aria-hidden="true">
-        <!-- The info block lives inside the right frame so it paints
-             over the same cover media as the left frame. On phones
-             this frame is display: none, and the .hero-overlay-mobile
-             below takes over instead. -->
-        <div class="hero-info hero-info-desktop">
-          <h1 id="heroTitleDesktop" class="hero-name">Welcome</h1>
-          <p id="heroLocationDesktop" class="hero-meta-line">📍 Nairobi, Kenya</p>
-          <p id="heroAddressDesktop" class="hero-meta-line"></p>
-          <div class="hero-meta">
-            <span><i class="fas fa-box"></i> <span id="productCountDesktop">0</span> products</span>
-            <span><i class="fas fa-star"></i> <span id="avgRatingDesktop">0.0</span> rating</span>
-            <span><i class="fas fa-users"></i> <span id="followerCountDesktop">0</span> followers</span>
-          </div>
-          <div class="hero-actions">
-            <button class="btn btn-primary" onclick="document.getElementById('products').scrollIntoView({behavior:'smooth'})">
-              <i class="fas fa-shopping-bag"></i> Shop Now
-            </button>
-            <button class="btn btn-success" id="followBtnDesktop" onclick="toggleFollow()">
-              <i class="fas fa-heart"></i> <span id="followTextDesktop">Follow</span>
-            </button>
-          </div>
-          <div class="verified-badge" id="verifiedBadgeDesktop" style="display:none;">
-            <span class="badge">✅ Verified Business</span>
-          </div>
+      <!-- MIDDLE: writings panel (plain, all the text) -->
+      <div class="hero-col hero-col--info" id="heroColInfo">
+        <h1 id="heroTitle" class="hero-title">Welcome</h1>
+        <p id="heroLocation" class="hero-meta-line">📍 Nairobi, Kenya</p>
+        <p id="heroAddress" class="hero-meta-line"></p>
+
+        <div class="hero-meta" id="heroMeta">
+          <span><i class="fas fa-box"></i> <span id="productCount">0</span> products</span>
+          <span><i class="fas fa-star"></i> <span id="avgRating">0.0</span> rating</span>
+          <span><i class="fas fa-users"></i> <span id="followerCount">0</span> followers</span>
+        </div>
+
+        <div class="hero-actions">
+          <button class="btn btn-primary" onclick="document.getElementById('products').scrollIntoView({behavior:'smooth'})">
+            <i class="fas fa-shopping-bag"></i> Shop Now
+          </button>
+          <button class="btn btn-success" id="followBtn" onclick="toggleFollow()">
+            <i class="fas fa-heart"></i> <span id="followText">Follow</span>
+          </button>
+        </div>
+
+        <div class="verified-badge" id="verifiedBadge" style="display:none;">
+          <span class="badge">✅ Verified Business</span>
         </div>
       </div>
 
-      <!-- Mobile fallback overlay — the single-cover look.
-           Hidden on desktop (the CSS turns it off at 900px+). -->
-      <div class="hero-overlay hero-overlay-mobile">
-        <div class="hero-content">
-          <h1 id="heroTitle">Welcome</h1>
-          <p id="heroLocation">📍 Nairobi, Kenya</p>
-          <p id="heroAddress"></p>
-          <div class="hero-meta" id="heroMeta">
-            <span><i class="fas fa-box"></i> <span id="productCount">0</span> products</span>
-            <span><i class="fas fa-star"></i> <span id="avgRating">0.0</span> rating</span>
-            <span><i class="fas fa-users"></i> <span id="followerCount">0</span> followers</span>
-          </div>
-          <div class="hero-actions">
-            <button class="btn btn-primary" onclick="document.getElementById('products').scrollIntoView({behavior:'smooth'})">
-              <i class="fas fa-shopping-bag"></i> Shop Now
-            </button>
-            <button class="btn btn-success" id="followBtn" onclick="toggleFollow()">
-              <i class="fas fa-heart"></i> <span id="followText">Follow</span>
-            </button>
-          </div>
-          <div class="verified-badge" id="verifiedBadge" style="display:none;">
-            <span class="badge">✅ Verified Business</span>
-          </div>
+      <!-- RIGHT: media column with description overlay -->
+      <div class="hero-col hero-col--media" id="heroColMedia">
+        <div class="hero-media-bg" aria-hidden="true"></div>
+        <div class="hero-media-slot" id="heroMediaSlot"></div>
+
+        <!-- Description overlay — filled and animated by
+             business-profile.js. Scrolls slowly upward when the
+             text is longer than the frame. -->
+        <div class="hero-description-overlay" id="heroDescriptionOverlay" aria-hidden="true">
+          <div class="hero-description-track" id="heroDescriptionTrack"></div>
         </div>
       </div>
     </div>
@@ -197,42 +200,53 @@
         This shop is not taking orders on BidhaaLink at the moment. You can reach them directly with any of the options below.
       </p>
       <div id="ordersPausedContactIcons" style="display:flex; gap:12px; flex-wrap:wrap;">
-        <!-- The icons are cloned here by business-profile.js from the
-             existing #businessProfileContacts block so we never have
-             two sets of links to maintain. -->
       </div>
       <p id="ordersPausedContactEmpty" style="display:none; font-size:0.8rem; color:#65a30d; margin:10px 0 0 0; font-style:italic;">
         This business has not added contact details yet. Try sending them a message from the Messages tab.
       </p>
     </div>
 
-    <!-- ===== ABOUT ===== -->
-    <div class="about-card">
-      <div class="about-grid">
-        <div class="about-item">
-          <i class="fas fa-bullseye" style="color:#ff6b6b;"></i>
-          <h3>Mission</h3>
-          <p id="businessMission">-</p>
-        </div>
-        <div class="about-item">
-          <i class="fas fa-eye" style="color:#7c3aed;"></i>
-          <h3>Vision</h3>
-          <p id="businessVision">-</p>
-        </div>
-      </div>
-      <div class="about-description" id="aboutDescription">
-        <p id="businessDescription">Loading description...</p>
-      </div>
-    </div>
+    <!-- ===== ABOUT (compact 2-column layout, swapped) =====
+         LEFT  — tagline, feature bullets, location, contact line
+         RIGHT — Mission on top, Vision below
+         Phones stack these two columns vertically. -->
+    <div class="about-card about-card--compact">
+      <div class="about-compact-grid">
 
-    <!-- ===== SLIDER ===== -->
-    <div class="slider-section">
-      <div class="slider-container">
-        <div class="slider-wrapper" id="sliderWrapper">
-          <div class="slide">✨ Loading...</div>
+        <!-- LEFT: description block -->
+        <div class="about-compact-desc">
+          <h3 class="about-compact-title">🏡✨ <span id="aboutBusinessName">Business</span> – Quality for Every Home</h3>
+          <p id="businessDescription" class="about-compact-tagline">Loading description...</p>
+
+          <ul class="about-compact-bullets">
+            <li>✅ Quality &amp; Affordable</li>
+            <li>🌈 Wide Variety</li>
+            <li>📦 Retail &amp; Wholesale</li>
+            <li>🚚 Delivery Across Kenya</li>
+          </ul>
+
+          <p class="about-compact-meta">
+            📍 <span id="aboutBusinessLocation">Location</span>
+          </p>
+          <p class="about-compact-meta">
+            📞 Contact us today!
+          </p>
         </div>
-        <button class="slider-btn prev" onclick="changeBusinessSlide(-1)">❮</button>
-        <button class="slider-btn next" onclick="changeBusinessSlide(1)">❯</button>
+
+        <!-- RIGHT: Mission (top) + Vision (below) -->
+        <div class="about-compact-mv">
+          <div class="about-item">
+            <i class="fas fa-bullseye" style="color:#ff6b6b;"></i>
+            <h3>Mission</h3>
+            <p id="businessMission">-</p>
+          </div>
+          <div class="about-item">
+            <i class="fas fa-eye" style="color:#7c3aed;"></i>
+            <h3>Vision</h3>
+            <p id="businessVision">-</p>
+          </div>
+        </div>
+
       </div>
     </div>
 

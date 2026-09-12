@@ -40,7 +40,7 @@
 //   location names match. The customer's preferred names are never
 //   returned in the response (D.11 preserved).
 //
-//  Section J — Marketplace hero slider:
+//  Section J / N — Marketplace hero slider:
 //   J.1 / J.4 — /ads returns the active ad set that replaces the
 //               Featured Businesses block on the marketplace.
 //   J.6 — /ads/:id/click returns the ad's link type and target so
@@ -49,63 +49,64 @@
 //   J.7 — /ads/:id/view and /ads/:id/click update views, clicks,
 //         and CTR in the same table the business admin uses.
 //
-//  Section K — Product-name search:
-//   K.1 — The same /api/businesses search matches products by name
-//         across every business. Typing "shoes" returns:
-//           • every business whose name / description / location
-//             matches the word "shoes", AND
-//           • every business that sells a product whose name
-//             matches the word "shoes", AND
-//           • a `products` array of the matching product tiles.
-//   K.2 — Matching is word-boundary PLUS a trailing \w* so
-//         "blanket" matches Blanket, Blankets, Blanket Set, but
-//         not "Horseblanket" or "Shoelace" for "shoe".
-//   K.3 — The `within Nkm` radius anchor filters product results
-//         too, so "shoes near me within 5km" never returns a
-//         product from a shop 200 km away.
-//   K.4 — Product ordering: distance ascending when an anchor is
-//         used, otherwise name-match relevance first, then newest.
-//   K.5 — A `pg_trgm` GIN index on products.name keeps this fast
-//         at scale. See migrations/sql/20260915-product-search-index.sql.
+//   N.1 — Each business has exactly three ad slots (1, 2, 3).
+//   N.2 — A new ad is assigned the smallest free slot by the
+//         business-admin route. Slot assignment never moves.
+//   N.3 — Editing an ad never changes its slot.
+//   N.4 — Deleting an ad frees the slot without shifting others.
+//   N.5 — A business can never hold more than three ads.
+//   N.6 — The marketplace rotation below MUST order by slot, not
+//         by created_at. This is the whole point of slots: a
+//         business cannot jump ahead of the rotation by deleting
+//         and re-uploading an ad. The rotation is
+//             A1, B1, C1, A2, B2, C2, A3, B3, C3, A1, ...
+//         and a business with only one ad simply appears in the
+//         first pass and nowhere else.
 //
-//  Section L — Fuzzy fallback (typo tolerance):
-//   L.1 — If the primary word-boundary search returns zero product
-//         matches AND zero business name matches, the same two
-//         queries are re-run with a pg_trgm similarity regex.
-//         This catches typos like "balnket" → "blanket".
-//   L.2 — The response carries a `search_mode` field ('exact' |
-//         'fuzzy' | null) so the frontend can show a hint.
-//   L.3 — Each matched product carries `matched_word` — the exact
-//         cleaned search word — so the frontend can render
-//         "SELLS: blanket" on the matching businesses.
-//   L.4 — Each business that matched via a product carries a new
-//         `product_matches` array so the frontend can render the
-//         "SELLS: …" banner at the top of the card.
+//  Section J.5 — Clock-driven ad rotation (new):
+//   J.5a — The ad pool is a moving wheel anchored to the wall clock,
+//          not to the page load. Two customers opening at the same
+//          moment see the same ad. A customer who comes back later
+//          sees whatever ad the clock says, not ad 1 again.
 //
-//  Section M — Sentence-to-word extraction (this revision):
-//   M.1 — The customer types a full sentence ("i need blankets in
-//         nairobi"). The server strips filler words and anchor
-//         tokens, leaving ONLY the real product / business word
-//         ("blankets") as `searchText` / `matched_word` /
-//         `search_word`.
-//   M.2 — Filler words are English + Swahili: i, me, my, we, us,
-//         you, need, want, looking, for, show, find, get, give,
-//         bring, please, some, a, an, the, any, all, is, are, of,
-//         with, to, that, this, nataka, ninataka, naomba, tafadhali,
-//         nipe, nilete, kwa, ya, na.
-//   M.3 — The label printed by the frontend is only ever the
-//         cleaned word, never the full typed sentence.
-//   M.4 — If the cleaned word matches a business name (like
-//         "Doppa"), the business is listed without any SELLS label.
-//   M.5 — If the cleaned word matches a product, the SELLS label
-//         is shown, and if that same business also happens to have
-//         the word in its own name, the product match wins (Q3a).
-//   M.6 — If the cleaned word is only a location word (like
-//         "Nairobi" alone), the anchor parser has already consumed
-//         it, so the search degrades gracefully to location-only.
-//   M.7 — "near me" without an explicit "within Nkm" applies a
-//         50 km global cap to product results (Q5b). An explicit
-//         "within Nkm" overrides the cap.
+//          The server publishes the three numbers the client needs
+//          to compute the current position locally:
+//            rotation_slot_duration_ms — how long each ad stays up
+//            rotation_epoch_ms         — the reference Unix time (0)
+//            rotation_offset           — a fixed integer offset (0)
+//
+//          The client computes:
+//            slot  = floor((Date.now() - epoch) / slot_duration)
+//            index = (slot + offset) mod ads.length
+//
+//          Nothing about the rotation lives on the server beyond
+//          these constants, so every browser derives the same
+//          answer at the same wall-clock moment.
+//
+//          Per-ad display_duration is intentionally IGNORED for the
+//          global clock. Every ad occupies exactly one uniform slot
+//          so the cycle cannot drift.
+//
+//  Section R — Per-visit business rotation (new):
+//   R.1 — The default browse (no search, no explicit sort, no
+//         urgent toggle) rotates the smart-scored list by a
+//         per-visit offset so every business eventually gets a
+//         turn at the top.
+//   R.2 — The offset is derived from a seed the server stores in
+//         an HttpOnly cookie (`rotation_seed`) with a 30-minute
+//         TTL. Every request in the same visit reads the same
+//         seed, so the list is stable while the customer browses.
+//   R.3 — When the cookie is missing or expired, the server
+//         computes a fresh seed from Date.now() and sets it.
+//   R.4 — Pagination and filter changes reuse the same seed.
+//   R.5 — Search (search=...) and explicit sorts
+//         (newest / popular / rating / urgent) are NEVER rotated.
+//   R.6 — Ads and businesses have independent clocks: ads rotate
+//         every 30 seconds, the business seed advances every
+//         30 minutes per the cookie TTL.
+//   R.7 — The products array returned with the same response is
+//         rotated by the same offset, so the product tiles also
+//         get a fair share of the top of the page.
 // ============================================================
 
 const express = require('express');
@@ -247,25 +248,6 @@ async function geocodePlace(placeName) {
 
 /**
  * Section D + M — parse a customer-typed search sentence.
- *
- * The sentence is reduced to three buckets:
- *
- *   1. Anchor (location)
- *      "in nairobi", "near me", "within 5km", "around westlands"
- *      → used as anchorLat/anchorLng (self coords, or geocoded place)
- *
- *   2. Filler words
- *      "i need", "please show", "nataka", "tafadhali"
- *      → dropped entirely
- *
- *   3. The real search word(s)
- *      "blankets", "shoes", "doppa"
- *      → kept as `result.text` and returned to the client as
- *        `search_word` / `matched_word`
- *
- * Any remaining flags (verified, featured, new, open, delivery,
- * pickup, cheap, rated N) are parsed in the same pass so they are
- * not confused with the real search word.
  */
 function parseSearchQuery(rawQuery) {
     const result = {
@@ -338,9 +320,6 @@ function parseSearchQuery(rawQuery) {
     }
 
     // -------- 5. filler words (English + Swahili) --------
-    //      Runs AFTER anchor and flag parsing, so "near me" is
-    //      already gone by the time we get here. What remains is
-    //      the real product / business word plus any stray filler.
     working = working.replace(FILLER_WORD_REGEX, ' ');
 
     // -------- 6. normalise whitespace and keep the real word --------
@@ -371,23 +350,6 @@ function buildLocationNameConditions(query, startParamIndex) {
 
 // ============================================================
 //  Section K — Search regex builders
-//
-//  K.2 — buildSearchRegex
-//    Turns any customer-typed text into a Postgres case-
-//    insensitive regex that matches on word boundaries with a
-//    trailing \w* so singular / plural / prefixed forms all
-//    match:
-//      "blanket"  →  Blanket, Blankets, Blanket Set,
-//                    Blanket-King-Size
-//      "shoe"     →  Shoe, Shoes, Shoe Laces
-//    But it does NOT match unrelated words that merely contain
-//    the search text:
-//      "shoe"     ✗  Shoelace, Horseshoe
-//      "blanket"  ✗  Horseblanket
-//
-//  The \m...\M anchors are Postgres ARE word boundaries. The
-//  trailing \w* is what gives us singular → plural without a
-//  hardcoded dictionary.
 // ============================================================
 
 function escapeRegex(text) {
@@ -402,9 +364,6 @@ function buildSearchRegex(rawText) {
         .map(w => escapeRegex(w))
         .filter(Boolean);
     if (words.length === 0) return null;
-    // Every word gets \w* on the tail so "blanket" matches
-    // "blankets" but "shoe" does not match "shoelace" (the word
-    // boundary \m stops it from matching mid-word).
     return `\\m(${words.map(w => `${w}\\w*`).join('|')})\\M`;
 }
 
@@ -415,25 +374,11 @@ function buildWordBoundaryRegex(rawText) {
 
 // ============================================================
 //  Section L — Fuzzy fallback regex (typo tolerance)
-//
-//  L.1 — buildFuzzyRegex
-//    Used ONLY when the primary search returns zero results.
-//    Builds a pg_trgm similarity pattern with a 0.4 threshold,
-//    which is loose enough to catch "balnket" → "blanket" but
-//    tight enough that it does not match unrelated words.
-//
-//    Postgres syntax: (name %> '<text>') uses the % operator
-//    for "similarity above threshold". The threshold itself is
-//    set per-query with `SET pg_trgm.similarity_threshold = 0.4`
-//    right before the query, and reset after. This is a
-//    per-session setting so it never leaks between requests on
-//    different pool clients.
 // ============================================================
 
 function buildFuzzyText(rawText) {
     const trimmed = String(rawText || '').trim();
     if (!trimmed) return null;
-    // Strip anything that could confuse the trigram operator.
     return trimmed.replace(/[%_\\]/g, '').toLowerCase();
 }
 
@@ -452,7 +397,7 @@ function computeSmartScore(row, searchText, hasAnchor, preferredCounty, preferre
         if (name.includes(q)) relevance = 2;
         else if (description.includes(q)) relevance = 1;
     }
-    const relevanceScore = relevance / 2;   // 0, 0.5, or 1
+    const relevanceScore = relevance / 2;
 
     const ratingScore = Math.max(0, Math.min(1, safe(parseFloat(row.avg_rating)) / 5));
 
@@ -486,19 +431,72 @@ function computeSmartScore(row, searchText, hasAnchor, preferredCounty, preferre
 }
 
 // ============================================================
-//  GET ALL BUSINESS CATEGORIES
+//  Section R — Per-visit business rotation helpers
 //
-//  Hardened: this endpoint runs a multi-table aggregation with a
-//  correlated subquery. On a cold DB (or a transient connection
-//  hiccup) the driver can throw before we even hit the query,
-//  which previously returned a bare 500 and, in the browser,
-//  produced "Failed to load categories". We now:
-//    1. Wrap the whole thing in a defensive try/catch.
-//    2. Return an empty array (200) instead of a 500 when the
-//       aggregation itself fails, so the caller can still render
-//       the marketplace with its default "All categories" option.
-//    3. Log the real error server-side so it is not silently lost.
+//  The seed is stored in an HttpOnly cookie so:
+//    - The server is the single source of truth.
+//    - The client does not need to send anything back.
+//    - The same visit (same cookie jar) always sees the same
+//      order, even across pagination, filters, and reloads.
+//
+//  TTL 30 minutes means a customer who comes back to the
+//  marketplace later gets a fresh seed and therefore a freshly
+//  rotated list. Over a day, every business spends roughly the
+//  same amount of time near the top.
 // ============================================================
+
+const ROTATION_COOKIE_NAME = 'rotation_seed';
+const ROTATION_COOKIE_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+
+function isSafeRotationSeed(value) {
+    if (value === undefined || value === null) return false;
+    const s = String(value);
+    return /^[0-9]{1,15}$/.test(s);
+}
+
+function getOrCreateRotationSeed(req, res) {
+    const existing = req.cookies ? req.cookies[ROTATION_COOKIE_NAME] : undefined;
+
+    if (isSafeRotationSeed(existing)) {
+        return parseInt(existing, 10);
+    }
+
+    // Derive a fresh seed from the clock. Two customers who land
+    // in the same 30-minute window will get very similar seeds,
+    // which is fine: the rotation is meant to advance between
+    // visits, not between every request.
+    const fresh = Date.now() % Number.MAX_SAFE_INTEGER;
+
+    try {
+        res.cookie(ROTATION_COOKIE_NAME, String(fresh), {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: ROTATION_COOKIE_MAX_AGE_MS,
+            path: '/'
+        });
+    } catch (err) {
+        // Non-fatal: if cookies cannot be set we simply skip
+        // rotation for this request.
+        console.warn('Could not set rotation cookie:', err.message);
+        return null;
+    }
+
+    return fresh;
+}
+
+function rotateArray(list, offset) {
+    if (!Array.isArray(list) || list.length === 0) return list;
+    const n = list.length;
+    const normalized = ((offset % n) + n) % n;
+    if (normalized === 0) return list;
+    return list.slice(normalized).concat(list.slice(0, normalized));
+}
+
+// ============================================================
+//  GET ALL BUSINESS CATEGORIES
+// ============================================================
+
 router.get('/categories/all', async (req, res) => {
     try {
         const result = await pool.query(`
@@ -518,8 +516,6 @@ router.get('/categories/all', async (req, res) => {
     } catch (err) {
         console.error('❌ Get categories error:', err);
         logError(err, 'Get categories');
-        // Graceful degradation: the marketplace treats an empty list
-        // as "no categories configured" and keeps working.
         res.json([]);
     }
 });
@@ -605,19 +601,51 @@ router.get('/nearby', async (req, res) => {
 });
 
 // ============================================================
-//  SECTION J — PUBLIC ADS FEED (HERO SLIDER ON MARKETPLACE)
+//  SECTION J / N — PUBLIC ADS FEED (HERO SLIDER ON MARKETPLACE)
+//
+//  N.6 — THE ROTATION IS SLOT-BASED, NOT TIME-BASED.
+//
+//  The ORDER BY is:
+//      slot ASC, business_id ASC, id ASC
+//
+//  Section J.5 — In addition, the response now publishes the
+//  three numbers the client needs to derive the CURRENT index
+//  from the wall clock:
+//
+//      rotation_slot_duration_ms — how long one ad occupies
+//      rotation_epoch_ms         — reference Unix time (0)
+//      rotation_offset           — fixed integer offset (0)
+//
+//  The client computes:
+//      slot  = floor((Date.now() - epoch) / slot_duration)
+//      index = (slot + offset) mod ads.length
+//
+//  Because the answer depends only on Date.now() and constants,
+//  every browser sees the same ad at the same wall-clock moment,
+//  and the wheel keeps turning while the customer is away.
+//
+//  Per-ad display_duration is deliberately NOT used to shape the
+//  global cycle: uniform 30 s slots keep the wheel from drifting.
+//  The field is still returned for the admin panel and any
+//  future per-ad UI, but the marketplace ignores it for the
+//  clock.
 // ============================================================
+
+const AD_ROTATION_SLOT_MS = 30 * 1000;   // 30 seconds per ad
+const AD_ROTATION_EPOCH_MS = 0;          // Unix epoch — never changes
+const AD_ROTATION_OFFSET = 0;            // fixed integer offset
 
 router.get('/ads', async (req, res) => {
     try {
         const limitRaw = parseInt(req.query.limit, 10);
         const limit = Number.isFinite(limitRaw) && limitRaw > 0
-            ? Math.min(limitRaw, 30)
-            : 20;
+            ? Math.min(limitRaw, 60)
+            : 60;
 
         const result = await pool.query(`
             SELECT a.id,
                    a.business_id,
+                   a.slot,
                    a.media_type,
                    a.media_url,
                    a.title,
@@ -642,11 +670,21 @@ router.get('/ads', async (req, res) => {
                   AND p.is_active = true
             WHERE a.is_active = true
               AND b.is_active = true
-            ORDER BY a.created_at DESC
+            ORDER BY a.slot ASC, a.business_id ASC, a.id ASC
             LIMIT $1
         `, [limit]);
 
-        res.json({ ads: result.rows });
+        res.json({
+            ads: result.rows,
+            interleave_by: 'slot',
+            max_slots_per_business: 3,
+
+            // Section J.5 — clock-driven rotation metadata.
+            rotation_slot_duration_ms: AD_ROTATION_SLOT_MS,
+            rotation_epoch_ms: AD_ROTATION_EPOCH_MS,
+            rotation_offset: AD_ROTATION_OFFSET,
+            rotation_cycle_length: result.rows.length
+        });
     } catch (err) {
         logError(err, 'Get marketplace ads');
         res.status(500).json({ error: 'Unable to load ads' });
@@ -731,28 +769,23 @@ router.post('/ads/:id/click', async (req, res) => {
 //        query, so it works no matter what filters are active.
 //  E.2 — Preferred-area soft anchor via ?preferred_county= & ?preferred_town=.
 //
-//  K   — When search text is present the same endpoint ALSO returns
-//        a `products` array of products whose name matches the search
-//        text (word-boundary + prefix), regardless of category. The
-//        `businesses` array is expanded so a business that sells a
-//        matching product also appears, even if its own name does not
-//        contain the word.
+//  K   — Product-name search.
+//  L   — Fuzzy fallback.
+//  M   — Sentence-to-word extraction.
 //
-//  L   — When the primary search returns zero results, the same
-//        queries are retried with a pg_trgm similarity regex so a
-//        typo like "balnket" still finds "blanket". Every matched
-//        product carries `matched_word` (the cleaned word) and every
-//        business that matched via a product carries a
-//        `product_matches` array so the frontend can render the
-//        green blinking "SELLS: …" label.
-//
-//  M   — The customer's typed sentence is reduced to a single clean
-//        search word. All filler words (i, need, please, nataka …)
-//        and all anchor tokens (in nairobi, near me, within 5km …)
-//        are stripped before matching. "i need blankets in nairobi"
-//        becomes search_word = "blankets", anchor = place:Nairobi,
-//        and every matching business/product carries
-//        matched_word = "blankets".
+//  Section R — Per-visit rotation of the default browse:
+//   R.1 — Only the default browse (no search, no explicit sort,
+//         no urgent toggle) is rotated.
+//   R.2 — The offset comes from a seed the server keeps in an
+//         HttpOnly cookie with a 30-minute TTL.
+//   R.3 — A missing or expired cookie is replaced with a fresh
+//         seed, so a customer who comes back later sees a freshly
+//         rotated list.
+//   R.4 — Pagination and filter changes reuse the same seed.
+//   R.5 — Search and explicit sorts are never rotated.
+//   R.6 — Ads and businesses have independent clocks.
+//   R.7 — The products array is rotated by the same offset so the
+//         product tiles also get a fair share of the top.
 // ============================================================
 
 router.get('/', async (req, res) => {
@@ -816,13 +849,6 @@ router.get('/', async (req, res) => {
         const hasAnchor = anchorSource !== null && Number.isFinite(anchorLat) && Number.isFinite(anchorLng);
 
         // Section M.7 — effective radius for product results.
-        //
-        // If the customer explicitly typed "within Nkm", that wins.
-        // Otherwise, when the anchor is "self" (near me) we apply a
-        // global 50 km cap so "blankets near me" never returns a
-        // product from a shop 200 km away. When the anchor is a
-        // named place (in nairobi), no cap is applied — the place
-        // itself is the boundary.
         let effectiveRadiusKm = parsed.radiusKm;
         if (!effectiveRadiusKm && anchorSource === 'self') {
             effectiveRadiusKm = DEFAULT_NEAR_ME_RADIUS_KM;
@@ -845,6 +871,35 @@ router.get('/', async (req, res) => {
             !searchText &&
             !parsed.anchor &&
             !hasAnchor;
+
+        // ------------------------------------------------------------
+        //  Section R — per-visit rotation decision
+        //
+        //  Rotate ONLY the default browse. Any explicit sort, any
+        //  search text, or any urgent toggle takes precedence and
+        //  the list is returned in strict ranked order.
+        // ------------------------------------------------------------
+        const explicitSort = Boolean(sort);
+        const rotateListing =
+            !explicitSort &&
+            !urgentMode &&
+            !searchText &&
+            !parsed.anchor &&
+            !hasAnchor;
+
+        let rotationSeed = null;
+        let rotationOffset = 0;
+
+        if (rotateListing) {
+            rotationSeed = getOrCreateRotationSeed(req, res);
+            if (rotationSeed !== null) {
+                // The offset advances with the clock but stays
+                // constant within a single cookie window. We
+                // derive it from the seed itself so the same
+                // cookie always yields the same offset.
+                rotationOffset = rotationSeed;
+            }
+        }
 
         // ============================================================
         //  Primary query (word-boundary + prefix)
@@ -1080,10 +1135,7 @@ router.get('/', async (req, res) => {
 
             // Section M.7 — apply the effective radius to both
             // business rows and product rows when the anchor
-            // produced a distance. This is what makes "blankets in
-            // nairobi" show only Nairobi shops (anchorPlace drives
-            // the geocoded coordinates) and "blankets near me"
-            // show only shops within 50 km by default.
+            // produced a distance.
             if (hasAnchor && effectiveRadiusKm) {
                 businessRows = businessRows.filter(row =>
                     row.distance_km === null || Number(row.distance_km) <= effectiveRadiusKm
@@ -1148,16 +1200,26 @@ router.get('/', async (req, res) => {
         }
 
         // ------------------------------------------------------------
-        //  Section K / L / M — shape the response.
+        //  Section R — apply the per-visit rotation.
         //
-        //  Every product carries `matched_word` — the cleaned search
-        //  word ("blankets", never "i need blankets"). Every business
-        //  that matched via a product carries a `product_matches`
-        //  array so the frontend can render the green blinking
-        //  "SELLS: blankets" label at the top of the card. A
-        //  business that matched purely by name keeps an empty
-        //  `product_matches` array (Q4 — the frontend then renders
-        //  no SELLS label).
+        //  Only when we decided to rotate. The seed may be null when
+        //  cookies are not available; in that case we simply leave
+        //  the list as-is rather than failing the request.
+        // ------------------------------------------------------------
+        let rotationApplied = false;
+        let rotationSeedValue = null;
+
+        if (rotateListing && rotationSeed !== null && businessRows.length > 1) {
+            businessRows = rotateArray(businessRows, rotationOffset);
+            if (productRows.length > 1) {
+                productRows = rotateArray(productRows, rotationOffset);
+            }
+            rotationApplied = true;
+            rotationSeedValue = rotationSeed;
+        }
+
+        // ------------------------------------------------------------
+        //  Section K / L / M — shape the response.
         // ------------------------------------------------------------
 
         const productMatches = productRows.map(row => ({
@@ -1182,8 +1244,6 @@ router.get('/', async (req, res) => {
             search_mode: mode
         }));
 
-        // Group the matched products by business so each business
-        // row can carry its own small list of matching products.
         const productMatchesByBusiness = new Map();
         for (const p of productMatches) {
             if (!productMatchesByBusiness.has(p.business_id)) {
@@ -1321,6 +1381,18 @@ router.get('/', async (req, res) => {
                 county: preferredCounty || null,
                 town: preferredTown || null
             } : null,
+
+            // Section R — rotation metadata. The client does not
+            // need to send anything back; the seed lives in an
+            // HttpOnly cookie. These fields are informational so
+            // the frontend can log or debug if it wants.
+            rotation: {
+                applied: rotationApplied,
+                seed: rotationSeedValue,
+                cookie_name: ROTATION_COOKIE_NAME,
+                cookie_ttl_ms: ROTATION_COOKIE_MAX_AGE_MS
+            },
+
             parsed: {
                 text: searchText || null,
                 verified: parsed.verified,
@@ -1518,13 +1590,6 @@ router.get('/:slug/delivery', async (req, res) => {
 
 // ============================================================
 //  GET BUSINESS PAYMENT SETTINGS (Public)
-//
-//  Section I.1 / I.2 — The full M-Pesa type fields are returned
-//  so the customer checkout can build the correct label
-//  (Paybill / Till / Pochi) without a second round-trip.
-//  The environment value is intentionally NOT returned here —
-//  it is a platform-wide setting and never belongs in a public
-//  response.
 // ============================================================
 router.get('/:slug/payment-settings', async (req, res) => {
     try {

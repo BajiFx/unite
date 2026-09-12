@@ -36,6 +36,23 @@
 //        so a product ad can never point at another business's
 //        product.
 //
+//  Section N — Fixed ad slots (this revision)
+//  N.1 — Each business has exactly three ad slots: 1, 2, 3.
+//  N.2 — A new ad is assigned the smallest free slot
+//        (1 → 2 → 3). No "newest first" behaviour anywhere.
+//  N.3 — Editing an ad never changes its slot.
+//  N.4 — Deleting an ad frees its slot; the other slots do not
+//        shift.
+//  N.5 — When all three slots are taken, POST /ads is rejected
+//        with 409 and a clear message telling the admin to
+//        delete or edit an existing ad first.
+//  N.6 — GET /ads returns ads ordered by slot ASC, plus the
+//        full slot-usage picture ({ used, free, count, max })
+//        so the admin UI can render "Ad 1 of 3" and disable the
+//        create form at the cap.
+//  N.7 — The marketplace rotation (businesses.js) relies on the
+//        slot column being stable. This file is the only writer.
+//
 //  Section I.6 — mpesa_environment is now returned by
 //        GET /payment-settings so the business admin panel can
 //        render the read-only environment badge (production vs
@@ -53,6 +70,15 @@ const Business = require('../models/Business');
 const router = express.Router();
 
 const LOCATION_FIELDS = ['continent', 'country', 'county', 'sub_county', 'ward', 'town', 'specific_area', 'postal_code'];
+
+// ============================================================
+//  Section N.1 — Fixed ad slots
+//  Each business has exactly three ad slots: 1, 2, 3.
+//  Declared once so the cap has a single source of truth.
+// ============================================================
+
+const MAX_ADS_PER_BUSINESS = 3;
+const AD_SLOT_RANGE = Array.from({ length: MAX_ADS_PER_BUSINESS }, (_, i) => i + 1);
 
 // Sections C.3 – C.6 — helpers -------------------------------------------------
 
@@ -753,7 +779,7 @@ router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 });
 
 // ============================================================
-//  SECTION J — BUSINESS ADS (HERO SLIDER ON MARKETPLACE)
+//  SECTION J / N — BUSINESS ADS (HERO SLIDER ON MARKETPLACE)
 //
 //  J.1 — Ad rows live in the business_ads table created by
 //        migrations/sql/20260914-business-ads.sql.
@@ -765,6 +791,15 @@ router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 //  J.6 — When link_type = 'product', link_target_id must be a
 //        product owned by the same business. Enforced here at
 //        the app layer, and again by a trigger in the schema.
+//
+//  N.1 – N.6 — Fixed ad slots.
+//   Each business has exactly three slots (1, 2, 3). A new ad
+//   is placed in the smallest free slot. Editing an ad never
+//   moves it. Deleting frees the slot without shifting others.
+//   When all three slots are taken, POST /ads is rejected.
+//   The slot ordering is the ONLY thing the marketplace slider
+//   uses to rotate ads — never created_at — so a business
+//   cannot jump ahead by deleting and re-uploading.
 //
 //  Media is uploaded to Cloudinary, matching how product media
 //  is handled elsewhere in this file:
@@ -843,8 +878,58 @@ async function loadAdForBusiness(businessId, adId) {
     return result.rows[0] || null;
 }
 
+/**
+ * Section N.2 — Find the smallest free slot for this business.
+ *
+ * Returns the first integer in [1, 2, 3] not currently used by
+ * this business, or null when every slot is taken.
+ *
+ * The caller is responsible for the subsequent INSERT; this
+ * function does not lock the row, so a race is still possible in
+ * theory. The unique index on (business_id, slot) is what
+ * actually guarantees correctness — the INSERT will fail with a
+ * 23505 error if two creates land on the same slot at the same
+ * time, and the route below handles that case by re-checking.
+ */
+async function findFreeAdSlot(businessId) {
+    const result = await pool.query(
+        'SELECT slot FROM business_ads WHERE business_id = $1',
+        [businessId]
+    );
+    const used = new Set(result.rows.map(row => Number(row.slot)));
+    for (const candidate of AD_SLOT_RANGE) {
+        if (!used.has(candidate)) return candidate;
+    }
+    return null;
+}
+
+/**
+ * Section N.6 — Return the full slot usage for this business so
+ * the admin UI can render "Ad 1 of 3", disable the create form
+ * at the cap, and show which slots are free.
+ */
+async function getAdSlotUsage(businessId) {
+    const result = await pool.query(
+        'SELECT slot, id FROM business_ads WHERE business_id = $1 ORDER BY slot ASC',
+        [businessId]
+    );
+    const used = result.rows.map(row => Number(row.slot));
+    const free = AD_SLOT_RANGE.filter(slot => !used.includes(slot));
+    return {
+        max: MAX_ADS_PER_BUSINESS,
+        count: used.length,
+        used,
+        free,
+        isFull: free.length === 0
+    };
+}
+
 // ============================================================
-//  J — LIST ADS FOR THE CURRENT BUSINESS
+//  N — LIST ADS FOR THE CURRENT BUSINESS
+//
+//  N.6 — Ordered by slot ASC (never created_at), and enriched
+//        with the full slot-usage picture so the admin UI can
+//        render the count and disable the form at the cap.
 // ============================================================
 
 router.get('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -856,10 +941,15 @@ router.get('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, as
             FROM business_ads a
             LEFT JOIN products p ON p.id = a.link_target_id AND a.link_type = 'product'
             WHERE a.business_id = $1
-            ORDER BY a.is_active DESC, a.created_at DESC
+            ORDER BY a.slot ASC
         `, [req.businessId]);
 
-        res.json(result.rows);
+        const slotUsage = await getAdSlotUsage(req.businessId);
+
+        res.json({
+            ads: result.rows,
+            slot_usage: slotUsage
+        });
     } catch (err) {
         console.error('❌ Get business ads error:', err);
         logError(err, 'Get business ads');
@@ -868,7 +958,11 @@ router.get('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, as
 });
 
 // ============================================================
-//  J — CREATE AD
+//  N — CREATE AD
+//
+//  N.2 — Assigns the smallest free slot for this business.
+//  N.5 — Rejects with 409 when all three slots are taken.
+//
 //  Multipart form:
 //    media           (required, single file: image or video)
 //    media_type      ('image' | 'video')
@@ -892,6 +986,18 @@ router.post(
 
             if (!mediaFile) {
                 return res.status(400).json({ error: 'Please upload an image or video for this ad.' });
+            }
+
+            // N.5 — refuse before doing any upload work when the cap
+            // is already reached. This is checked twice: once here
+            // (fast path, avoids a wasted Cloudinary upload) and
+            // again implicitly through the unique index below.
+            const slotUsage = await getAdSlotUsage(req.businessId);
+            if (slotUsage.isFull) {
+                return res.status(409).json({
+                    error: `You have reached the maximum of ${MAX_ADS_PER_BUSINESS} ads. Delete or edit an existing ad to free a slot.`,
+                    slot_usage: slotUsage
+                });
             }
 
             // Derive the media type from the file itself. The client's
@@ -923,34 +1029,70 @@ router.post(
             const duration = parseDisplayDuration(display_duration);
             const active = !(is_active === 'false' || is_active === false);
 
-            const result = await pool.query(`
-                INSERT INTO business_ads (
-                    business_id, media_type, media_url, title, description,
-                    link_type, link_target_id, display_duration, is_active
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                RETURNING *
-            `, [
-                req.businessId,
-                mediaType,
-                mediaUrl,
-                title ? String(title).trim().slice(0, 200) : null,
-                description ? String(description).trim().slice(0, 2000) : null,
-                parsedLinkType,
-                targetCheck.linkTargetId,
-                duration,
-                active
-            ]);
+            // N.2 — find the smallest free slot at insert time. If
+            // two requests race, the unique index will reject the
+            // second with 23505, and we retry once with a fresh
+            // lookup so the caller never sees a raw database error.
+            let insertedAd = null;
+            let attempt = 0;
+
+            while (attempt < 2 && !insertedAd) {
+                attempt++;
+                const nextSlot = await findFreeAdSlot(req.businessId);
+                if (nextSlot === null) {
+                    return res.status(409).json({
+                        error: `You have reached the maximum of ${MAX_ADS_PER_BUSINESS} ads. Delete or edit an existing ad to free a slot.`,
+                        slot_usage: await getAdSlotUsage(req.businessId)
+                    });
+                }
+
+                try {
+                    const result = await pool.query(`
+                        INSERT INTO business_ads (
+                            business_id, slot, media_type, media_url, title, description,
+                            link_type, link_target_id, display_duration, is_active
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        RETURNING *
+                    `, [
+                        req.businessId,
+                        nextSlot,
+                        mediaType,
+                        mediaUrl,
+                        title ? String(title).trim().slice(0, 200) : null,
+                        description ? String(description).trim().slice(0, 2000) : null,
+                        parsedLinkType,
+                        targetCheck.linkTargetId,
+                        duration,
+                        active
+                    ]);
+                    insertedAd = result.rows[0];
+                } catch (insertErr) {
+                    // 23505 = unique_violation on (business_id, slot).
+                    // A parallel create grabbed the same slot; loop
+                    // and pick the next free one.
+                    if (insertErr.code === '23505' && attempt < 2) {
+                        continue;
+                    }
+                    throw insertErr;
+                }
+            }
 
             await logAdminActivity(req.userId, 'CREATE_AD', {
                 businessId: req.businessId,
-                adId: result.rows[0].id,
+                adId: insertedAd.id,
+                slot: insertedAd.slot,
                 mediaType
             });
 
-            const enriched = await loadAdForBusiness(req.businessId, result.rows[0].id);
+            const enriched = await loadAdForBusiness(req.businessId, insertedAd.id);
+            const updatedSlotUsage = await getAdSlotUsage(req.businessId);
 
-            res.status(201).json({ success: true, ad: enriched || result.rows[0] });
+            res.status(201).json({
+                success: true,
+                ad: enriched || insertedAd,
+                slot_usage: updatedSlotUsage
+            });
         } catch (err) {
             console.error('❌ Create ad error:', err);
             logError(err, 'Create ad');
@@ -960,9 +1102,11 @@ router.post(
 );
 
 // ============================================================
-//  J — UPDATE AD
-//  Only the fields the admin actually sent are written.
-//  Media is optional; when omitted, the existing media is kept.
+//  N — UPDATE AD
+//
+//  N.3 — Editing an ad NEVER changes its slot. Only the fields
+//        the admin actually sent are written. Media is optional;
+//        when omitted, the existing media is kept.
 // ============================================================
 
 router.put(
@@ -990,6 +1134,9 @@ router.put(
             const updates = [];
             const values = [];
             let paramIndex = 1;
+
+            // N.3 — slot is deliberately NOT in the update list.
+            // It is assigned at create time and never moves.
 
             // Media replacement (optional).
             const mediaFile = req.files && req.files.media && req.files.media[0];
@@ -1070,12 +1217,18 @@ router.put(
 
             await logAdminActivity(req.userId, 'UPDATE_AD', {
                 businessId: req.businessId,
-                adId
+                adId,
+                slot: result.rows[0].slot
             });
 
             const enriched = await loadAdForBusiness(req.businessId, adId);
+            const slotUsage = await getAdSlotUsage(req.businessId);
 
-            res.json({ success: true, ad: enriched || result.rows[0] });
+            res.json({
+                success: true,
+                ad: enriched || result.rows[0],
+                slot_usage: slotUsage
+            });
         } catch (err) {
             console.error('❌ Update ad error:', err);
             logError(err, 'Update ad');
@@ -1085,9 +1238,9 @@ router.put(
 );
 
 // ============================================================
-//  J — TOGGLE AD ACTIVE STATE
+//  N — TOGGLE AD ACTIVE STATE
 //  A single endpoint for the "Active / Paused" switch in the
-//  admin list, so the UI does not have to send a full update.
+//  admin list. Slot is never touched.
 // ============================================================
 
 router.post('/ads/:id/toggle', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -1114,7 +1267,13 @@ router.post('/ads/:id/toggle', authMiddleware, businessAdminOnly, getBusinessIdF
             isActive: result.rows[0].is_active
         });
 
-        res.json({ success: true, ad: result.rows[0] });
+        const slotUsage = await getAdSlotUsage(req.businessId);
+
+        res.json({
+            success: true,
+            ad: result.rows[0],
+            slot_usage: slotUsage
+        });
     } catch (err) {
         console.error('❌ Toggle ad error:', err);
         logError(err, 'Toggle ad');
@@ -1123,7 +1282,11 @@ router.post('/ads/:id/toggle', authMiddleware, businessAdminOnly, getBusinessIdF
 });
 
 // ============================================================
-//  J — DELETE AD
+//  N — DELETE AD
+//
+//  N.4 — Deleting an ad frees its slot. The other slots do NOT
+//        shift. This is important: shifting would silently move
+//        an existing ad's position in the marketplace rotation.
 // ============================================================
 
 router.delete('/ads/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -1134,7 +1297,7 @@ router.delete('/ads/:id', authMiddleware, businessAdminOnly, getBusinessIdFromTo
         }
 
         const result = await pool.query(
-            'DELETE FROM business_ads WHERE id = $1 AND business_id = $2 RETURNING id',
+            'DELETE FROM business_ads WHERE id = $1 AND business_id = $2 RETURNING id, slot',
             [adId, req.businessId]
         );
 
@@ -1144,10 +1307,17 @@ router.delete('/ads/:id', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 
         await logAdminActivity(req.userId, 'DELETE_AD', {
             businessId: req.businessId,
-            adId
+            adId,
+            freedSlot: result.rows[0].slot
         });
 
-        res.json({ success: true });
+        const slotUsage = await getAdSlotUsage(req.businessId);
+
+        res.json({
+            success: true,
+            freed_slot: result.rows[0].slot,
+            slot_usage: slotUsage
+        });
     } catch (err) {
         console.error('❌ Delete ad error:', err);
         logError(err, 'Delete ad');

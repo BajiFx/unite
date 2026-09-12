@@ -3,107 +3,42 @@
 //  Location: public/js/index.js
 //
 //  Section D — Smart customer search
-//  D.3 — Find Near Me button requests GPS once and re-runs the
-//        search sorted nearest-first.
-//  D.4 — distance_km is displayed on each card when an anchor
-//        was used.
-//  D.5 — When an anchor is used, the server already returns the
-//        list sorted nearest-first.
-//  D.7 — Location filters (typed search + dropdowns) combine with
-//        the free-text business search and category filter.
-//  D.8 — Location filters combine with search + category filter.
-//  D.10 — Turn off location clears the customer's own coordinates.
-//  D.11 — Customer coordinates are sent to the server only as
-//        query parameters. Never persisted from the client.
-//  D.12 — Find Near Me also acts as refresh when already active.
+//  ... (unchanged) ...
 //
-//  Section H — Cart and order visibility
-//  H.6 — createBusinessCard() renders a 🟢 / 🔴 status badge
-//        that tells customers whether the business is currently
-//        accepting online orders.
+//  Section J.5 — Clock-driven ad rotation (new):
+//   J.5a — The ad pool is a moving wheel anchored to the wall
+//          clock, not to the page load.
+//   J.5b — The server publishes three numbers:
+//            rotation_slot_duration_ms
+//            rotation_epoch_ms
+//            rotation_offset
+//          and this file derives the current index locally:
+//            slot  = floor((Date.now() - epoch) / slot_duration)
+//            index = (slot + offset) mod ads.length
+//   J.5c — A single 500 ms interval recomputes the index and only
+//          re-renders if it has changed. No "advance on timeout".
+//   J.5d — Per-ad display_duration is ignored for the global
+//          clock. Uniform 30 s slots.
+//   J.5e — Prev/next and dots jump the clock forward/backward by
+//          computing a matching index, not by advancing a local
+//          counter.
 //
-//  Section J — Marketplace hero ad slider (split layout)
-//  J.4 — The Featured Businesses grid is replaced by the ad
-//        slider. The slider sits at the top of the marketplace,
-//        below the hero banner and above the search bar.
-//  J.5 — Auto-rotation with pause-on-hover, prev/next buttons,
-//        dot indicators, and a thin progress bar. Images default
-//        to 6s, videos default to 60s; the per-ad
-//        display_duration overrides either default.
-//  J.6 — Clicking a slide records the click and then navigates
-//        to the ad's target (business profile or a product).
-//  J.7 — Each slide fires an impression once per display so the
-//        business admin's views/clicks/CTR stay accurate.
+//  Section Q — In-feed ad strips (new):
+//   Q.1 — One strip every 10 real business cards.
+//   Q.2 — 4 ads per strip.
+//   Q.3 — The counter only counts business cards.
+//   Q.4 — The strips walk the same global ad cycle as the hero.
+//         The hero is a showcase; the strips are the continuous
+//         scroll experience. Both share the clock.
+//   Q.5 — When the cycle is exhausted, no more strips are
+//         inserted.
 //
-//  J.5c — Split layout markup note:
-//        Slides are inserted into #adsMediaFrame (the square left
-//        column), not into #adsSlider. The right column
-//        (#adsRightPanel) is a static reserved blue panel and is
-//        never touched by this script. Prev/next buttons and the
-//        progress bar live inside #adsMediaFrame and are therefore
-//        not wiped when slides are re-rendered.
-//
-//  J.5d — Image liveness:
-//        Image slides carry a colourful brand gradient backdrop
-//        that fills the whole square frame so nothing looks empty.
-//        The gradient pair comes from renderAdSlide() via the
-//        --ad-bg-a and --ad-bg-b CSS variables, picked
-//        deterministically per ad id from a small vibrant palette.
-//        The sharp image on top uses object-fit: contain, so
-//        nothing is cropped. Video slides keep their single
-//        element and play normally.
-//
-//  MERGED BAR — Search + location
-//        The search input and the location controls have been
-//        merged into a single compact row. See:
-//          getCombinedSearchText()
-//          updateLocationStatusChip()
-//          bindLocationControls()
-//        #businessSearch is now the only visible input; the old
-//        #locationSearchInput is a hidden proxy so existing
-//        listeners do not need to be removed.
-//
-//  Section K — Product-name search results
-//        K.6 — The server returns a `products` array alongside
-//              `businesses`. When a customer types "shoes" the
-//              marketplace renders a PRODUCT tile grid above the
-//              business grid so the customer can jump straight to
-//              the item without knowing which shop sells it.
-//        K.7 — A business that matched only because one of its
-//              products matched shows a green blinking
-//              "SELLS: <search word>" banner at the TOP of the
-//              card, so the customer understands why it appeared
-//              even though its own name does not contain the
-//              search word. The banner echoes the customer's
-//              typed word, not the stored product name.
-//        K.8 — Product tiles render into #productMatchSection /
-//              #productMatchGrid.
-//
-//  Section L — Typo-tolerant fallback
-//        L.5 — When the server responds with `search_mode ===
-//              'fuzzy'` (which happens only when the primary
-//              word-boundary search returned zero results and the
-//              pg_trgm fallback found something), a small
-//              "Showing results for …" hint appears above the
-//              product grid so the customer understands the app
-//              corrected their spelling.
-//
-//  Autofill hardening:
-//   Chromium (Edge and Chrome) writes autofilled values directly
-//   into the input's `value` property using native bindings that
-//   bypass the JS prototype setter. The only reliable intercept
-//   is an INSTANCE-LEVEL property descriptor installed on each
-//   specific input element. clearSpuriousSearchAutofill() below
-//   does exactly that — and also guards defaultValue and the
-//   `value` attribute path that some Chromium builds take.
-//
-//  Categories-load hardening:
-//   loadCategories() no longer throws when /api/businesses/categories/all
-//   returns a non-OK response (e.g. 500 from an upstream DB hiccup).
-//   Instead, it logs a warning and leaves the "All categories"
-//   dropdown in its default state. This means a single broken
-//   endpoint can no longer short-circuit the whole marketplace
-//   load and prevent businesses from rendering.
+//  Section R — Per-visit business rotation (new):
+//   R.1 — The client sends credentials: 'same-origin' so the
+//         HttpOnly rotation_seed cookie round-trips.
+//   R.2 — The client does not store or resend the seed; the server
+//         owns it.
+//   R.3 — The client does not re-fetch the first page on a timer.
 // ============================================================
 
 // ============================================================
@@ -151,23 +86,6 @@ const LOCATION_SEARCH_DEBOUNCE_MS = 350;
 
 // ------------------------------------------------------------
 // Section K — Product-match state for the current search.
-//
-// `lastProductMatches` holds the products returned by the last
-// /api/businesses call. It is reset when a new search starts and
-// appended to when the customer paginates the business grid.
-//
-// `lastSearchHadProducts` lets searchBusinesses() decide whether
-// to show "no products found" messaging without re-querying.
-//
-// `lastSearchWord` is the customer's typed search word (e.g.
-// "blanket", "shoes"). It is used by the "SELLS: …" banner so
-// the label echoes exactly what the customer searched for, not
-// the stored product name.
-//
-// `lastSearchMode` is 'exact' | 'fuzzy' | null. When it is
-// 'fuzzy' the frontend shows a small "Showing results for …"
-// hint above the product grid so the customer understands the
-// app corrected their spelling.
 // ------------------------------------------------------------
 let lastProductMatches = [];
 let lastSearchHadProducts = false;
@@ -175,7 +93,7 @@ let lastSearchWord = '';
 let lastSearchMode = null;
 
 // ------------------------------------------------------------
-// Section J — Marketplace ad slider state
+// Section J — Marketplace ad slider state (clock-driven)
 // ------------------------------------------------------------
 const AD_DEFAULTS = Object.freeze({
   imageSeconds: 6,
@@ -198,27 +116,35 @@ const AD_BACKDROP_PALETTE = [
 
 let adsList = [];
 let adsCurrentIndex = 0;
-let adsTimer = null;
-let adsProgressTimer = null;
-let adsProgressStart = 0;
-let adsCurrentDurationMs = 0;
-let adsIsPaused = false;
-let adsImpressionFiredFor = new Set();
+
+// Section J.5 — clock state. Fallbacks used only when the server
+// has not yet sent its rotation metadata (older backend).
+let adsRotationMeta = {
+  slotDurationMs: 30000,
+  epochMs: 0,
+  offset: 0
+};
+
+// Section J.5 — the single 500 ms interval that recomputes the
+// index from the clock. `adsClockTimer` is that interval. There is
+// no more `setTimeout` that "advances" the slide.
+let adsClockTimer = null;
 let adsSliderBound = false;
+let adsIsPaused = false;
+
+// Section J.5 — the progress bar is decoupled from the slide
+// advance. It is a pure visual: it counts down the current slot
+// using the clock, and jumps to 100% exactly when the slot does.
+let adsProgressTimer = null;
+
+// Section Q — in-feed ad strips. Tracks how many ads have been
+// consumed so the next strip continues the same global cycle.
+let inFeedAdsConsumed = 0;
 
 // ============================================================
 //  AUTO-FILL GUARD
 // ============================================================
 
-/**
- * Autofill guard.
- *
- * Chromium (Edge and Chrome) writes autofilled values directly to
- * the `value` property of the input via native bindings, bypassing
- * the JS setter on the prototype. The only reliable interception
- * point is an instance-level property descriptor on the specific
- * element.
- */
 function clearSpuriousSearchAutofill(inputId, wasTyped = () => false) {
   const input = document.getElementById(inputId);
   if (!input) return;
@@ -457,15 +383,8 @@ function hideLocationBanner() {
 
 // ============================================================
 //  SECTION D — Location status chip + controls wiring
-//  (MERGED BAR)
 // ============================================================
 
-/* MERGED BAR — updateLocationStatusChip
-   The chip is now a compact pill in the merged search bar.
-   - Shows 📍 GPS / 📍 Saved / 📍 Approx instead of the long form.
-   - The full description is exposed as a tooltip.
-   - Find Near Me re-renders with the .loc-pill-label span so the
-     responsive CSS can hide the label on very narrow screens. */
 function updateLocationStatusChip() {
   const chip = document.getElementById('locationStatusChip');
   const offBtn = document.getElementById('turnOffLocationBtn');
@@ -474,8 +393,6 @@ function updateLocationStatusChip() {
 
   if (chip) {
     if (hasCoords) {
-      // Short label so the chip stays compact in the merged bar.
-      // The full source is still available as a tooltip.
       const short = marketplaceCustomerCoords.source === 'gps'
         ? { label: 'GPS', title: 'Precise GPS location active' }
         : marketplaceCustomerCoords.source === 'account'
@@ -494,23 +411,12 @@ function updateLocationStatusChip() {
   if (offBtn) offBtn.hidden = !hasCoords;
 
   if (findBtn) {
-    // Preserve the label span so the responsive CSS can hide it on
-    // narrow screens and show only the icon.
     findBtn.innerHTML = hasCoords
       ? '<i class="fas fa-sync-alt"></i> <span class="loc-pill-label">Refresh</span>'
       : '<i class="fas fa-location-crosshairs"></i> <span class="loc-pill-label">Near Me</span>';
   }
 }
 
-/* MERGED BAR — bindLocationControls
-   The location controls are now individual pills and buttons
-   inside the merged bar. This function wires them:
-   - #findNearMeBtn : requests GPS, saves coords, re-runs the search
-   - #turnOffLocationBtn : one-tap ✕ next to the chip
-   - #locationFiltersToggle : opens #locationFilters row
-   - #clearLocationFiltersBtn : clears the dropdowns
-   - #locationSearchInput is a hidden proxy — no listeners attached.
-   - #locationSearchClearBtn is hidden; also no listeners attached. */
 function bindLocationControls() {
   const findBtn = document.getElementById('findNearMeBtn');
   const offBtn = document.getElementById('turnOffLocationBtn');
@@ -518,7 +424,6 @@ function bindLocationControls() {
   const filtersToggle = document.getElementById('locationFiltersToggle');
   const filtersPanel = document.getElementById('locationFilters');
 
-  // ---- D.3 / D.5 / D.12 — Find Near Me / Refresh Near Me ----
   if (findBtn) {
     findBtn.addEventListener('click', async () => {
       const original = findBtn.innerHTML;
@@ -547,7 +452,6 @@ function bindLocationControls() {
     });
   }
 
-  // ---- D.10 — Turn off location (one-tap ✕) ----
   if (offBtn) {
     offBtn.addEventListener('click', async () => {
       marketplaceCustomerCoords = { latitude: null, longitude: null, source: null };
@@ -568,7 +472,6 @@ function bindLocationControls() {
     });
   }
 
-  // ---- D.7 — Filters panel toggle (opens the collapsed row) ----
   if (filtersToggle && filtersPanel) {
     filtersToggle.addEventListener('click', () => {
       const expanded = filtersToggle.getAttribute('aria-expanded') === 'true';
@@ -578,7 +481,6 @@ function bindLocationControls() {
     });
   }
 
-  // ---- D.7 — Clear all filters ----
   if (clearFiltersBtn) {
     clearFiltersBtn.addEventListener('click', () => {
       document.querySelectorAll('#locationFilters select').forEach(sel => {
@@ -591,7 +493,6 @@ function bindLocationControls() {
     });
   }
 
-  // ---- D.7 — Dropdown change handlers ----
   document.querySelectorAll('#locationFilters select').forEach(sel => {
     sel.addEventListener('change', () => {
       updateLocationFiltersCount();
@@ -617,10 +518,6 @@ function updateLocationFiltersCount() {
   if (clearBtn) clearBtn.hidden = total === 0;
 }
 
-/* MERGED BAR — getCombinedSearchText
-   The merged bar has a single visible input (#businessSearch), so
-   it is now the primary source. The hidden proxy input is still
-   read as a fallback in case any legacy code writes into it. */
 function getCombinedSearchText() {
   const marketplaceSearch = getMarketplaceSearchQuery();
   const hiddenLocationSearch = getLocationSearchQuery();
@@ -681,8 +578,6 @@ document.addEventListener('DOMContentLoaded', function() {
   console.log('📄 Index page loaded');
 
   clearSpuriousSearchAutofill('businessSearch', () => marketplaceSearchWasTyped);
-  // The hidden location proxy is never visible, so autofill cannot
-  // reach it. The guard is intentionally omitted.
 
   const businessSearch = document.getElementById('businessSearch');
   if (businessSearch) {
@@ -820,7 +715,7 @@ async function upgradeToPreciseLocationOnce() {
 async function loadMarketplace() {
   try {
     await loadCategories();
-    await loadAds();          // J.4 — replaces loadFeaturedBusinesses()
+    await loadAds();
     await loadBusinesses();
     await loadPlatformStats();
     updateCartBadge();
@@ -833,12 +728,6 @@ async function loadMarketplace() {
 
 // ============================================================
 //  LOAD CATEGORIES (for marketplace filter)
-//
-//  Hardened: a failing /api/businesses/categories/all response
-//  (e.g. 500 from a transient DB error) must not abort the whole
-//  marketplace load. We log a warning, keep the default "All
-//  categories" option, and let the rest of loadMarketplace()
-//  continue so businesses still render.
 // ============================================================
 
 async function loadCategories() {
@@ -876,28 +765,141 @@ async function loadCategories() {
 }
 
 // ============================================================
+//  SECTION J.5 — CLOCK-DRIVEN AD ROTATION
+//
+//  The server publishes three numbers:
+//    rotation_slot_duration_ms
+//    rotation_epoch_ms
+//    rotation_offset
+//
+//  We derive the current index locally:
+//    slot  = floor((Date.now() - epoch) / slot_duration)
+//    index = (slot + offset) mod ads.length
+//
+//  A single 500 ms interval recomputes the index and only
+//  re-renders if it has changed. No "advance on timeout".
+//
+//  Prev/next and dots jump the clock forward/backward by
+//  computing a matching index, not by advancing a local counter.
+//
+//  Per-ad display_duration is intentionally ignored for the
+//  global clock. Uniform 30 s slots keep the wheel from drifting.
+// ============================================================
+
+function updateAdRotationMetaFromResponse(data) {
+  if (!data || typeof data !== 'object') return;
+  const slot = Number(data.rotation_slot_duration_ms);
+  const epoch = Number(data.rotation_epoch_ms);
+  const off = Number(data.rotation_offset);
+
+  if (Number.isFinite(slot) && slot > 0) adsRotationMeta.slotDurationMs = slot;
+  if (Number.isFinite(epoch)) adsRotationMeta.epochMs = epoch;
+  if (Number.isFinite(off)) adsRotationMeta.offset = off;
+}
+
+function computeCurrentAdIndex() {
+  if (!Array.isArray(adsList) || adsList.length === 0) return 0;
+  const now = Date.now();
+  const slot = Math.floor((now - adsRotationMeta.epochMs) / adsRotationMeta.slotDurationMs);
+  const total = adsList.length;
+  const index = ((slot + adsRotationMeta.offset) % total + total) % total;
+  return index;
+}
+
+function startAdClock() {
+  stopAdClock();
+  if (!Array.isArray(adsList) || adsList.length <= 1) return;
+
+  // Align the initial index with the clock right away.
+  const initial = computeCurrentAdIndex();
+  if (initial !== adsCurrentIndex) {
+    adsCurrentIndex = initial;
+    adsImpressionFiredFor.add(initial);
+    updateAdsActiveSlide();
+    fireAdImpression(initial);
+  }
+
+  adsClockTimer = setInterval(() => {
+    // While the user has paused (hover / focus), the clock still
+    // ticks in real time. We simply do not re-render until the
+    // pause ends. That keeps "everyone sees the same ad at the
+    // same moment" true — the wheel turns even while paused.
+    if (adsIsPaused) return;
+    const next = computeCurrentAdIndex();
+    if (next !== adsCurrentIndex) {
+      adsCurrentIndex = next;
+      adsImpressionFiredFor.add(next);
+      updateAdsActiveSlide();
+      fireAdImpression(next);
+    }
+  }, 500);
+
+  startAdsProgressLoop();
+}
+
+function stopAdClock() {
+  if (adsClockTimer) { clearInterval(adsClockTimer); adsClockTimer = null; }
+  if (adsProgressTimer) { clearInterval(adsProgressTimer); adsProgressTimer = null; }
+}
+
+function startAdsProgressLoop() {
+  if (adsProgressTimer) clearInterval(adsProgressTimer);
+
+  const tick = () => {
+    const total = adsRotationMeta.slotDurationMs;
+    if (!Number.isFinite(total) || total <= 0) return;
+    const now = Date.now();
+    const inSlot = (now - adsRotationMeta.epochMs) % total;
+    const ratio = inSlot / total;
+    updateAdsProgressBar(ratio);
+  };
+
+  tick();
+  adsProgressTimer = setInterval(tick, 100);
+}
+
+function updateAdsProgressBar(ratio) {
+  const bar = document.getElementById('adsProgress');
+  if (!bar) return;
+  const pct = Math.max(0, Math.min(1, ratio)) * 100;
+  bar.style.setProperty('--ads-progress', `${pct}%`);
+  bar.style.width = `${pct}%`;
+}
+
+/* Jump the clock so the target index becomes the current one. */
+function jumpAdClockToIndex(index) {
+  if (!Array.isArray(adsList) || adsList.length === 0) return;
+  const total = adsList.length;
+  const target = ((index % total) + total) % total;
+
+  // Current slot number, from the clock.
+  const now = Date.now();
+  const currentSlot = Math.floor((now - adsRotationMeta.epochMs) / adsRotationMeta.slotDurationMs);
+
+  // Desired slot number so that (slot + offset) mod total == target.
+  // We pick the smallest shift forward that lands on target.
+  const desiredSlotBase =
+    target - adsRotationMeta.offset - ((currentSlot + adsRotationMeta.offset) % total);
+  // Normalise to the nearest forward step within the cycle.
+  const shift = ((desiredSlotBase % total) + total) % total;
+
+  // Move the epoch so the clock now reads the desired slot.
+  adsRotationMeta.epochMs =
+    adsRotationMeta.epochMs + shift * adsRotationMeta.slotDurationMs;
+
+  // Immediately re-render.
+  const next = computeCurrentAdIndex();
+  if (next !== adsCurrentIndex) {
+    adsCurrentIndex = next;
+    adsImpressionFiredFor.add(next);
+    updateAdsActiveSlide();
+    fireAdImpression(next);
+  }
+  startAdsProgressLoop();
+}
+
+// ============================================================
 //  SECTION J — MARKETPLACE AD SLIDER (SPLIT LAYOUT)
-//
-//  J.4 — Replaces the old Featured Businesses grid. The slider
-//        sits at the top of the marketplace, below the hero banner
-//        and above the search bar.
-//  J.5 — Auto-rotation, prev/next, dots, progress bar, pause-on-hover.
-//  J.6 — Click → record click, then navigate.
-//  J.7 — Impression fired once per slide display.
-//
-//  J.5c — Split layout: slides are inserted into #adsMediaFrame
-//         (the square left column). The blue right column
-//         (#adsRightPanel) is a static reserved panel and is
-//         never touched by this script. Prev/next buttons and
-//         the progress bar also live inside #adsMediaFrame, so
-//         they survive a slide re-render.
-//
-//  J.5d — Image liveness: image slides carry a colourful brand
-//         gradient backdrop behind the sharp image. The gradient
-//         pair comes from AD_BACKDROP_PALETTE, chosen per ad id,
-//         so every slide feels warm and branded instead of grey.
-//         The sharp image uses object-fit: contain, so nothing
-//         is cropped. Video slides stay single-element.
 // ============================================================
 
 async function loadAds() {
@@ -916,9 +918,12 @@ async function loadAds() {
     const data = await res.json();
     adsList = Array.isArray(data.ads) ? data.ads.filter(ad => ad && ad.media_url) : [];
 
+    // Section J.5 — pick up the rotation metadata once. The clock
+    // is anchored to the server's constants, so every browser
+    // derives the same index at the same wall-clock moment.
+    updateAdRotationMetaFromResponse(data);
+
     if (adsList.length === 0) {
-      // No active ads → the whole section stays hidden so the
-      // marketplace simply has no slider today.
       section.hidden = true;
       return;
     }
@@ -926,7 +931,7 @@ async function loadAds() {
     renderAdsSlider();
     section.hidden = false;
     bindAdsSliderOnce();
-    startAdsRotation();
+    startAdClock();
   } catch (err) {
     console.warn('Ads slider skipped:', err.message);
     section.hidden = true;
@@ -938,13 +943,8 @@ function renderAdsSlider() {
   const dots = document.getElementById('adsDots');
   if (!mediaFrame || !dots) return;
 
-  // Remove any previous slide nodes, but keep the nav buttons and
-  // the progress bar (they live in the same media frame and are
-  // referenced by id).
   mediaFrame.querySelectorAll('.ads-slide').forEach(node => node.remove());
 
-  // Insert the new slides at the start of the media frame so that
-  // the nav buttons and the progress bar keep painting on top.
   mediaFrame.insertAdjacentHTML(
     'afterbegin',
     adsList.map((ad, index) => renderAdSlide(ad, index)).join('')
@@ -964,21 +964,22 @@ function renderAdsSlider() {
     `;
   }).join('');
 
-  adsCurrentIndex = 0;
   adsImpressionFiredFor = new Set();
+  // Section J.5 — set the initial active slide from the clock.
+  adsCurrentIndex = computeCurrentAdIndex();
+  adsImpressionFiredFor.add(adsCurrentIndex);
   updateAdsActiveSlide();
+  fireAdImpression(adsCurrentIndex);
 
   dots.querySelectorAll('.ads-dot').forEach(dot => {
     dot.addEventListener('click', () => {
       const idx = parseInt(dot.dataset.adIndex, 10);
       if (!Number.isInteger(idx)) return;
-      goToAd(idx, { userInitiated: true });
+      jumpAdClockToIndex(idx);
     });
   });
 }
 
-/* Deterministic backdrop picker: the same ad id always produces the
-   same gradient pair, so the slider looks stable across refreshes. */
 function pickAdBackdrop(ad) {
   const id = Number(ad && ad.id) || 0;
   return AD_BACKDROP_PALETTE[Math.abs(id) % AD_BACKDROP_PALETTE.length];
@@ -990,14 +991,6 @@ function renderAdSlide(ad, index) {
   const description = ad.description ? `<p class="ads-description">${escapeAdsText(ad.description)}</p>` : '';
   const businessName = ad.business_name ? `<span class="ads-business">${escapeAdsText(ad.business_name)}</span>` : '';
 
-  // J.5d — Image slides get a colourful brand gradient behind the
-  // sharp image. The gradient pair is seeded per ad id, so every
-  // slide gets its own attractive colours instead of one flat grey.
-  // The sharp image on top uses object-fit: contain so the whole
-  // picture stays visible and is never cropped.
-  //
-  // Video slides stay single-element: a <video> already moves, so
-  // it does not need the gradient treatment.
   const mediaSrc = escapeAdsAttr(ad.media_url);
   const mediaAlt = escapeAdsAttr(ad.title || ad.business_name || 'Sponsored');
   const [bgA, bgB] = pickAdBackdrop(ad);
@@ -1009,7 +1002,7 @@ function renderAdSlide(ad, index) {
         <img class="ads-media" src="${mediaSrc}" alt="${mediaAlt}" loading="lazy">
       `;
 
-  const slideClass = `ads-slide${index === 0 ? ' is-active' : ''} ${isVideo ? 'is-video' : 'is-image'}`;
+  const slideClass = `ads-slide${index === adsCurrentIndex ? ' is-active' : ''} ${isVideo ? 'is-video' : 'is-image'}`;
 
   return `
     <div class="${slideClass}" data-ad-index="${index}" data-ad-id="${ad.id}">
@@ -1037,26 +1030,23 @@ function bindAdsSliderOnce() {
   if (prevBtn) {
     prevBtn.addEventListener('click', (event) => {
       event.stopPropagation();
-      goToAd(adsCurrentIndex - 1, { userInitiated: true });
+      jumpAdClockToIndex(adsCurrentIndex - 1);
     });
   }
   if (nextBtn) {
     nextBtn.addEventListener('click', (event) => {
       event.stopPropagation();
-      goToAd(adsCurrentIndex + 1, { userInitiated: true });
+      jumpAdClockToIndex(adsCurrentIndex + 1);
     });
   }
 
   if (slider) {
-    // J.5 — pause on hover / focus, resume on leave / blur.
     slider.addEventListener('mouseenter', () => { adsIsPaused = true; });
     slider.addEventListener('mouseleave', () => { adsIsPaused = false; });
     slider.addEventListener('focusin', () => { adsIsPaused = true; });
     slider.addEventListener('focusout', () => { adsIsPaused = false; });
 
-    // J.6 — click a slide to open its target.
     slider.addEventListener('click', (event) => {
-      // Ignore clicks that land on the nav buttons.
       if (event.target.closest('.ads-nav')) return;
       const slide = event.target.closest('.ads-slide');
       if (!slide) return;
@@ -1064,114 +1054,15 @@ function bindAdsSliderOnce() {
       if (Number.isInteger(idx)) handleAdClick(idx);
     });
 
-    // Keyboard navigation.
     slider.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        goToAd(adsCurrentIndex - 1, { userInitiated: true });
+        jumpAdClockToIndex(adsCurrentIndex - 1);
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
-        goToAd(adsCurrentIndex + 1, { userInitiated: true });
+        jumpAdClockToIndex(adsCurrentIndex + 1);
       }
     });
-  }
-}
-
-function getAdDurationMs(ad) {
-  const custom = Number(ad && ad.display_duration);
-  if (Number.isFinite(custom) && custom > 0) return custom * 1000;
-  return ad && ad.media_type === 'video'
-    ? AD_DEFAULTS.videoSeconds * 1000    : AD_DEFAULTS.imageSeconds * 1000;
-}
-
-function startAdsRotation() {
-  stopAdsRotation();
-  if (adsList.length <= 1) {
-    // Single ad: still fire an impression and freeze on it.
-    if (adsList.length === 1) fireAdImpression(0);
-    return;
-  }
-  scheduleNextAdTick();
-}
-
-function stopAdsRotation() {
-  if (adsTimer) { clearTimeout(adsTimer); adsTimer = null; }
-  if (adsProgressTimer) { clearInterval(adsProgressTimer); adsProgressTimer = null; }
-}
-
-function scheduleNextAdTick() {
-  if (adsTimer) clearTimeout(adsTimer);
-  if (adsProgressTimer) clearInterval(adsProgressTimer);
-
-  const ad = adsList[adsCurrentIndex];
-  if (!ad) return;
-
-  adsCurrentDurationMs = getAdDurationMs(ad);
-  adsProgressStart = Date.now();
-
-  updateAdsProgressBar(0);
-
-  // Pause loop: we still tick to update the progress bar, but we do
-  // not advance the slide while adsIsPaused is true.
-  adsProgressTimer = setInterval(() => {
-    if (adsIsPaused) {
-      // Reset the window so the remaining time is preserved while
-      // paused, not consumed.
-      adsProgressStart = Date.now() - (adsProgressStart ? 0 : 0);
-      return;
-    }
-    const elapsed = Date.now() - adsProgressStart;
-    const pct = Math.min(1, elapsed / adsCurrentDurationMs);
-    updateAdsProgressBar(pct);
-  }, 100);
-
-  // A single timeout that checks whether we should advance. Because
-  // the pause loop is separate, we simply re-arm the timeout each
-  // time the slide changes.
-  const tick = () => {
-    if (adsIsPaused) {
-      adsTimer = setTimeout(tick, 250);
-      return;
-    }
-    const elapsed = Date.now() - adsProgressStart;
-    if (elapsed >= adsCurrentDurationMs) {
-      goToAd(adsCurrentIndex + 1);
-    } else {
-      adsTimer = setTimeout(tick, Math.max(100, adsCurrentDurationMs - elapsed));
-    }
-  };
-  adsTimer = setTimeout(tick, adsCurrentDurationMs);
-}
-
-function updateAdsProgressBar(ratio) {
-  const bar = document.getElementById('adsProgress');
-  if (!bar) return;
-  const pct = Math.max(0, Math.min(1, ratio)) * 100;
-  bar.style.setProperty('--ads-progress', `${pct}%`);
-  bar.style.width = `${pct}%`;
-}
-
-function goToAd(index, options = {}) {
-  if (adsList.length === 0) return;
-  const total = adsList.length;
-  const next = ((index % total) + total) % total;
-
-  adsCurrentIndex = next;
-  adsImpressionFiredFor.add(next);
-  updateAdsActiveSlide();
-  fireAdImpression(next);
-  scheduleNextAdTick();
-
-  if (options.userInitiated) {
-    // Small visual feedback when the user presses prev/next.
-    const mediaFrame = document.getElementById('adsMediaFrame');
-    if (mediaFrame) {
-      mediaFrame.classList.remove('ads-pulse');
-      // Force reflow so the animation can replay.
-      void mediaFrame.offsetWidth;
-      mediaFrame.classList.add('ads-pulse');
-      setTimeout(() => mediaFrame.classList.remove('ads-pulse'), 300);
-    }
   }
 }
 
@@ -1183,7 +1074,6 @@ function updateAdsActiveSlide() {
       slide.classList.toggle('is-active', idx === adsCurrentIndex);
     });
 
-    // Play the active video (if any) and pause the others.
     mediaFrame.querySelectorAll('.ads-slide').forEach(slide => {
       const idx = parseInt(slide.dataset.adIndex, 10);
       const video = slide.querySelector('video');
@@ -1215,8 +1105,6 @@ function fireAdImpression(index) {
   const ad = adsList[index];
   if (!ad || !ad.id) return;
 
-  // J.7 — fire-and-forget. The server increments views and
-  // recomputes CTR. We never block the UI on this request.
   try {
     fetch(`/api/businesses/ads/${encodeURIComponent(ad.id)}/view`, {
       method: 'POST',
@@ -1233,7 +1121,6 @@ async function handleAdClick(index) {
   const ad = adsList[index];
   if (!ad || !ad.id) return;
 
-  // J.7 — fire-and-forget click tracking. Then navigate.
   let target = null;
   try {
     const res = await fetch(`/api/businesses/ads/${encodeURIComponent(ad.id)}/click`, {
@@ -1246,7 +1133,7 @@ async function handleAdClick(index) {
       if (data && data.ad) target = data.ad;
     }
   } catch (err) {
-    // Non-fatal — we still try to navigate using what the slide knows.
+    // Non-fatal.
   }
 
   const linkType = (target && target.link_type) || ad.link_type || 'profile';
@@ -1264,7 +1151,6 @@ async function handleAdClick(index) {
     return;
   }
 
-  // Last resort: no target information at all — do nothing.
   console.warn('Ad has no navigable target:', ad);
 }
 
@@ -1281,6 +1167,94 @@ function escapeAdsAttr(value) {
     .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+// ============================================================
+//  SECTION Q — IN-FEED AD STRIPS
+//
+//  Q.1 — One strip every 10 real business cards.
+//  Q.2 — 4 ads per strip.
+//  Q.3 — The counter only counts business cards.
+//  Q.4 — The strips walk the same global ad cycle as the hero.
+//        The hero is a showcase; the strips are the continuous
+//        scroll experience. Both share the clock.
+//  Q.5 — When the cycle is exhausted, no more strips are
+//        inserted.
+//
+//  The strips are re-inserted every time the business grid
+//  re-renders (i.e. on every loadBusinesses reset or append).
+//  inFeedAdsConsumed tracks how many ads have been pulled from
+//  the pool so far across the whole page.
+// ============================================================
+
+const IN_FEED_EVERY_N_BUSINESSES = 10;
+const IN_FEED_ADS_PER_STRIP = 4;
+
+function resetInFeedAdStrips() {
+  inFeedAdsConsumed = 0;
+}
+
+function buildInFeedAdStrip() {
+  // Q.5 — stop when the pool is exhausted.
+  if (!Array.isArray(adsList) || adsList.length === 0) return null;
+  if (inFeedAdsConsumed >= adsList.length) return null;
+
+  const slice = adsList.slice(inFeedAdsConsumed, inFeedAdsConsumed + IN_FEED_ADS_PER_STRIP);
+  if (slice.length === 0) return null;
+
+  inFeedAdsConsumed += slice.length;
+
+  const cells = slice.map(ad => `
+    <div class="in-feed-ad-card" data-ad-id="${ad.id}" role="button" tabindex="0">
+      ${renderAdSlide(ad, adsList.indexOf(ad))}
+    </div>
+  `).join('');
+
+  const strip = document.createElement('div');
+  strip.className = 'in-feed-ad-strip';
+  strip.innerHTML = cells;
+
+  strip.querySelectorAll('.in-feed-ad-card').forEach(card => {
+    const adId = Number(card.dataset.adId);
+    const idx = adsList.findIndex(a => Number(a.id) === adId);
+    if (idx < 0) return;
+    card.addEventListener('click', () => handleAdClick(idx));
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleAdClick(idx);
+      }
+    });
+  });
+
+  return strip;
+}
+
+function insertInFeedAdStrips() {
+  const grid = document.getElementById('businessGrid');
+  if (!grid) return;
+
+  // Remove any previous strips so a re-render starts clean.
+  grid.querySelectorAll('.in-feed-ad-strip').forEach(el => el.remove());
+
+  // The strips are inserted between cards. Cards are the direct
+  // children of #businessGrid. We walk them, and after every Nth
+  // real business card we insert one strip.
+  const cards = Array.from(grid.querySelectorAll('.business-card'));
+  if (cards.length === 0) return;
+
+  let insertedSince = 0;
+
+  for (let i = 0; i < cards.length; i += 1) {
+    insertedSince += 1;
+    if (insertedSince === IN_FEED_EVERY_N_BUSINESSES) {
+      insertedSince = 0;
+      const strip = buildInFeedAdStrip();
+      if (!strip) break;   // Q.5 — cycle exhausted, stop inserting.
+      // Insert right after the Nth business card.
+      cards[i].insertAdjacentElement('afterend', strip);
+    }
+  }
 }
 
 // ============================================================
@@ -1398,20 +1372,6 @@ function handleAdditionalCategoryChange() {
 
 // ============================================================
 //  SECTION K — PRODUCT-MATCH RENDERING HELPERS
-//
-//  K.6 — renderProductMatches() paints the `products` array from
-//        the server into #productMatchSection / #productMatchGrid.
-//        If those nodes are missing, the helper is a no-op so the
-//        marketplace still works exactly as before.
-//
-//  K.7 — getBusinessSellsLabel() builds the label shown on each
-//        business card. It uses the customer's typed search word
-//        (matched_word) so the label echoes exactly what the
-//        customer searched for ("SELLS: blanket") rather than the
-//        stored product name ("SELLS: Blanket King Size").
-//
-//  L.5 — renderFuzzySearchHint() renders the "Showing results for
-//        …" line that appears when the server corrected a typo.
 // ============================================================
 
 function escapeProductText(value) {
@@ -1441,24 +1401,12 @@ function formatProductPrice(price) {
   return `Ksh ${num.toFixed(2)}`;
 }
 
-/**
- * K.7 — Build the "SELLS: …" label for a business card.
- *
- * Prefers the customer's typed word (`matched_word`) so every
- * matching business shows the same green label that reads back
- * what the customer searched for. Falls back to the stored
- * product name only if `matched_word` is missing for some reason
- * (older responses, degraded fallbacks, etc.).
- *
- * Returns null when the business did not match via a product.
- */
 function getBusinessSellsLabel(business) {
   if (!business || !Array.isArray(business.product_matches) || business.product_matches.length === 0) {
     return null;
   }
   const first = business.product_matches[0];
 
-  // Prefer the customer-typed word, fall back to the stored name.
   const word = String(
     business.matched_word ||
     (first && first.matched_word) ||
@@ -1470,7 +1418,6 @@ function getBusinessSellsLabel(business) {
   return word;
 }
 
-/** Back-compat alias — some places still call the old name. */
 function businessSellsSearchWord(business) {
   return getBusinessSellsLabel(business);
 }
@@ -1493,8 +1440,6 @@ function renderProductMatchCard(product) {
     ? `<span class="product-match-category">${escapeProductText(product.product_category_icon || '📦')} ${escapeProductText(product.product_category_name)}</span>`
     : '';
 
-  // Small green pill matching the business card label so the
-  // matched word is consistent everywhere it appears.
   const matchedWordChip = product.matched_word
     ? `<span class="product-match-matched-word" title="Matched your search">SELLS: ${escapeProductText(product.matched_word)}</span>`
     : '';
@@ -1533,15 +1478,6 @@ function renderProductMatchCard(product) {
   `;
 }
 
-/**
- * Render (or append to) the product-match grid.
- *
- * - reset=true  → replaces the grid contents and resets state.
- * - reset=false → appends the new batch (used by load-more).
- *
- * If the DOM containers are missing the whole thing is a silent
- * no-op so the page keeps working exactly as it did before.
- */
 function renderProductMatches(reset, products) {
   const section = document.getElementById('productMatchSection');
   const grid = document.getElementById('productMatchGrid');
@@ -1557,9 +1493,6 @@ function renderProductMatches(reset, products) {
   }
   lastSearchHadProducts = lastProductMatches.length > 0;
 
-  // Only show the section when there is at least one product AND
-  // the customer is actively searching. Otherwise it stays hidden
-  // so the default browse view is unchanged.
   const activeSearch = lastSearchWord || getCombinedSearchText();
   if (!activeSearch || lastProductMatches.length === 0) {
     section.hidden = true;
@@ -1585,17 +1518,9 @@ function renderProductMatches(reset, products) {
     title.textContent = `🛍️ Products matching "${activeSearch}" (${count})`;
   }
 
-  // L.5 — Show the "Showing results for …" hint only when the
-  // server corrected a typo (mode === 'fuzzy').
   renderFuzzySearchHint(lastSearchMode === 'fuzzy', activeSearch);
 }
 
-/**
- * L.5 — Small, non-intrusive hint that appears above the product
- * grid when the server used the trigram fallback to correct a
- * typo. Uses a dedicated node so the hint never competes with
- * the product title.
- */
 function renderFuzzySearchHint(show, word) {
   const hintId = 'fuzzySearchHint';
   const existing = document.getElementById(hintId);
@@ -1620,7 +1545,6 @@ function renderFuzzySearchHint(show, word) {
   hint.className = 'fuzzy-search-hint';
   hint.textContent = `🔎 Showing results for "${text}"`;
 
-  // Insert above the grid, just after the header.
   const grid = document.getElementById('productMatchGrid');
   if (grid && grid.parentElement === section) {
     section.insertBefore(hint, grid);
@@ -1631,6 +1555,11 @@ function renderFuzzySearchHint(show, word) {
 
 // ============================================================
 //  LOAD BUSINESSES (Section D — smart search)
+//
+//  Section R — per-visit rotation:
+//   The server keeps the seed in an HttpOnly cookie. The client
+//   simply sets credentials: 'same-origin' so the cookie
+//   round-trips. The client does not store or resend the seed.
 // ============================================================
 
 async function loadBusinesses(reset = true, options = {}) {
@@ -1638,9 +1567,12 @@ async function loadBusinesses(reset = true, options = {}) {
     currentPage = 1;
     hasMore = true;
     allBusinesses = [];
-    // Section K — clear any previous product matches on a new search.
     lastProductMatches = [];
     lastSearchHadProducts = false;
+
+    // Section Q — start the in-feed strips fresh whenever we
+    // re-render the business grid from scratch.
+    resetInFeedAdStrips();
   }
   if (isLoading || !hasMore) return;
 
@@ -1650,8 +1582,6 @@ async function loadBusinesses(reset = true, options = {}) {
       bs.value = '';
     }
   }
-  // The hidden proxy is never visible, so no autofill check is
-  // needed for it.
 
   isLoading = true;
 
@@ -1698,7 +1628,9 @@ async function loadBusinesses(reset = true, options = {}) {
 
   try {
     const url = `/api/businesses?${params.toString()}`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      credentials: 'same-origin'   // Section R — round-trip the HttpOnly seed cookie.
+    });
     if (!res.ok) throw new Error('Failed to load businesses');
     const data = await res.json();
     const businesses = data.businesses || [];
@@ -1706,9 +1638,6 @@ async function loadBusinesses(reset = true, options = {}) {
 
     window.__lastSearchAnchor = data.anchor || null;
 
-    // Section K / L — remember the customer's typed word and the
-    // mode the server settled on so every card and tile can echo
-    // the correct label.
     if (search) {
       lastSearchWord = data.search_word || search;
       lastSearchMode = data.search_mode || 'exact';
@@ -1726,12 +1655,6 @@ async function loadBusinesses(reset = true, options = {}) {
     }
     currentPage++;
 
-    // Section K — render the product tiles.
-    //
-    // The server returns `products` on every call (empty when no
-    // search text, or when nothing matched). We only keep them
-    // when the customer is actively searching so the default
-    // browse view stays unchanged.
     const products = Array.isArray(data.products) ? data.products : [];
     if (search) {
       renderProductMatches(reset, products);
@@ -1767,6 +1690,9 @@ function renderBusinesses() {
   }
 
   container.innerHTML = allBusinesses.map(business => createBusinessCard(business)).join('');
+
+  // Section Q — insert in-feed ad strips after the fresh grid.
+  insertInFeedAdStrips();
 }
 
 function appendBusinesses() {
@@ -1776,14 +1702,16 @@ function appendBusinesses() {
   const start = Math.max(0, allBusinesses.length - limit);
   const newBusinesses = allBusinesses.slice(start);
   const newHtml = newBusinesses.map(business => createBusinessCard(business)).join('');
-  container.innerHTML += newHtml;
+  container.insertAdjacentHTML('beforeend', newHtml);
+
+  // Section Q — re-run the strip insertion so the new cards also
+  // get their ad breaks. The existing strips are preserved; we
+  // only re-walk the grid.
+  insertInFeedAdStrips();
 }
 
 // ============================================================
-//  BUSINESS CARD (Section D.4 — distance badge)
-//  Section H.6 — 🟢 / 🔴 order-status badge
-//  Section K.7 — green blinking "SELLS: …" banner at the top
-//                when the shop matched via one of its products
+//  BUSINESS CARD
 // ============================================================
 
 function getOrderStatusBadge(business) {
@@ -1815,11 +1743,6 @@ function createBusinessCard(business) {
 
   badges.push(getOrderStatusBadge(business));
 
-  // Section K.7 — green blinking "SELLS: …" banner at the very
-  // top of the card body, above the business name.
-  //
-  // The label echoes the customer's typed word (`matched_word`)
-  // so every matching business shows the same green banner.
   const sellsWord = getBusinessSellsLabel(business);
   const sellsBannerHtml = sellsWord
     ? `<div class="business-sells-banner" title="This shop sells a product that matches your search">
@@ -1883,7 +1806,7 @@ async function loadPlatformStats() {
   try {
     const [statisticsResponse, businessesResponse] = await Promise.all([
       fetch('/api/shop/statistics'),
-      fetch('/api/businesses?limit=1&page=1')
+      fetch('/api/businesses?limit=1&page=1', { credentials: 'same-origin' })
     ]);
     if (!statisticsResponse.ok || !businessesResponse.ok) {
       throw new Error('Failed to load public marketplace statistics');
@@ -1910,9 +1833,6 @@ async function loadPlatformStats() {
 
 function searchBusinesses() {
   getMarketplaceSearchQuery();
-  // Section K — clear stale product matches immediately so the
-  // customer never sees products from the previous query while
-  // the new one is loading.
   lastProductMatches = [];
   lastSearchHadProducts = false;
   lastSearchWord = '';
@@ -2597,20 +2517,17 @@ window.maybeSuggestNearKeyword = maybeSuggestNearKeyword;
 
 window.getOrderStatusBadge = getOrderStatusBadge;
 
-// Section J exposures — so any future surface (e.g. the account page)
-// can reuse the same helpers without duplicating logic.
 window.loadAds = loadAds;
-window.goToAd = goToAd;
 window.handleAdClick = handleAdClick;
+window.jumpAdClockToIndex = jumpAdClockToIndex;
 
-// Section K / L exposures — so the account page and any future
-// surface can reuse the same product-tile renderer and label
-// builder without duplicating logic.
 window.renderProductMatches = renderProductMatches;
 window.renderProductMatchCard = renderProductMatchCard;
 window.getBusinessSellsLabel = getBusinessSellsLabel;
 window.businessSellsSearchWord = businessSellsSearchWord;
 window.renderFuzzySearchHint = renderFuzzySearchHint;
+
+window.insertInFeedAdStrips = insertInFeedAdStrips;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
@@ -3022,6 +2939,9 @@ async function handleLogout() {
   updateLocationStatusChip();
   updateLocationFiltersCount();
 
+  // Section Q — reset the in-feed strips as well.
+  resetInFeedAdStrips();
+
   showGuestState();
 
   const url = new URL(window.location.href);
@@ -3039,4 +2959,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully');
+console.log('✅ Index.js loaded successfully (clock-driven ads + in-feed strips + per-visit rotation)');

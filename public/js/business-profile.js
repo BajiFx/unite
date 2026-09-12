@@ -20,21 +20,25 @@
 //   is called from renderBusinessProfile() so both blocks are in
 //   the correct state as soon as the business data is available.
 //
-//  Hero split (three-column on desktop):
-//   renderHeroCover() fills #heroMediaLeft and #heroMediaRight
-//   from the single cover media the admin uploaded.
-//     • Image case — both frames use the same URL as a CSS
-//       background with `background-size: contain` (set in the
-//       CSS) so the whole picture is visible on each side,
-//       uncropped, unstretched, and unblurred.
-//     • Video case — a synced <video> is injected into each
-//       frame (muted, looped, autoplayed, contain). Both play at
-//       the same time and stay in sync because they share the
-//       same source and start with the same currentTime.
-//   The right-side info block (name, location, meta, actions)
-//   floats over the right frame's cover with a text-shadow only.
-//   On phones the two frames are display: none (see CSS), so the
-//   hero falls back to the single-cover look it had before.
+//  Hero redesign:
+//   The hero is a three-column band on desktop:
+//     LEFT   — small column, logo only, plain background.
+//     MIDDLE — info panel: name, location, address, stats,
+//              Shop Now, Follow, Verified badge.
+//     RIGHT  — media panel: one image OR one video.
+//              The business description now scrolls slowly up
+//              over the media when the text is long.
+//   On phones the CSS reorders the three columns to
+//     logo → media → info.
+//   renderHeroMedia() is the single function that fills the media
+//   column.
+//   renderHeroDescriptionOverlay() fills the description overlay
+//   and decides whether the track needs to scroll.
+//
+//  About card swap:
+//   The About card now shows the description block on the LEFT
+//   and Mission (top) + Vision (below) on the RIGHT.
+//   renderAboutNameAndLocation() fills the two placeholders.
 //
 //  Hardening:
 //   - businessFallbackImage() strips unpaired surrogates and control
@@ -401,108 +405,6 @@ async function loadBusinessProfile() {
 function hideFollowButtonForNonCustomer() {
     const followBtn = document.getElementById('followBtn');
     if (followBtn) followBtn.style.display = 'none';
-    const followBtnDesktop = document.getElementById('followBtnDesktop');
-    if (followBtnDesktop) followBtnDesktop.style.display = 'none';
-}
-
-// ============================================================
-//  HERO COVER — split into the two side frames
-//
-//  The business admin uploads ONE cover media (image or video).
-//  On desktop, the two side frames each show that media in full
-//  via `background-size: contain` / `object-fit: contain`:
-//   • Image — both frames use the same URL as a CSS background.
-//     The whole image is visible on both sides, uncropped,
-//     unstretched, unblurred.
-//   • Video — a <video> is injected into each frame, muted,
-//     looped, and auto-played. Both are started at the same time
-//     and share the same source so they stay in sync.
-//
-//  On phones the two frames are display: none (via CSS), so the
-//  hero falls back to the single-cover look it had before — and
-//  the single-cover look is painted by the existing
-//  `heroSection.style.backgroundImage` code below.
-// ============================================================
-
-function isVideoCover(url) {
-    if (!url) return false;
-    return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(String(url));
-}
-
-function renderHeroCover(business) {
-    const leftFrame = document.getElementById('heroMediaLeft');
-    const rightFrame = document.getElementById('heroMediaRight');
-    if (!leftFrame || !rightFrame) return;
-
-    // Reset any previous content so a re-render always starts clean.
-    leftFrame.innerHTML = '';
-    rightFrame.innerHTML = '';
-    leftFrame.classList.remove('has-video');
-    rightFrame.classList.remove('has-video');
-
-    const coverUrl = business.heroImage || business.heroimage || '';
-
-    if (!coverUrl) {
-        // No cover media: hide both frames so the middle column and
-        // the dark gradient stand on their own.
-        leftFrame.style.backgroundImage = 'none';
-        rightFrame.style.backgroundImage = 'none';
-        return;
-    }
-
-    if (isVideoCover(coverUrl)) {
-        // Video: inject two muted, looping, auto-playing copies.
-        // Both are started together so they stay in sync.
-        const buildVideo = () => {
-            const v = document.createElement('video');
-            v.src = coverUrl;
-            v.muted = true;
-            v.loop = true;
-            v.playsInline = true;
-            v.setAttribute('playsinline', '');
-            v.setAttribute('muted', '');
-            v.preload = 'auto';
-            return v;
-        };
-
-        const leftVideo = buildVideo();
-        const rightVideo = buildVideo();
-
-        leftFrame.appendChild(leftVideo);
-        rightFrame.appendChild(rightVideo);
-
-        leftFrame.classList.add('has-video');
-        rightFrame.classList.add('has-video');
-
-        // Kick both off at the same moment. The browser may reject
-        // autoplay if the video is not muted, but we set muted above.
-        const startBoth = () => {
-            try {
-                leftVideo.currentTime = 0;
-                rightVideo.currentTime = 0;
-                const p1 = leftVideo.play();
-                const p2 = rightVideo.play();
-                if (p1 && typeof p1.catch === 'function') p1.catch(() => {});
-                if (p2 && typeof p2.catch === 'function') p2.catch(() => {});
-            } catch (err) {
-                // Non-fatal.
-            }
-        };
-
-        // If the metadata is not ready yet, wait for it once.
-        if (leftVideo.readyState >= 1) {
-            startBoth();
-        } else {
-            leftVideo.addEventListener('loadedmetadata', startBoth, { once: true });
-        }
-    } else {
-        // Image: both frames use the same URL. The CSS layer sets
-        // `background-size: contain` and `background-position:
-        // center` on the frames so the whole picture is visible on
-        // each side, uncropped and unstretched.
-        leftFrame.style.backgroundImage = `url("${coverUrl.replace(/"/g, '\\"')}")`;
-        rightFrame.style.backgroundImage = `url("${coverUrl.replace(/"/g, '\\"')}")`;
-    }
 }
 
 // ============================================================
@@ -522,7 +424,6 @@ function renderBusinessProfile() {
     const heroLocation = document.getElementById('heroLocation');
     const heroAddress = document.getElementById('heroAddress');
     const heroLogo = document.getElementById('heroLogo');
-    const heroSection = document.getElementById('heroSection');
 
     if (heroTitle) heroTitle.textContent = business.business_name || 'Welcome';
     if (heroLocation) heroLocation.textContent = business.location ? `📍 ${business.location}` : '';
@@ -536,26 +437,6 @@ function renderBusinessProfile() {
     document.getElementById('avgRating').textContent = avgRating.toFixed(1);
     document.getElementById('followerCount').textContent = followerCount;
 
-    // Desktop info overlay — mirror the mobile info into the
-    // right column so both stay in sync.
-    const desktopTitle = document.getElementById('heroTitleDesktop');
-    if (desktopTitle) desktopTitle.textContent = business.business_name || 'Welcome';
-
-    const desktopLocation = document.getElementById('heroLocationDesktop');
-    if (desktopLocation) desktopLocation.textContent = business.location ? `📍 ${business.location}` : '';
-
-    const desktopAddress = document.getElementById('heroAddressDesktop');
-    if (desktopAddress) desktopAddress.textContent = business.address ? `🏠 ${business.address}` : '';
-
-    const desktopProductCount = document.getElementById('productCountDesktop');
-    if (desktopProductCount) desktopProductCount.textContent = productCount;
-
-    const desktopAvgRating = document.getElementById('avgRatingDesktop');
-    if (desktopAvgRating) desktopAvgRating.textContent = avgRating.toFixed(1);
-
-    const desktopFollowerCount = document.getElementById('followerCountDesktop');
-    if (desktopFollowerCount) desktopFollowerCount.textContent = followerCount;
-
     if (heroLogo) {
         if (business.logo && business.logo !== '') {
             heroLogo.src = business.logo;
@@ -565,34 +446,17 @@ function renderBusinessProfile() {
         }
     }
 
-    // Mobile hero background (unchanged): the single cover is painted
-    // on .business-hero itself. On desktop the CSS hides this image
-    // (via `background-image: none` in the min-width: 900px block)
-    // and the two side frames take over.
-    if (heroSection) {
-        const heroImage = business.heroImage || business.heroimage;
-        if (heroImage) {
-            heroSection.style.backgroundImage = `url(${heroImage})`;
-            heroSection.style.backgroundSize = 'cover';
-            heroSection.style.backgroundPosition = 'center';
-        } else {
-            heroSection.style.backgroundImage = 'linear-gradient(135deg, #1e293b, #0f172a)';
-        }
-    }
-
-    // Desktop hero split — fill the two side frames from the same
-    // single cover media. This is a no-op on phones because the
-    // frames are display: none at those widths.
-    renderHeroCover(business);
+    // Fill the media column with a single image or a single video.
+    renderHeroMedia(business);
+    // Fill the description overlay inside the media column and
+    // decide whether it needs to scroll.
+    renderHeroDescriptionOverlay(business);
+    // Fill the two placeholders in the About card.
+    renderAboutNameAndLocation(business);
 
     const verifiedBadge = document.getElementById('verifiedBadge');
     if (verifiedBadge) {
         verifiedBadge.style.display = business.is_verified ? 'block' : 'none';
-    }
-
-    const verifiedBadgeDesktop = document.getElementById('verifiedBadgeDesktop');
-    if (verifiedBadgeDesktop) {
-        verifiedBadgeDesktop.style.display = business.is_verified ? 'block' : 'none';
     }
 
     const missionEl = document.getElementById('businessMission');
@@ -618,18 +482,153 @@ function renderBusinessProfile() {
 }
 
 // ============================================================
+//  HERO MEDIA — single image OR single video, no text on top
+// ============================================================
+
+function isVideoUrl(url) {
+    if (!url) return false;
+    return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(String(url));
+}
+
+function renderHeroMedia(business) {
+    const slot = document.getElementById('heroMediaSlot');
+    if (!slot) return;
+
+    // Reset any previous media so a re-render always starts clean.
+    slot.innerHTML = '';
+
+    const coverUrl = business && (business.heroImage || business.heroimage);
+    if (!coverUrl) return;   // gradient backdrop is enough
+
+    if (isVideoUrl(coverUrl)) {
+        const video = document.createElement('video');
+        video.className = 'hero-media-video';
+        video.src = coverUrl;
+        video.muted = true;
+        video.loop = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('muted', '');
+        video.preload = 'metadata';
+        slot.appendChild(video);
+        return;
+    }
+
+    const img = document.createElement('img');
+    img.className = 'hero-media-image';
+    img.src = coverUrl;
+    img.alt = (business.business_name || 'Business') + ' cover';
+    img.loading = 'lazy';
+    img.onerror = function () {
+        this.remove();
+    };
+    slot.appendChild(img);
+}
+
+// ============================================================
+//  HERO DESCRIPTION OVERLAY
+//
+//  Fills #heroDescriptionTrack with the business description.
+//  When the text is taller than the media frame, it adds the
+//  .is-scrolling class to the overlay, sets --hero-desc-scroll
+//  so the CSS keyframe scrolls the track up by exactly the
+//  overflow distance, and sets an animation-duration that scales
+//  with the overflow amount so longer text scrolls more slowly.
+//
+//  Reduced-motion users still get the full text visible (the
+//  animation is suppressed by a media query in the CSS) because
+//  the track is positioned at the bottom of the overlay and
+//  the text is anchored at its natural top.
+// ============================================================
+
+function renderHeroDescriptionOverlay(business) {
+    const overlay = document.getElementById('heroDescriptionOverlay');
+    const track = document.getElementById('heroDescriptionTrack');
+    if (!overlay || !track) return;
+
+    // Always start clean so a re-render (or a hot reload) does
+    // not leave stale animation classes behind.
+    overlay.classList.remove('is-scrolling');
+    track.style.animationDuration = '';
+    track.style.removeProperty('--hero-desc-scroll');
+
+    const raw = business && business.description ? String(business.description).trim() : '';
+    if (!raw) {
+        // Nothing to show — leave the overlay empty so the media
+        // is not covered by a pointless gradient.
+        track.textContent = '';
+        overlay.style.display = 'none';
+        return;
+    }
+
+    overlay.style.display = '';
+
+    // Put the description text into the track. We use textContent
+    // so any business-authored angle brackets are treated as plain
+    // text, never as HTML.
+    track.textContent = raw;
+
+    // Wait a frame for the browser to lay the text out at the
+    // current overlay size before we measure it.
+    requestAnimationFrame(() => {
+        const overlayHeight = overlay.clientHeight;
+        const trackHeight = track.scrollHeight;
+
+        // Only scroll when the text is taller than the frame.
+        // We subtract a small buffer so a 1-2px rounding error
+        // never triggers a scroll for text that just barely fits.
+        if (trackHeight <= overlayHeight - 4) {
+            return;
+        }
+
+        const overflow = trackHeight - overlayHeight;
+
+        // Set the distance the track should travel (negative
+        // because it moves up) as a CSS custom property the
+        // keyframe reads.
+        track.style.setProperty('--hero-desc-scroll', `-${overflow}px`);
+
+        // Slow, readable scroll: ~40 px per second, capped between
+        // 20 s and 90 s so a very long description does not take
+        // an eternity to loop and a very short one is not too
+        // fast.
+        const durationSeconds = Math.min(90, Math.max(20, overflow / 40));
+        track.style.animationDuration = `${durationSeconds}s`;
+
+        overlay.classList.add('is-scrolling');
+    });
+}
+
+// ============================================================
+//  ABOUT NAME + LOCATION
+//
+//  Fills the two placeholders in the About card's description
+//  block so the customer sees the real business name and
+//  location instead of the hard-coded defaults.
+// ============================================================
+
+function renderAboutNameAndLocation(business) {
+    const nameEl = document.getElementById('aboutBusinessName');
+    const locEl = document.getElementById('aboutBusinessLocation');
+
+    if (nameEl) {
+        nameEl.textContent = (business && business.business_name) ? business.business_name : 'Business';
+    }
+
+    if (locEl) {
+        const parts = [];
+        if (business && business.town) parts.push(business.town);
+        if (business && business.county) parts.push(business.county);
+        if (parts.length === 0 && business && business.location) parts.push(business.location);
+        locEl.textContent = parts.length > 0 ? parts.join(', ') : 'Kenya';
+    }
+}
+
+// ============================================================
 //  Section H — ORDER VISIBILITY (H.4 banner + H.5 contact-only)
 // ============================================================
 
-/**
- * Single entry point for the H.4 / H.5 customer-facing state.
- *
- * - When `online_orders_enabled !== false`, both blocks are hidden.
- * - When orders are off, the H.4 banner is shown with the business's
- *   own `order_disabled_message` (or the safe default), and the H.5
- *   contact-only block is shown with the same social links the page
- *   already renders.
- */
 function applyOrderVisibilityState() {
     if (!businessData) return;
 
@@ -648,11 +647,6 @@ function applyOrderVisibilityState() {
     renderOrdersPausedContactBlock();
 }
 
-/**
- * H.4 — Show the "Orders are currently paused" banner.
- * Uses the business's own order_disabled_message when present,
- * otherwise falls back to DEFAULT_ORDERS_PAUSED_MESSAGE.
- */
 function renderOrdersPausedBanner() {
     const banner = document.getElementById('ordersPausedBanner');
     const messageEl = document.getElementById('ordersPausedMessage');
@@ -664,27 +658,12 @@ function renderOrdersPausedBanner() {
     banner.style.display = 'block';
 }
 
-/**
- * H.5 — Show the contact-only block when orders are off.
- *
- * The block reuses the same social links already rendered in
- * #businessProfileContacts so there is only one place that knows
- * how to build WhatsApp / TikTok / Instagram / Messenger / phone
- * URLs. We clone the anchor elements so click handlers and styles
- * stay identical without duplicating logic.
- *
- * When the business has published no contact channels at all, we
- * show the empty-state hint so the customer still has a next step.
- */
 function renderOrdersPausedContactBlock() {
     const block = document.getElementById('ordersPausedContactBlock');
     const iconsContainer = document.getElementById('ordersPausedContactIcons');
     const emptyHint = document.getElementById('ordersPausedContactEmpty');
     if (!block || !iconsContainer) return;
 
-    // Build a fresh set of icon anchors directly from businessData,
-    // so the block does not depend on the timing of the contact
-    // section render and cannot pick up a stale link.
     const iconDefs = [];
 
     if (businessData && businessData.whatsapp) {
@@ -968,7 +947,6 @@ function businessFallbackImage(product) {
             `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${safeLabel}</text></svg>`
         );
     } catch (err) {
-        // Absolute last-resort fallback — no dynamic content at all.
         encoded = encodeURIComponent(
             `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text></svg>`
         );
@@ -981,7 +959,6 @@ function businessFallbackImage(product) {
 //  POPULATE PRODUCT-CATEGORY FILTERS
 // ============================================================
 
-// Legacy free-text picker — kept so existing filters continue to work.
 function populateBusinessProductCategories() {
     const select = document.getElementById('businessProductCategoryFilter');
     if (!select) return;
@@ -998,8 +975,6 @@ function populateBusinessProductCategories() {
     select.value = categories.includes(selected) ? selected : 'all';
 }
 
-// B.7 — defined-list picker. Only shows categories that yield at least one
-// result for this business, so every option is guaranteed to be useful.
 function populateDefinedProductCategories() {
     const select = document.getElementById('businessProductCategoryIdFilter');
     if (!select) return;
@@ -1059,8 +1034,6 @@ function renderBusinessProductGrid(products) {
         const disabled = !onlineOrdersEnabled ? 'disabled' : '';
 
         const imageSrc = p.image || businessFallbackImage(p);
-        // The onerror handler rebuilds the fallback for this product on demand,
-        // so a broken remote image still ends up showing a clean SVG card.
         const fallbackForThisProduct = businessFallbackImage(p).replace(/'/g, "\\'");
         const imageHtml = `<img src="${imageSrc}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackForThisProduct}'">`;
 
@@ -1123,7 +1096,6 @@ function addBusinessCardToCart(productId) {
 
 // ============================================================
 //  FILTER BUSINESS PRODUCTS
-//  Cumulative: search AND defined category AND legacy category.
 // ============================================================
 
 function filterBusinessProducts() {
@@ -1295,11 +1267,6 @@ async function submitBusinessReview() {
 
 // ============================================================
 //  FOLLOW/UNFOLLOW BUSINESS
-//
-//  Role-scoped. The /follow-status and /follow endpoints require
-//  req.role === 'customer'. Non-customers skip the request
-//  entirely (see the guard inside loadBusinessProfile) so no 403
-//  is produced in the console.
 // ============================================================
 
 async function checkFollowStatus() {
@@ -1308,8 +1275,6 @@ async function checkFollowStatus() {
     try {
         const res = await fetch(`/api/businesses/${businessSlug}/follow-status`);
         if (!res.ok) {
-            // Silently ignore — the Follow button just stays in its
-            // default state.
             return;
         }
         const data = await res.json();
@@ -1322,18 +1287,17 @@ async function checkFollowStatus() {
 }
 
 function updateFollowButton() {
-    const label = isFollowing ? 'Following' : 'Follow';
-    const klass = isFollowing ? 'btn btn-following' : 'btn btn-primary';
-
     const followText = document.getElementById('followText');
     const followBtn = document.getElementById('followBtn');
-    const followTextDesktop = document.getElementById('followTextDesktop');
-    const followBtnDesktop = document.getElementById('followBtnDesktop');
+    if (!followText || !followBtn) return;
 
-    if (followText) followText.textContent = label;
-    if (followBtn) followBtn.className = klass;
-    if (followTextDesktop) followTextDesktop.textContent = label;
-    if (followBtnDesktop) followBtnDesktop.className = klass;
+    if (isFollowing) {
+        followText.textContent = 'Following';
+        followBtn.className = 'btn btn-following';
+    } else {
+        followText.textContent = 'Follow';
+        followBtn.className = 'btn btn-primary';
+    }
 }
 
 async function toggleFollow() {
@@ -1364,9 +1328,6 @@ async function toggleFollow() {
 
 // ============================================================
 //  LOCATION REQUEST
-//
-//  Role-scoped. /api/location/customer/status requires the
-//  customer role. Non-customers skip the request entirely.
 // ============================================================
 
 async function checkLocationStatus() {
@@ -1611,7 +1572,12 @@ window.applyOrderVisibilityState = applyOrderVisibilityState;
 window.renderOrdersPausedBanner = renderOrdersPausedBanner;
 window.renderOrdersPausedContactBlock = renderOrdersPausedContactBlock;
 
-// Hero cover split exposure — so other surfaces can re-render it.
-window.renderHeroCover = renderHeroCover;
+// Hero media exposure — so other surfaces can re-render it.
+window.renderHeroMedia = renderHeroMedia;
+
+// New overlays — exposed so re-renders and future surfaces can refresh
+// them without a full page reload.
+window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
+window.renderAboutNameAndLocation = renderAboutNameAndLocation;
 
 console.log('✅ Business Profile JS loaded successfully (FIXED - No circular dependency)');
