@@ -7,10 +7,19 @@
       H.5 — contact-only container shown in place of cart buttons
             when orders are off
 
-     Nothing else in this file was changed. The two additions live
-     directly inside #businessContent, immediately after the hero
-     section, so they are always visible above the fold when the
-     orders-off state applies.
+     Hero layout:
+      On wide screens (min-width: 900px), the hero is a three-column
+      grid:
+        LEFT   — cover media (full image or synced video)
+        MIDDLE — the business logo (full, nothing over it)
+        RIGHT  — cover media + the business info overlay (name,
+                 location, meta, actions) floating on top with a
+                 text-shadow so the cover stays fully visible.
+      Both side columns show the SAME cover media (image or video),
+      uncropped and unstretched (object-fit: contain).
+
+      On phones (max-width: 899px), the hero falls back to a single
+      cover image/video rendered behind the logo, exactly as before.
      ============================================================ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -83,12 +92,59 @@
   <!-- Main Content -->
   <div id="businessContent" style="display:none;">
 
-    <!-- ===== HERO ===== -->
+    <!-- ============================================================ -->
+    <!-- HERO — three-column on desktop, single-cover on phone        -->
+    <!--                                                              -->
+    <!--  Desktop layout:                                              -->
+    <!--    [left cover]   [logo]   [right: cover + info overlay]      -->
+    <!--  Both side columns show the SAME cover (image or video).      -->
+    <!--  The info block sits in the right column, floating over the   -->
+    <!--  cover with a text-shadow so the media stays fully visible.   -->
+    <!--  On phones the two .hero-media frames are hidden and the      -->
+    <!--  hero falls back to the single-cover look it had before.      -->
+    <!-- ============================================================ -->
     <div class="business-hero" id="heroSection">
-      <div class="hero-overlay">
-        <div class="hero-logo-wrapper">
-          <img id="heroLogo" src="" alt="Business Logo" class="hero-logo">
+
+      <!-- LEFT cover frame (desktop only) -->
+      <div class="hero-media hero-media-left" id="heroMediaLeft" aria-hidden="true"></div>
+
+      <!-- MIDDLE: the business logo -->
+      <div class="hero-logo-wrapper">
+        <img id="heroLogo" src="" alt="Business Logo" class="hero-logo">
+      </div>
+
+      <!-- RIGHT cover frame (desktop only) + the info overlay -->
+      <div class="hero-media hero-media-right" id="heroMediaRight" aria-hidden="true">
+        <!-- The info block lives inside the right frame so it paints
+             over the same cover media as the left frame. On phones
+             this frame is display: none, and the .hero-overlay-mobile
+             below takes over instead. -->
+        <div class="hero-info hero-info-desktop">
+          <h1 id="heroTitleDesktop" class="hero-name">Welcome</h1>
+          <p id="heroLocationDesktop" class="hero-meta-line">📍 Nairobi, Kenya</p>
+          <p id="heroAddressDesktop" class="hero-meta-line"></p>
+          <div class="hero-meta">
+            <span><i class="fas fa-box"></i> <span id="productCountDesktop">0</span> products</span>
+            <span><i class="fas fa-star"></i> <span id="avgRatingDesktop">0.0</span> rating</span>
+            <span><i class="fas fa-users"></i> <span id="followerCountDesktop">0</span> followers</span>
+          </div>
+          <div class="hero-actions">
+            <button class="btn btn-primary" onclick="document.getElementById('products').scrollIntoView({behavior:'smooth'})">
+              <i class="fas fa-shopping-bag"></i> Shop Now
+            </button>
+            <button class="btn btn-success" id="followBtnDesktop" onclick="toggleFollow()">
+              <i class="fas fa-heart"></i> <span id="followTextDesktop">Follow</span>
+            </button>
+          </div>
+          <div class="verified-badge" id="verifiedBadgeDesktop" style="display:none;">
+            <span class="badge">✅ Verified Business</span>
+          </div>
         </div>
+      </div>
+
+      <!-- Mobile fallback overlay — the single-cover look.
+           Hidden on desktop (the CSS turns it off at 900px+). -->
+      <div class="hero-overlay hero-overlay-mobile">
         <div class="hero-content">
           <h1 id="heroTitle">Welcome</h1>
           <p id="heroLocation">📍 Nairobi, Kenya</p>
@@ -115,11 +171,6 @@
 
     <!-- ============================================================ -->
     <!-- H.4 — Orders paused banner                                   -->
-    <!--                                                              -->
-    <!--  Shown when the business is not accepting online orders.      -->
-    <!--  The message text is filled in by business-profile.js from    -->
-    <!--  the business's own order_disabled_message field, with a      -->
-    <!--  safe default when it is empty.                              -->
     <!-- ============================================================ -->
     <div id="ordersPausedBanner" style="display:none; margin:12px 12px 0; padding:16px 20px; background:#fef2f2; border-radius:12px; border-left:5px solid #ef4444; box-shadow:0 2px 8px rgba(239,68,68,0.08);">
       <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
@@ -137,11 +188,6 @@
 
     <!-- ============================================================ -->
     <!-- H.5 — Contact-only block                                     -->
-    <!--                                                              -->
-    <!--  Shown in place of the cart-enabled flow when orders are      -->
-    <!--  off. Reuses the same social-link icons the rest of the page  -->
-    <!--  already populates (WhatsApp, TikTok, Instagram, Messenger,   -->
-    <!--  phone). The product list remains visible above and below.    -->
     <!-- ============================================================ -->
     <div id="ordersPausedContactBlock" style="display:none; margin:12px 12px; padding:20px; background:linear-gradient(135deg,#f0fdf4,#dcfce7); border-radius:14px; border:1px solid #86efac;">
       <h3 style="font-size:1rem; font-weight:800; color:#166534; margin:0 0 6px 0; display:flex; align-items:center; gap:8px;">

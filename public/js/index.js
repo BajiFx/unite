@@ -12,8 +12,6 @@
 //  D.7 — Location filters (typed search + dropdowns) combine with
 //        the free-text business search and category filter.
 //  D.8 — Location filters combine with search + category filter.
-//  D.9 — Urgent toggle sends sort=urgent so the server ranks
-//        strictly by distance.
 //  D.10 — Turn off location clears the customer's own coordinates.
 //  D.11 — Customer coordinates are sent to the server only as
 //        query parameters. Never persisted from the client.
@@ -100,10 +98,8 @@ let isLoggedIn = false;
 let currentLoginType = 'customer';
 let currentRegisterType = 'customer';
 
-// Two independent flags so the autofill guard for one input never
-// suppresses the guard for the other.
+// Autofill guard flag for the marketplace search input.
 let marketplaceSearchWasTyped = false;
-let locationSearchWasTyped = false;
 
 // Cache of business categories loaded once from the API.
 let businessCategoriesCache = null;
@@ -460,7 +456,6 @@ function updateLocationStatusChip() {
    The location controls are now individual pills and buttons
    inside the merged bar. This function wires them:
    - #findNearMeBtn : requests GPS, saves coords, re-runs the search
-   - #urgentToggle  : checkbox inside the pill, re-runs the search
    - #turnOffLocationBtn : one-tap ✕ next to the chip
    - #locationFiltersToggle : opens #locationFilters row
    - #clearLocationFiltersBtn : clears the dropdowns
@@ -468,7 +463,6 @@ function updateLocationStatusChip() {
    - #locationSearchClearBtn is hidden; also no listeners attached. */
 function bindLocationControls() {
   const findBtn = document.getElementById('findNearMeBtn');
-  const urgentToggle = document.getElementById('urgentToggle');
   const offBtn = document.getElementById('turnOffLocationBtn');
   const clearFiltersBtn = document.getElementById('clearLocationFiltersBtn');
   const filtersToggle = document.getElementById('locationFiltersToggle');
@@ -500,13 +494,6 @@ function bindLocationControls() {
       hideLocationBanner();
 
       loadBusinesses(true, { forceNearest: true });
-    });
-  }
-
-  // ---- D.9 — Urgent toggle ----
-  if (urgentToggle) {
-    urgentToggle.addEventListener('change', () => {
-      loadBusinesses(true);
     });
   }
 
@@ -548,7 +535,6 @@ function bindLocationControls() {
         sel.value = '';
       });
       locationSearchText = '';
-      locationSearchWasTyped = true;
       clearFiltersBtn.hidden = true;
       updateLocationFiltersCount();
       loadBusinesses(true);
@@ -1387,9 +1373,6 @@ async function loadBusinesses(reset = true, options = {}) {
   const category = document.getElementById('businessCategoryFilter')?.value || 'all';
   let sort = document.getElementById('sortFilter')?.value || 'newest';
 
-  const urgent = document.getElementById('urgentToggle')?.checked === true;
-  if (urgent) sort = 'urgent';
-
   const forceNearest = options.forceNearest === true;
 
   let coords = marketplaceCustomerCoords;
@@ -1419,9 +1402,7 @@ async function loadBusinesses(reset = true, options = {}) {
     if (field && value) params.set(field, value);
   });
 
-  const shouldSendCoords = forceNearest
-    || queryNeedsCustomerLocation(search)
-    || urgent;
+  const shouldSendCoords = forceNearest || queryNeedsCustomerLocation(search);
   if (shouldSendCoords && coords.latitude !== null && coords.longitude !== null) {
     params.set('latitude', String(coords.latitude));
     params.set('longitude', String(coords.longitude));
@@ -2685,7 +2666,6 @@ async function handleLogout() {
   gpsUpgradeAttempted = false;
   locationSearchText = '';
   marketplaceSearchWasTyped = false;
-  locationSearchWasTyped = false;
   hideLocationBanner();
   updateLocationStatusChip();
   updateLocationFiltersCount();

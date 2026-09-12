@@ -56,13 +56,6 @@
                 The dropdown filters live in a separate
                 .location-filters-row that opens only when the
                 Filters button is pressed.
-
-   MOBILE FIX
-                On small screens the text labels next to the
-                filter, refresh, and urgent buttons are now
-                kept visible (only the search-submit label is
-                hidden when it would otherwise overflow). This
-                makes the buttons understandable at a glance.
    ============================================================ */
 
 /* ============================================================
@@ -956,13 +949,6 @@
      5. #findNearMeBtn
      6. #urgentToggle (as a pill)
      7. #locationStatusChip + #turnOffLocationBtn
-
-   MOBILE — text labels are kept visible on small screens for
-   the Filters, Near Me, and Urgent buttons so the user always
-   knows what each control does without having to guess. Only
-   the Search submit label is dropped below 560px, because the
-   magnifying glass icon is universally understood and keeps
-   the search row on one line.
    ============================================================ */
 
 .search-filter-bar {
@@ -1385,11 +1371,11 @@
   }
 }
 
-/* <560px: only the Search submit label is dropped. The Filters,
-   Near Me, and Urgent labels are kept visible so the buttons stay
-   self-explanatory on small phone screens. */
+/* <560px: labels go away, only icons remain — the bar stays one line high */
 @media (max-width: 560px) {
-  .search-filter-bar .search-submit-label {
+  .search-filter-bar .search-submit-label,
+  .search-filter-bar .loc-filters-label,
+  .search-filter-bar .loc-pill-label {
     display: none;
   }
 

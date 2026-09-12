@@ -3,36 +3,35 @@
 //  Location: public/js/welcome.js
 //
 //  Behaviour:
-//   1. On load, check localStorage for the "welcomed" flag.
-//      - If already set, redirect straight to / so a refresh
-//        or a back-navigation does not replay the splash.
+//   1. On load, check sessionStorage for the "welcomed" flag.
+//      - If already set, redirect straight to /index.html so a
+//        refresh or a back-navigation does not replay the splash.
 //      - Otherwise, keep the visitor on this page.
 //   2. When the visitor clicks "Continue to Platform" (or presses
 //      Enter/Space anywhere on the page):
-//      - Set the flag in localStorage.
-//      - Navigate to /.
-//   3. localStorage is used instead of sessionStorage so the
-//      welcome screen shows once per browser, not once per tab.
+//      - Set the flag in sessionStorage.
+//      - Navigate to /index.html.
+//   3. Reset the flag automatically when the browser session ends,
+//      because sessionStorage is cleared when the tab is closed.
 // ============================================================
 
 (function () {
   'use strict';
 
   var WELCOMED_KEY = 'bidhaalink_welcomed';
-  var DESTINATION  = '/';
+  var DESTINATION  = '/index.html';
 
   // ----------------------------------------------------------
-  //  1. Skip the splash if the visitor already saw it
+  //  1. Skip the splash if the visitor already saw it this session
   // ----------------------------------------------------------
   try {
-    if (localStorage.getItem(WELCOMED_KEY) === '1') {
+    if (sessionStorage.getItem(WELCOMED_KEY) === '1') {
       window.location.replace(DESTINATION);
       return;
     }
   } catch (err) {
-    // localStorage can be blocked (private mode, strict cookies,
-    // tracking prevention). In that case, we simply show the
-    // splash normally.
+    // sessionStorage can be blocked (private mode, strict cookies).
+    // In that case, we simply show the splash normally.
   }
 
   // ----------------------------------------------------------
@@ -40,7 +39,7 @@
   // ----------------------------------------------------------
   function continueToPlatform() {
     try {
-      localStorage.setItem(WELCOMED_KEY, '1');
+      sessionStorage.setItem(WELCOMED_KEY, '1');
     } catch (err) {
       // Non-fatal — the visitor will just see the splash again next time.
     }

@@ -20,6 +20,22 @@
 //   is called from renderBusinessProfile() so both blocks are in
 //   the correct state as soon as the business data is available.
 //
+//  Hero split (three-column on desktop):
+//   renderHeroCover() fills #heroMediaLeft and #heroMediaRight
+//   from the single cover media the admin uploaded.
+//     • Image case — both frames use the same URL as a CSS
+//       background with `background-size: contain` (set in the
+//       CSS) so the whole picture is visible on each side,
+//       uncropped, unstretched, and unblurred.
+//     • Video case — a synced <video> is injected into each
+//       frame (muted, looped, autoplayed, contain). Both play at
+//       the same time and stay in sync because they share the
+//       same source and start with the same currentTime.
+//   The right-side info block (name, location, meta, actions)
+//   floats over the right frame's cover with a text-shadow only.
+//   On phones the two frames are display: none (see CSS), so the
+//   hero falls back to the single-cover look it had before.
+//
 //  Hardening:
 //   - businessFallbackImage() strips unpaired surrogates and control
 //     characters before encodeURIComponent, so a corrupted product
@@ -385,6 +401,108 @@ async function loadBusinessProfile() {
 function hideFollowButtonForNonCustomer() {
     const followBtn = document.getElementById('followBtn');
     if (followBtn) followBtn.style.display = 'none';
+    const followBtnDesktop = document.getElementById('followBtnDesktop');
+    if (followBtnDesktop) followBtnDesktop.style.display = 'none';
+}
+
+// ============================================================
+//  HERO COVER — split into the two side frames
+//
+//  The business admin uploads ONE cover media (image or video).
+//  On desktop, the two side frames each show that media in full
+//  via `background-size: contain` / `object-fit: contain`:
+//   • Image — both frames use the same URL as a CSS background.
+//     The whole image is visible on both sides, uncropped,
+//     unstretched, unblurred.
+//   • Video — a <video> is injected into each frame, muted,
+//     looped, and auto-played. Both are started at the same time
+//     and share the same source so they stay in sync.
+//
+//  On phones the two frames are display: none (via CSS), so the
+//  hero falls back to the single-cover look it had before — and
+//  the single-cover look is painted by the existing
+//  `heroSection.style.backgroundImage` code below.
+// ============================================================
+
+function isVideoCover(url) {
+    if (!url) return false;
+    return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(String(url));
+}
+
+function renderHeroCover(business) {
+    const leftFrame = document.getElementById('heroMediaLeft');
+    const rightFrame = document.getElementById('heroMediaRight');
+    if (!leftFrame || !rightFrame) return;
+
+    // Reset any previous content so a re-render always starts clean.
+    leftFrame.innerHTML = '';
+    rightFrame.innerHTML = '';
+    leftFrame.classList.remove('has-video');
+    rightFrame.classList.remove('has-video');
+
+    const coverUrl = business.heroImage || business.heroimage || '';
+
+    if (!coverUrl) {
+        // No cover media: hide both frames so the middle column and
+        // the dark gradient stand on their own.
+        leftFrame.style.backgroundImage = 'none';
+        rightFrame.style.backgroundImage = 'none';
+        return;
+    }
+
+    if (isVideoCover(coverUrl)) {
+        // Video: inject two muted, looping, auto-playing copies.
+        // Both are started together so they stay in sync.
+        const buildVideo = () => {
+            const v = document.createElement('video');
+            v.src = coverUrl;
+            v.muted = true;
+            v.loop = true;
+            v.playsInline = true;
+            v.setAttribute('playsinline', '');
+            v.setAttribute('muted', '');
+            v.preload = 'auto';
+            return v;
+        };
+
+        const leftVideo = buildVideo();
+        const rightVideo = buildVideo();
+
+        leftFrame.appendChild(leftVideo);
+        rightFrame.appendChild(rightVideo);
+
+        leftFrame.classList.add('has-video');
+        rightFrame.classList.add('has-video');
+
+        // Kick both off at the same moment. The browser may reject
+        // autoplay if the video is not muted, but we set muted above.
+        const startBoth = () => {
+            try {
+                leftVideo.currentTime = 0;
+                rightVideo.currentTime = 0;
+                const p1 = leftVideo.play();
+                const p2 = rightVideo.play();
+                if (p1 && typeof p1.catch === 'function') p1.catch(() => {});
+                if (p2 && typeof p2.catch === 'function') p2.catch(() => {});
+            } catch (err) {
+                // Non-fatal.
+            }
+        };
+
+        // If the metadata is not ready yet, wait for it once.
+        if (leftVideo.readyState >= 1) {
+            startBoth();
+        } else {
+            leftVideo.addEventListener('loadedmetadata', startBoth, { once: true });
+        }
+    } else {
+        // Image: both frames use the same URL. The CSS layer sets
+        // `background-size: contain` and `background-position:
+        // center` on the frames so the whole picture is visible on
+        // each side, uncropped and unstretched.
+        leftFrame.style.backgroundImage = `url("${coverUrl.replace(/"/g, '\\"')}")`;
+        rightFrame.style.backgroundImage = `url("${coverUrl.replace(/"/g, '\\"')}")`;
+    }
 }
 
 // ============================================================
@@ -418,6 +536,26 @@ function renderBusinessProfile() {
     document.getElementById('avgRating').textContent = avgRating.toFixed(1);
     document.getElementById('followerCount').textContent = followerCount;
 
+    // Desktop info overlay — mirror the mobile info into the
+    // right column so both stay in sync.
+    const desktopTitle = document.getElementById('heroTitleDesktop');
+    if (desktopTitle) desktopTitle.textContent = business.business_name || 'Welcome';
+
+    const desktopLocation = document.getElementById('heroLocationDesktop');
+    if (desktopLocation) desktopLocation.textContent = business.location ? `📍 ${business.location}` : '';
+
+    const desktopAddress = document.getElementById('heroAddressDesktop');
+    if (desktopAddress) desktopAddress.textContent = business.address ? `🏠 ${business.address}` : '';
+
+    const desktopProductCount = document.getElementById('productCountDesktop');
+    if (desktopProductCount) desktopProductCount.textContent = productCount;
+
+    const desktopAvgRating = document.getElementById('avgRatingDesktop');
+    if (desktopAvgRating) desktopAvgRating.textContent = avgRating.toFixed(1);
+
+    const desktopFollowerCount = document.getElementById('followerCountDesktop');
+    if (desktopFollowerCount) desktopFollowerCount.textContent = followerCount;
+
     if (heroLogo) {
         if (business.logo && business.logo !== '') {
             heroLogo.src = business.logo;
@@ -427,6 +565,10 @@ function renderBusinessProfile() {
         }
     }
 
+    // Mobile hero background (unchanged): the single cover is painted
+    // on .business-hero itself. On desktop the CSS hides this image
+    // (via `background-image: none` in the min-width: 900px block)
+    // and the two side frames take over.
     if (heroSection) {
         const heroImage = business.heroImage || business.heroimage;
         if (heroImage) {
@@ -438,9 +580,19 @@ function renderBusinessProfile() {
         }
     }
 
+    // Desktop hero split — fill the two side frames from the same
+    // single cover media. This is a no-op on phones because the
+    // frames are display: none at those widths.
+    renderHeroCover(business);
+
     const verifiedBadge = document.getElementById('verifiedBadge');
     if (verifiedBadge) {
         verifiedBadge.style.display = business.is_verified ? 'block' : 'none';
+    }
+
+    const verifiedBadgeDesktop = document.getElementById('verifiedBadgeDesktop');
+    if (verifiedBadgeDesktop) {
+        verifiedBadgeDesktop.style.display = business.is_verified ? 'block' : 'none';
     }
 
     const missionEl = document.getElementById('businessMission');
@@ -1170,17 +1322,18 @@ async function checkFollowStatus() {
 }
 
 function updateFollowButton() {
+    const label = isFollowing ? 'Following' : 'Follow';
+    const klass = isFollowing ? 'btn btn-following' : 'btn btn-primary';
+
     const followText = document.getElementById('followText');
     const followBtn = document.getElementById('followBtn');
-    if (!followText || !followBtn) return;
+    const followTextDesktop = document.getElementById('followTextDesktop');
+    const followBtnDesktop = document.getElementById('followBtnDesktop');
 
-    if (isFollowing) {
-        followText.textContent = 'Following';
-        followBtn.className = 'btn btn-following';
-    } else {
-        followText.textContent = 'Follow';
-        followBtn.className = 'btn btn-primary';
-    }
+    if (followText) followText.textContent = label;
+    if (followBtn) followBtn.className = klass;
+    if (followTextDesktop) followTextDesktop.textContent = label;
+    if (followBtnDesktop) followBtnDesktop.className = klass;
 }
 
 async function toggleFollow() {
@@ -1457,5 +1610,8 @@ window.businessFallbackImage = businessFallbackImage;
 window.applyOrderVisibilityState = applyOrderVisibilityState;
 window.renderOrdersPausedBanner = renderOrdersPausedBanner;
 window.renderOrdersPausedContactBlock = renderOrdersPausedContactBlock;
+
+// Hero cover split exposure — so other surfaces can re-render it.
+window.renderHeroCover = renderHeroCover;
 
 console.log('✅ Business Profile JS loaded successfully (FIXED - No circular dependency)');

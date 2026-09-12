@@ -2,18 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Welcome to BidhaaLink</title>
-  <meta name="description" content="Welcome to BidhaaLink — Kenya's Multi-Vendor Marketplace.">
+  <meta name="description" content="Welcome to BidhaaLink — Kenya's multi-vendor marketplace.">
 
+  <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="/css/welcome.css">
 </head>
 <body class="welcome-body">
 
-  <!-- ============================================================ -->
-  <!-- Animated background: soft moving gradients + orbiting rings   -->
-  <!-- ============================================================ -->
+  <!-- Animated background -->
   <div class="welcome-bg" aria-hidden="true">
     <div class="welcome-blob welcome-blob-1"></div>
     <div class="welcome-blob welcome-blob-2"></div>
@@ -28,59 +27,47 @@
     </div>
   </div>
 
-  <!-- ============================================================ -->
-  <!-- Main card                                                     -->
-  <!-- ============================================================ -->
-  <main class="welcome-card" role="main">
-
-    <div class="welcome-logo" aria-hidden="true">🛍️</div>
+  <!-- Main card -->
+  <main class="welcome-card">
+    <div class="welcome-logo">🛍️</div>
 
     <h1 class="welcome-title">
-      <span>BidhaaLink</span>
+      Welcome to <span>BidhaaLink</span>
     </h1>
 
     <p class="welcome-tagline">
-      Kenya's marketplace where buyers meet sellers.
+      Kenya's multi-vendor marketplace — discover trusted shops, quality products, and fast delivery across the country.
     </p>
 
-    <div class="welcome-divider" aria-hidden="true"></div>
+    <div class="welcome-divider"></div>
 
-    <!-- Mission & Vision -->
-    <section class="welcome-mv" aria-label="Our Mission and Vision">
-      <article class="welcome-mv-card">
-        <div class="welcome-mv-icon" aria-hidden="true">🎯</div>
+    <div class="welcome-mv">
+      <div class="welcome-mv-card">
+        <div class="welcome-mv-icon">🎯</div>
         <h2>Our Mission</h2>
-        <p>
-          To help every Kenyan business, big or small, reach the customers who need them.
-        </p>
-      </article>
-
-      <article class="welcome-mv-card">
-        <div class="welcome-mv-icon" aria-hidden="true">🔭</div>
+        <p>To connect every Kenyan business with customers everywhere, empowering local vendors to grow and thrive online.</p>
+      </div>
+      <div class="welcome-mv-card">
+        <div class="welcome-mv-icon">🔭</div>
         <h2>Our Vision</h2>
-        <p>
-          To be the most trusted marketplace in East Africa, where buyers find quality and sellers grow with pride.
-        </p>
-      </article>
-    </section>
+        <p>To become the most trusted and vibrant marketplace in Africa, where every shop has a fair chance to be discovered.</p>
+      </div>
+    </div>
 
-    <div class="welcome-divider" aria-hidden="true"></div>
+    <div class="welcome-divider"></div>
 
-    <!-- What you can do -->
-    <ul class="welcome-features" aria-label="What you can do on BidhaaLink">
-      <li><i class="fas fa-store"></i> Find shops you can trust</li>
-      <li><i class="fas fa-tags"></i> Buy from thousands of products</li>
-      <li><i class="fas fa-truck"></i> Get it delivered or pick it up near you</li>
-      <li><i class="fas fa-shield-halved"></i> Pay safely with M-Pesa, Airtel, or PayPal</li>
+    <ul class="welcome-features">
+      <li><i class="fas fa-store"></i> Thousands of verified local shops</li>
+      <li><i class="fas fa-tags"></i> Honest prices, no hidden fees</li>
+      <li><i class="fas fa-truck"></i> Delivery and pickup options</li>
+      <li><i class="fas fa-shield-alt"></i> Secure M-Pesa, Airtel &amp; bank payments</li>
     </ul>
 
-    <!-- Continue button -->
     <button type="button" class="welcome-continue" id="continueBtn">
-      <span>Enter the Marketplace</span>
-      <i class="fas fa-arrow-right"></i>
+      Continue to the Marketplace <i class="fas fa-arrow-right"></i>
     </button>
 
-    <p class="welcome-hint">You can look around for free. No account needed to browse.</p>
+    <p class="welcome-hint">Takes less than a second — we won't show this again.</p>
   </main>
 
   <script src="/js/welcome.js"></script>

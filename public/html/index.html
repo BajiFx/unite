@@ -207,11 +207,11 @@
           <option value="rating">Highest rated</option>
         </select>
 
-        <!-- 4. Filters toggle (opens the collapsed dropdown row) -->
+        <!-- 4. Region toggle (opens the collapsed dropdown row) -->
         <button type="button" class="loc-filters-toggle" id="locationFiltersToggle"
                 aria-expanded="false" aria-controls="locationFilters">
           <i class="fas fa-sliders-h"></i>
-          <span class="loc-filters-label">Filters</span>
+          <span class="loc-filters-label">Select region</span>
           <span class="loc-filters-count" id="locationFiltersCount" hidden>0</span>
         </button>
 
@@ -221,13 +221,7 @@
           <span class="loc-pill-label">Near Me</span>
         </button>
 
-        <!-- 6. Urgent toggle -->
-        <label class="loc-pill loc-urgent" for="urgentToggle" title="Show the closest businesses first">
-          <input type="checkbox" id="urgentToggle">
-          <span><i class="fas fa-bolt"></i><span class="loc-pill-label"> Urgent</span></span>
-        </label>
-
-        <!-- 7. Location status chip + one-tap turn-off -->
+        <!-- 6. Location status chip + one-tap turn-off -->
         <span class="loc-status-chip" id="locationStatusChip" hidden></span>
         <button type="button" class="loc-turnoff" id="turnOffLocationBtn" hidden
                 aria-label="Turn off location sharing" title="Turn off location sharing">
@@ -247,7 +241,7 @@
         </button>
       </div>
 
-      <!-- Collapsed dropdown filters — opened by the Filters button above. -->
+      <!-- Collapsed dropdown filters — opened by the Select region button above. -->
       <div class="location-filters-row" id="locationFilters" hidden>
         <select id="locationFilterContinent" data-location-field="continent" aria-label="Filter by continent">
           <option value="">All continents</option>
