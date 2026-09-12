@@ -9,36 +9,26 @@
 
      Hero redesign:
       The hero is a three-column band on desktop:
-        LEFT   — small column, logo only, plain background,
-                 no writing on top of it.
+        LEFT   — small column, logo only, plain background.
         MIDDLE — writings panel: name, location, address, stats,
-                 Shop Now, Follow, Verified badge. Plain brand
-                 gradient background so the text stays crisp.
-        RIGHT  — clear media column: one image OR one video.
-                 The business description now scrolls slowly up
-                 over the media when it is long.
+                 Shop Now, Follow, Verified badge.
+        RIGHT  — media panel: one image OR one video.
+                 The description block now rides ON TOP of the
+                 media (title, tagline, bullets, location,
+                 contact line) and scrolls slowly upward when the
+                 text is longer than the frame.
       On phones the CSS reorders the three columns to
         logo → media → writings.
 
      Slider removal:
       The slider block that used to sit between the About card
-      and the Our Products section has been removed. The page
-      goes straight from About to Products.
+      and the Our Products section has been removed.
 
-     About swap (this revision):
-      The About card is now a two-column layout:
-        LEFT  — tagline, feature bullets, location and
-                contact line (previously on the right)
-        RIGHT — Mission on top, Vision below
-                (previously on the left)
-      Phones stack these two columns vertically.
-
-     Hero description overlay (this revision):
-      #heroDescriptionOverlay sits inside the hero media column
-      and is populated by business-profile.js with the business
-      description. When the text is longer than the frame, the
-      overlay scrolls slowly upward on an infinite loop so the
-      full text is always readable.
+     About card (this revision):
+      The About card is now a full-width Mission + Vision band.
+      The description block that used to live beside it has been
+      removed from the About card and moved into the hero media
+      column as an overlay.
      ============================================================ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -118,10 +108,10 @@
     <!--    [ logo ]   [ writings panel ]   [ media + description ]    -->
     <!--                                                              -->
     <!--  LEFT   — small, logo only, plain background                  -->
-    <!--  MIDDLE — all the text, plain brand gradient background       -->
-    <!--  RIGHT  — media column. The business description now          -->
-    <!--           overlays the media and slowly scrolls upward        -->
-    <!--           when the text is long.                              -->
+    <!--  MIDDLE — name, location, address, stats, Shop Now, Follow    -->
+    <!--  RIGHT  — media column. The description block overlays        -->
+    <!--           the media and scrolls slowly upward when the        -->
+    <!--           text is long.                                       -->
     <!--                                                              -->
     <!--  Phones reorder to: logo → media → writings                   -->
     <!-- ============================================================ -->
@@ -163,9 +153,10 @@
         <div class="hero-media-bg" aria-hidden="true"></div>
         <div class="hero-media-slot" id="heroMediaSlot"></div>
 
-        <!-- Description overlay — filled and animated by
-             business-profile.js. Scrolls slowly upward when the
-             text is longer than the frame. -->
+        <!-- Description overlay — sits ON TOP of the cover photo or
+             video. business-profile.js fills the track and, when
+             the text is taller than the frame, adds .is-scrolling
+             so the CSS keyframe scrolls it slowly upward. -->
         <div class="hero-description-overlay" id="heroDescriptionOverlay" aria-hidden="true">
           <div class="hero-description-track" id="heroDescriptionTrack"></div>
         </div>
@@ -206,47 +197,23 @@
       </p>
     </div>
 
-    <!-- ===== ABOUT (compact 2-column layout, swapped) =====
-         LEFT  — tagline, feature bullets, location, contact line
-         RIGHT — Mission on top, Vision below
-         Phones stack these two columns vertically. -->
+    <!-- ===== ABOUT (full-width Mission + Vision) =====
+         The description block has been removed from the about
+         card; it now lives in the hero media overlay above. Only
+         Mission (on top) and Vision (below) remain here, and
+         they fill the full width of the card. -->
     <div class="about-card about-card--compact">
-      <div class="about-compact-grid">
-
-        <!-- LEFT: description block -->
-        <div class="about-compact-desc">
-          <h3 class="about-compact-title">🏡✨ <span id="aboutBusinessName">Business</span> – Quality for Every Home</h3>
-          <p id="businessDescription" class="about-compact-tagline">Loading description...</p>
-
-          <ul class="about-compact-bullets">
-            <li>✅ Quality &amp; Affordable</li>
-            <li>🌈 Wide Variety</li>
-            <li>📦 Retail &amp; Wholesale</li>
-            <li>🚚 Delivery Across Kenya</li>
-          </ul>
-
-          <p class="about-compact-meta">
-            📍 <span id="aboutBusinessLocation">Location</span>
-          </p>
-          <p class="about-compact-meta">
-            📞 Contact us today!
-          </p>
+      <div class="about-compact-mv about-compact-mv--full">
+        <div class="about-item">
+          <i class="fas fa-bullseye" style="color:#ff6b6b;"></i>
+          <h3>Mission</h3>
+          <p id="businessMission">-</p>
         </div>
-
-        <!-- RIGHT: Mission (top) + Vision (below) -->
-        <div class="about-compact-mv">
-          <div class="about-item">
-            <i class="fas fa-bullseye" style="color:#ff6b6b;"></i>
-            <h3>Mission</h3>
-            <p id="businessMission">-</p>
-          </div>
-          <div class="about-item">
-            <i class="fas fa-eye" style="color:#7c3aed;"></i>
-            <h3>Vision</h3>
-            <p id="businessVision">-</p>
-          </div>
+        <div class="about-item">
+          <i class="fas fa-eye" style="color:#7c3aed;"></i>
+          <h3>Vision</h3>
+          <p id="businessVision">-</p>
         </div>
-
       </div>
     </div>
 

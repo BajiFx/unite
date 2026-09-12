@@ -26,19 +26,17 @@
 //     MIDDLE — info panel: name, location, address, stats,
 //              Shop Now, Follow, Verified badge.
 //     RIGHT  — media panel: one image OR one video.
-//              The business description now scrolls slowly up
-//              over the media when the text is long.
+//              The description block now sits ON TOP of the
+//              media and scrolls slowly upward when the text
+//              is longer than the frame.
 //   On phones the CSS reorders the three columns to
 //     logo → media → info.
-//   renderHeroMedia() is the single function that fills the media
-//   column.
-//   renderHeroDescriptionOverlay() fills the description overlay
-//   and decides whether the track needs to scroll.
 //
-//  About card swap:
-//   The About card now shows the description block on the LEFT
-//   and Mission (top) + Vision (below) on the RIGHT.
-//   renderAboutNameAndLocation() fills the two placeholders.
+//  About card (this revision):
+//   The About card is now a full-width Mission + Vision band.
+//   The description block that used to live beside it has been
+//   removed from the About card and moved into the hero media
+//   overlay.
 //
 //  Hardening:
 //   - businessFallbackImage() strips unpaired surrogates and control
@@ -446,13 +444,10 @@ function renderBusinessProfile() {
         }
     }
 
-    // Fill the media column with a single image or a single video.
+    // Fill the media column with a single image or a single video,
+    // then overlay the description block on top of it.
     renderHeroMedia(business);
-    // Fill the description overlay inside the media column and
-    // decide whether it needs to scroll.
     renderHeroDescriptionOverlay(business);
-    // Fill the two placeholders in the About card.
-    renderAboutNameAndLocation(business);
 
     const verifiedBadge = document.getElementById('verifiedBadge');
     if (verifiedBadge) {
@@ -521,6 +516,8 @@ function renderHeroMedia(business) {
     img.alt = (business.business_name || 'Business') + ' cover';
     img.loading = 'lazy';
     img.onerror = function () {
+        // If the image fails, remove it so the gradient backdrop
+        // shows through instead of a broken-image icon.
         this.remove();
     };
     slot.appendChild(img);
@@ -529,17 +526,16 @@ function renderHeroMedia(business) {
 // ============================================================
 //  HERO DESCRIPTION OVERLAY
 //
-//  Fills #heroDescriptionTrack with the business description.
-//  When the text is taller than the media frame, it adds the
-//  .is-scrolling class to the overlay, sets --hero-desc-scroll
-//  so the CSS keyframe scrolls the track up by exactly the
-//  overflow distance, and sets an animation-duration that scales
-//  with the overflow amount so longer text scrolls more slowly.
+//  Fills #heroDescriptionTrack with the whole description block
+//  (business name, tagline, feature bullets, location, contact
+//  line). When the block is taller than the media frame, it
+//  adds the .is-scrolling class to the overlay, sets
+//  --hero-desc-scroll so the CSS keyframe scrolls the track up
+//  by exactly the overflow distance, and sets an animation
+//  duration that scales with the overflow amount so longer
+//  text scrolls more slowly.
 //
-//  Reduced-motion users still get the full text visible (the
-//  animation is suppressed by a media query in the CSS) because
-//  the track is positioned at the bottom of the overlay and
-//  the text is anchored at its natural top.
+//  This overlay sits ON TOP of the hero cover photo or video.
 // ============================================================
 
 function renderHeroDescriptionOverlay(business) {
@@ -552,22 +548,50 @@ function renderHeroDescriptionOverlay(business) {
     overlay.classList.remove('is-scrolling');
     track.style.animationDuration = '';
     track.style.removeProperty('--hero-desc-scroll');
+    track.innerHTML = '';
 
-    const raw = business && business.description ? String(business.description).trim() : '';
-    if (!raw) {
-        // Nothing to show — leave the overlay empty so the media
-        // is not covered by a pointless gradient.
-        track.textContent = '';
+    if (!business) {
         overlay.style.display = 'none';
         return;
     }
 
-    overlay.style.display = '';
+    const name = String(business.business_name || 'Business');
+    const tagline = business.description ? String(business.description).trim() : '';
 
-    // Put the description text into the track. We use textContent
-    // so any business-authored angle brackets are treated as plain
-    // text, never as HTML.
-    track.textContent = raw;
+    const locationParts = [];
+    if (business.town) locationParts.push(business.town);
+    if (business.county) locationParts.push(business.county);
+    if (locationParts.length === 0 && business.location) locationParts.push(business.location);
+    const locationText = locationParts.length > 0 ? locationParts.join(', ') : 'Kenya';
+
+    // Build the block. Every value is escaped before it is
+    // injected so a business-authored name can never inject HTML.
+    const safe = (value) => {
+        const div = document.createElement('div');
+        div.textContent = String(value == null ? '' : value);
+        return div.innerHTML;
+    };
+
+    const titleHtml = `<span class="hero-desc-title">🏡✨ ${safe(name)} – Quality for Every Home</span>`;
+    const taglineHtml = tagline
+        ? `<span class="hero-desc-tagline">${safe(tagline)}</span>`
+        : '';
+    const bulletsHtml = `
+        <ul class="hero-desc-bullets">
+            <li>✅ Quality &amp; Affordable</li>
+            <li>🌈 Wide Variety</li>
+            <li>📦 Retail &amp; Wholesale</li>
+            <li>🚚 Delivery Across Kenya</li>
+        </ul>
+    `;
+    const metaHtml = `
+        <span class="hero-desc-meta">📍 ${safe(locationText)}</span>
+        <span class="hero-desc-meta">📞 Contact us today!</span>
+    `;
+
+    track.innerHTML = titleHtml + taglineHtml + bulletsHtml + metaHtml;
+
+    overlay.style.display = '';
 
     // Wait a frame for the browser to lay the text out at the
     // current overlay size before we measure it.
@@ -576,53 +600,23 @@ function renderHeroDescriptionOverlay(business) {
         const trackHeight = track.scrollHeight;
 
         // Only scroll when the text is taller than the frame.
-        // We subtract a small buffer so a 1-2px rounding error
-        // never triggers a scroll for text that just barely fits.
+        // Subtract a small buffer so a 1-2px rounding error never
+        // triggers a scroll for content that just barely fits.
         if (trackHeight <= overlayHeight - 4) {
             return;
         }
 
         const overflow = trackHeight - overlayHeight;
 
-        // Set the distance the track should travel (negative
-        // because it moves up) as a CSS custom property the
-        // keyframe reads.
+        // Distance the track should travel (negative = up).
         track.style.setProperty('--hero-desc-scroll', `-${overflow}px`);
 
-        // Slow, readable scroll: ~40 px per second, capped between
-        // 20 s and 90 s so a very long description does not take
-        // an eternity to loop and a very short one is not too
-        // fast.
+        // ~40 px per second, clamped between 20 s and 90 s.
         const durationSeconds = Math.min(90, Math.max(20, overflow / 40));
         track.style.animationDuration = `${durationSeconds}s`;
 
         overlay.classList.add('is-scrolling');
     });
-}
-
-// ============================================================
-//  ABOUT NAME + LOCATION
-//
-//  Fills the two placeholders in the About card's description
-//  block so the customer sees the real business name and
-//  location instead of the hard-coded defaults.
-// ============================================================
-
-function renderAboutNameAndLocation(business) {
-    const nameEl = document.getElementById('aboutBusinessName');
-    const locEl = document.getElementById('aboutBusinessLocation');
-
-    if (nameEl) {
-        nameEl.textContent = (business && business.business_name) ? business.business_name : 'Business';
-    }
-
-    if (locEl) {
-        const parts = [];
-        if (business && business.town) parts.push(business.town);
-        if (business && business.county) parts.push(business.county);
-        if (parts.length === 0 && business && business.location) parts.push(business.location);
-        locEl.textContent = parts.length > 0 ? parts.join(', ') : 'Kenya';
-    }
 }
 
 // ============================================================
@@ -947,6 +941,7 @@ function businessFallbackImage(product) {
             `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${safeLabel}</text></svg>`
         );
     } catch (err) {
+        // Absolute last-resort fallback — no dynamic content at all.
         encoded = encodeURIComponent(
             `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text></svg>`
         );
@@ -959,6 +954,7 @@ function businessFallbackImage(product) {
 //  POPULATE PRODUCT-CATEGORY FILTERS
 // ============================================================
 
+// Legacy free-text picker — kept so existing filters continue to work.
 function populateBusinessProductCategories() {
     const select = document.getElementById('businessProductCategoryFilter');
     if (!select) return;
@@ -975,6 +971,8 @@ function populateBusinessProductCategories() {
     select.value = categories.includes(selected) ? selected : 'all';
 }
 
+// B.7 — defined-list picker. Only shows categories that yield at least one
+// result for this business, so every option is guaranteed to be useful.
 function populateDefinedProductCategories() {
     const select = document.getElementById('businessProductCategoryIdFilter');
     if (!select) return;
@@ -1034,6 +1032,8 @@ function renderBusinessProductGrid(products) {
         const disabled = !onlineOrdersEnabled ? 'disabled' : '';
 
         const imageSrc = p.image || businessFallbackImage(p);
+        // The onerror handler rebuilds the fallback for this product on demand,
+        // so a broken remote image still ends up showing a clean SVG card.
         const fallbackForThisProduct = businessFallbackImage(p).replace(/'/g, "\\'");
         const imageHtml = `<img src="${imageSrc}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackForThisProduct}'">`;
 
@@ -1096,6 +1096,7 @@ function addBusinessCardToCart(productId) {
 
 // ============================================================
 //  FILTER BUSINESS PRODUCTS
+//  Cumulative: search AND defined category AND legacy category.
 // ============================================================
 
 function filterBusinessProducts() {
@@ -1267,6 +1268,11 @@ async function submitBusinessReview() {
 
 // ============================================================
 //  FOLLOW/UNFOLLOW BUSINESS
+//
+//  Role-scoped. The /follow-status and /follow endpoints require
+//  req.role === 'customer'. Non-customers skip the request
+//  entirely (see the guard inside loadBusinessProfile) so no 403
+//  is produced in the console.
 // ============================================================
 
 async function checkFollowStatus() {
@@ -1275,6 +1281,8 @@ async function checkFollowStatus() {
     try {
         const res = await fetch(`/api/businesses/${businessSlug}/follow-status`);
         if (!res.ok) {
+            // Silently ignore — the Follow button just stays in its
+            // default state.
             return;
         }
         const data = await res.json();
@@ -1328,6 +1336,9 @@ async function toggleFollow() {
 
 // ============================================================
 //  LOCATION REQUEST
+//
+//  Role-scoped. /api/location/customer/status requires the
+//  customer role. Non-customers skip the request entirely.
 // ============================================================
 
 async function checkLocationStatus() {
@@ -1572,12 +1583,9 @@ window.applyOrderVisibilityState = applyOrderVisibilityState;
 window.renderOrdersPausedBanner = renderOrdersPausedBanner;
 window.renderOrdersPausedContactBlock = renderOrdersPausedContactBlock;
 
-// Hero media exposure — so other surfaces can re-render it.
+// Hero media + description overlay exposure — so other surfaces can
+// re-render them without a full page reload.
 window.renderHeroMedia = renderHeroMedia;
-
-// New overlays — exposed so re-renders and future surfaces can refresh
-// them without a full page reload.
 window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
-window.renderAboutNameAndLocation = renderAboutNameAndLocation;
 
 console.log('✅ Business Profile JS loaded successfully (FIXED - No circular dependency)');
