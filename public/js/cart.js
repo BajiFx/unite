@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function() {
             currentBusinessId = businessIds[0];
             loadBusinessSettings(currentBusinessId);
         } else if (businessIds.length > 1) {
-            showToast('⚠️ You have items from multiple businesses. Please order from one business at a time.', 'warning');
+            showToast('⚠️ You have items from different shops. Please order from one shop at a time.', 'warning');
         }
     }
 });
@@ -271,12 +271,12 @@ function renderCartPausedBanner(paused) {
         <span style="font-size:1.6rem; line-height:1;">🔴</span>
         <div style="flex:1; min-width:220px;">
             <strong style="display:block; font-size:0.95rem; color:#991b1b; margin-bottom:4px;">
-                Orders are currently paused
+                This shop is not taking orders right now
             </strong>
             <p id="cartOrdersPausedMessage"
                style="font-size:0.85rem; color:#7f1d1d; margin:0; line-height:1.5; word-break:break-word;"></p>
             <p style="font-size:0.75rem; color:#7f1d1d; margin:6px 0 0 0;">
-                You can still see your items and adjust quantities. When the business is ready to accept orders again, come back and press Place Order.
+                You can still see your items and change quantities. When the shop is ready to take orders again, come back and press Place Order.
             </p>
         </div>
     `;
@@ -360,10 +360,10 @@ function getMpesaFallbackMessage(settings) {
     );
 
     if (hasAlternative) {
-        return 'M-Pesa is not available for this business. Please use one of the alternative payment methods below.';
+        return 'M-Pesa is not available for this shop. Please pick another way to pay below.';
     }
 
-    return 'M-Pesa is not configured by this business and no alternative payment method is available. Please contact the business directly to arrange payment.';
+    return 'This shop has not set up M-Pesa and has no other way to pay online. Please contact the shop directly to arrange payment.';
 }
 
 // ============================================================
@@ -499,7 +499,7 @@ function updateDeliveryOptions() {
     // Pickup option (always available)
     html += `
         <div class="shipping-option" onclick="selectDeliveryMethod('pickup')" style="cursor:pointer;">
-            <span class="tier-name">📍 Pickup (Free)</span>
+            <span class="tier-name">📍 Pick up at the shop</span>
             <span class="tier-price">Free</span>
         </div>
     `;
@@ -536,7 +536,7 @@ function selectDeliveryMethod(method) {
     document.querySelectorAll('.shipping-option').forEach(el => el.classList.remove('selected'));
     const options = document.querySelectorAll('.shipping-option');
     options.forEach(el => {
-        if (el.textContent.includes(method === 'delivery' ? '🚚 Delivery' : method === 'pickup' ? '📍 Pickup' : '💬 Chat')) {
+        if (el.textContent.includes(method === 'delivery' ? '🚚 Delivery' : method === 'pickup' ? '📍 Pick up' : '💬 Chat')) {
             el.classList.add('selected');
         }
     });
@@ -736,9 +736,9 @@ function renderCartPage() {
     // Check if all items are from the same business
     const businessIds = [...new Set(cart.map(item => item.business_id))];
     if (businessIds.length > 1) {
-        showToast('⚠️ You have items from multiple businesses. Please order from one business at a time.', 'warning');
+        showToast('⚠️ You have items from different shops. Please order from one shop at a time.', 'warning');
         document.getElementById('placeOrderBtn').disabled = true;
-        document.getElementById('placeOrderBtn').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Multiple Businesses';
+        document.getElementById('placeOrderBtn').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Multiple Shops';
     } else if (businessIds.length === 1) {
         document.getElementById('placeOrderBtn').disabled = false;
         document.getElementById('placeOrderBtn').innerHTML = '<i class="fas fa-check-circle"></i> Place Order';
@@ -763,7 +763,7 @@ function renderCartPage() {
                 <div class="details">
                     <div class="name" onclick="openProductPreview(${item.id})">${item.name}${variantName}</div>
                     <div class="price">${item.price}</div>
-                    ${item.business_id ? `<div style="font-size:0.55rem; color:#94a3b8;">Business ID: ${item.business_id}</div>` : ''}
+                    ${item.business_id ? `<div style="font-size:0.55rem; color:#94a3b8;">Shop ID: ${item.business_id}</div>` : ''}
                 </div>
                 <div class="qty-control">
                     <button onclick="updateCartQty(${item.id}, -1)">−</button>
@@ -879,7 +879,7 @@ function updateShippingOptions(subtotal) {
 function selectShippingTier(tier, price) {
     // Section H — refuse to change the tier when orders are paused.
     if (businessPausedState.onlineOrdersEnabled === false) {
-        showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
+        showToast('⚠️ This shop is not taking orders at the moment.', 'warning');
         return;
     }
     selectedShippingTier = tier;
@@ -897,7 +897,7 @@ function applyPromo() {
     if (businessPausedState.onlineOrdersEnabled === false) {
         const msgEl = document.getElementById('promoMessage');
         if (msgEl) {
-            msgEl.textContent = '⚠️ Orders are paused — promo cannot be applied right now.';
+            msgEl.textContent = '⚠️ Orders are paused — promo cannot be used right now.';
             msgEl.style.color = '#f59e0b';
         }
         return;
@@ -927,7 +927,7 @@ function applyPromo() {
         })
         .catch(() => {
             promoDiscount = 0;
-            msgEl.textContent = 'Error validating promo.';
+            msgEl.textContent = 'Error checking the promo code.';
             updateSummary(calculateSubtotal());
         });
 }
@@ -974,13 +974,13 @@ async function placeOrder() {
     // Check if all items belong to the same business
     const businessIds = [...new Set(cart.map(item => item.business_id))];
     if (businessIds.length > 1) {
-        showToast('❌ Please order from one business at a time. Items from multiple businesses cannot be combined.', 'error');
+        showToast('❌ Please order from one shop at a time. Items from different shops cannot be combined.', 'error');
         return;
     }
 
     const businessId = businessIds[0];
     if (!businessId) {
-        showToast('❌ Invalid business. Please add items to your cart again.', 'error');
+        showToast('❌ Something is wrong with this shop. Please add your items to the cart again.', 'error');
         return;
     }
 
@@ -1054,7 +1054,7 @@ async function placeOrder() {
     const grandTotal = subtotal + shipping + deliveryFee - discount;
 
     if (grandTotal <= 0) {
-        showToast('❌ Invalid total amount', 'error');
+        showToast('❌ The total amount is not valid. Please check your cart.', 'error');
         return;
     }
 
@@ -1133,7 +1133,7 @@ async function placeOrder() {
             openPaymentModal(grandTotal, data.order.id);
             clearCart();
         } else {
-            showToast('❌ Failed to create order: ' + (data.error || 'Unknown error'), 'error');
+            showToast('❌ Could not create the order: ' + (data.error || 'Please try again.'), 'error');
         }
     })
     .catch(error => {
@@ -1142,7 +1142,7 @@ async function placeOrder() {
         btn.innerHTML = '<i class="fas fa-check-circle"></i> Place Order';
         let errorMsg = error.message || 'Network error. Please try again.';
         if (error.name === 'AbortError') {
-            errorMsg = 'Request timed out. Please check your connection and try again.';
+            errorMsg = 'The request took too long. Please check your connection and try again.';
         }
         showToast('❌ ' + errorMsg, 'error');
     });
@@ -1155,7 +1155,7 @@ async function placeOrder() {
 function selectPaymentMethod(method) {
     // Section H — refuse to open a payment method when paused.
     if (businessPausedState.onlineOrdersEnabled === false) {
-        showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
+        showToast('⚠️ This shop is not taking orders at the moment.', 'warning');
         return;
     }
 
@@ -1242,15 +1242,15 @@ function processPayment() {
         if (statusEl) {
             statusEl.className = 'payment-status error';
             statusEl.style.display = 'block';
-            statusEl.textContent = '❌ This business is not accepting online orders at the moment.';
+            statusEl.textContent = '❌ This shop is not taking orders at the moment.';
         }
-        showToast('⚠️ This business is not accepting online orders at the moment.', 'warning');
+        showToast('⚠️ This shop is not taking orders at the moment.', 'warning');
         return;
     }
 
     const method = selectedPaymentMethod;
     if (!method) {
-        showToast('❌ Please select a payment method', 'error');
+        showToast('❌ Please pick a payment method', 'error');
         return;
     }
 
@@ -1317,10 +1317,10 @@ function processPayment() {
                 if (data.checkoutRequestId && !data.isSimulation) {
                     startMpesaPolling(data.checkoutRequestId);
                 } else if (data.isSimulation) {
-                    statusEl.textContent = '📱 Simulation mode: Payment will auto-approve in 10 seconds...';
+                    statusEl.textContent = '📱 Test mode: Payment will go through in 10 seconds...';
                     setTimeout(() => {
                         statusEl.className = 'payment-status success';
-                        statusEl.textContent = '✅ Payment successful! (Simulation)';
+                        statusEl.textContent = '✅ Payment successful! (Test mode)';
                         setTimeout(() => {
                             closePaymentModal();
                             window.location.href = `/order-tracking.html?id=${pendingOrderId}`;
@@ -1329,7 +1329,7 @@ function processPayment() {
                 }
             } else {
                 statusEl.className = 'payment-status error';
-                statusEl.textContent = '❌ ' + (data.message || 'Payment initiation failed');
+                statusEl.textContent = '❌ ' + (data.message || 'Payment could not start. Please try again.');
                 payBtn.disabled = false;
             }
         })
@@ -1379,7 +1379,7 @@ function processPayment() {
                 if (data.isSimulation) {
                     setTimeout(() => {
                         statusEl.className = 'payment-status success';
-                        statusEl.textContent = '✅ Payment successful! (Simulation)';
+                        statusEl.textContent = '✅ Payment successful! (Test mode)';
                         setTimeout(() => {
                             closePaymentModal();
                             window.location.href = `/order-tracking.html?id=${pendingOrderId}`;
@@ -1388,7 +1388,7 @@ function processPayment() {
                 }
             } else {
                 statusEl.className = 'payment-status error';
-                statusEl.textContent = '❌ ' + (data.message || 'Payment failed');
+                statusEl.textContent = '❌ ' + (data.message || 'Payment failed. Please try again.');
                 payBtn.disabled = false;
             }
         })
@@ -1417,7 +1417,7 @@ function processPayment() {
             if (data.success) {
                 if (data.isSimulation) {
                     statusEl.className = 'payment-status success';
-                    statusEl.textContent = '✅ PayPal simulation payment successful!';
+                    statusEl.textContent = '✅ PayPal test payment successful!';
                     payBtn.disabled = false;
                     setTimeout(() => {
                         closePaymentModal();
@@ -1428,7 +1428,7 @@ function processPayment() {
                 }
             } else {
                 statusEl.className = 'payment-status error';
-                statusEl.textContent = '❌ ' + (data.message || 'Payment failed');
+                statusEl.textContent = '❌ ' + (data.message || 'Payment failed. Please try again.');
                 payBtn.disabled = false;
             }
         })
@@ -1440,7 +1440,7 @@ function processPayment() {
         });
     } else if (method === 'bank') {
         statusEl.className = 'payment-status success';
-        statusEl.textContent = '💳 Bank transfer details sent! Please complete payment and we will verify.';
+        statusEl.textContent = '💳 Bank transfer details sent! Please complete payment and we will check it.';
         payBtn.disabled = false;
 
         fetch('/api/shop')
@@ -1492,7 +1492,7 @@ function startMpesaPolling(checkoutRequestId) {
                     }, 2000);
                 } else {
                     statusEl.className = 'payment-status error';
-                    statusEl.textContent = '❌ Payment failed: ' + (data.data.ResultDesc || 'Unknown error');
+                    statusEl.textContent = '❌ Payment failed: ' + (data.data.ResultDesc || 'Please try again.');
                     showToast('❌ Payment failed. Please try again.', 'error');
                 }
             }
@@ -1501,7 +1501,7 @@ function startMpesaPolling(checkoutRequestId) {
                 clearInterval(mpesaPollingInterval);
                 mpesaPollingInterval = null;
                 statusEl.className = 'payment-status warning';
-                statusEl.textContent = '⏳ Payment timeout. Please check your order status.';
+                statusEl.textContent = '⏳ Payment is taking longer than usual. Please check your order status.';
                 showToast('⏳ Payment pending. Check your order status.', 'warning');
             }
         } catch (error) {
@@ -1558,7 +1558,7 @@ function startAirtelPolling(transactionId) {
                 clearInterval(airtelPollingInterval);
                 airtelPollingInterval = null;
                 statusEl.className = 'payment-status warning';
-                statusEl.textContent = '⏳ Payment timeout. Please check your order status.';
+                statusEl.textContent = '⏳ Payment is taking longer than usual. Please check your order status.';
                 showToast('⏳ Payment pending. Check your order status.', 'warning');
             }
         } catch (error) {
@@ -1622,7 +1622,7 @@ function startReservationTimer() {
         timerDisplay.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         if (timeLeft <= 0) {
             clearInterval(timerInterval);
-            showToast('⏳ Items reservation expired. Please refresh cart.', 'warning');
+            showToast('⏳ Your reserved time has ended. Please refresh your cart.', 'warning');
         }
     }, 1000);
 }
@@ -1663,7 +1663,7 @@ function loadRecommended() {
             if (!container) return;
             const businesses = Array.isArray(data.businesses) ? data.businesses : [];
             if (businesses.length === 0) {
-                container.innerHTML = '<p style="color:#64748b;font-size:.8rem;">No businesses are available right now.</p>';
+                container.innerHTML = '<p style="color:#64748b;font-size:.8rem;">No shops are available right now.</p>';
                 return;
             }
             container.innerHTML = businesses.slice(0, 6).map(business => `
@@ -1684,7 +1684,7 @@ function loadRecommended() {
         })
         .catch(() => {
             const container = document.getElementById('recommendedGrid');
-            if (container) container.innerHTML = '<p style="color:#64748b;font-size:.8rem;">Unable to load businesses right now.</p>';
+            if (container) container.innerHTML = '<p style="color:#64748b;font-size:.8rem;">Unable to load shops right now.</p>';
         });
 }
 

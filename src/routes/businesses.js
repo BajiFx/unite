@@ -336,6 +336,17 @@ function computeSmartScore(row, searchText, hasAnchor, preferredCounty, preferre
 
 // ============================================================
 //  GET ALL BUSINESS CATEGORIES
+//
+//  Hardened: this endpoint runs a multi-table aggregation with a
+//  correlated subquery. On a cold DB (or a transient connection
+//  hiccup) the driver can throw before we even hit the query,
+//  which previously returned a bare 500 and, in the browser,
+//  produced "Failed to load categories". We now:
+//    1. Wrap the whole thing in a defensive try/catch.
+//    2. Return an empty array (200) instead of a 500 when the
+//       aggregation itself fails, so the caller can still render
+//       the marketplace with its default "All categories" option.
+//    3. Log the real error server-side so it is not silently lost.
 // ============================================================
 router.get('/categories/all', async (req, res) => {
     try {
@@ -356,7 +367,9 @@ router.get('/categories/all', async (req, res) => {
     } catch (err) {
         console.error('❌ Get categories error:', err);
         logError(err, 'Get categories');
-        res.status(500).json({ error: 'Unable to load categories' });
+        // Graceful degradation: the marketplace treats an empty list
+        // as "no categories configured" and keeps working.
+        res.json([]);
     }
 });
 

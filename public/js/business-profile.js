@@ -188,7 +188,7 @@ function openGuestCartPrompt() {
     login.style.display = 'block';
     register.style.display = 'none';
     const title = document.getElementById('authLoginTitle');
-    if (title) title.textContent = 'Please Login or Register to access your cart';
+    if (title) title.textContent = 'Please login or register to use your cart';
     const loginBusiness = document.getElementById('loginTypeBusiness');
     const registerBusiness = document.getElementById('registerTypeBusiness');
     if (loginBusiness) loginBusiness.style.display = 'none';
@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('📍 Business slug:', businessSlug);
 
     if (!businessSlug) {
-        showError('No business specified', 'Please return to the marketplace and select a business.');
+        showError('No business specified', 'Please go back to the marketplace and pick a business.');
         return;
     }
 
@@ -321,7 +321,7 @@ async function loadBusinessProfile() {
 
         if (!res.ok) {
             if (res.status === 404) {
-                showError('Business not found', 'The business you are looking for does not exist.');
+                showError('Business not found', 'We could not find that business.');
                 return;
             }
             throw new Error(`Failed to load business: ${res.status}`);
@@ -334,7 +334,7 @@ async function loadBusinessProfile() {
         businessData = window.businessData;
 
         if (!businessData) {
-            showError('Business not found', 'The business you are looking for does not exist.');
+            showError('Business not found', 'We could not find that business.');
             return;
         }
 
@@ -938,7 +938,7 @@ function renderBusinessProductGrid(products) {
                             <button onclick="changeBusinessCardQty(${p.id}, 1)" ${disabled}>+</button>
                         </div>
                         <button class="btn-add ${btnClass}" onclick="addBusinessCardToCart(${p.id})" ${disabled}>
-                            <i class="fas fa-cart-plus"></i> ${onlineOrdersEnabled ? btnText : 'Unavailable'}
+                            <i class="fas fa-cart-plus"></i> ${onlineOrdersEnabled ? btnText : 'Not available'}
                         </button>
                     </div>
                 </div>
@@ -957,7 +957,7 @@ function changeBusinessCardQty(productId, delta) {
 
 function addBusinessCardToCart(productId) {
     if (businessData && businessData.online_orders_enabled === false) {
-        showToast('❌ This business is not accepting online orders at the moment.', 'error');
+        showToast('❌ This shop is not taking orders at the moment.', 'error');
         return;
     }
 
@@ -1060,7 +1060,7 @@ async function loadBusinessReviews() {
         if (!container) return;
 
         if (!reviews || reviews.length === 0) {
-            container.innerHTML = '<p style="color:#94a3b8;">No reviews yet. Be the first to review!</p>';
+            container.innerHTML = '<p style="color:#94a3b8;">No reviews yet. Be the first to write one!</p>';
             return;
         }
 
@@ -1108,7 +1108,7 @@ async function submitBusinessReview() {
 
     const text = document.getElementById('reviewText').value.trim();
     if (!reviewRating) {
-        alert('Please select a rating.');
+        alert('Please pick a rating first.');
         return;
     }
     if (!text) {
@@ -1134,10 +1134,10 @@ async function submitBusinessReview() {
             loadBusinessReviews();
             loadBusinessProfile();
         } else {
-            alert('❌ ' + (data.error || 'Failed to submit review'));
+            alert('❌ ' + (data.error || 'Could not submit your review. Please try again.'));
         }
     } catch (err) {
-        alert('❌ Network error');
+        alert('❌ Network error. Please try again.');
     }
 }
 
@@ -1199,13 +1199,13 @@ async function toggleFollow() {
             isFollowing = window.isFollowing;
             updateFollowButton();
             if (typeof showToast === 'function') {
-                showToast(isFollowing ? '✅ Following business!' : '✅ Unfollowed business', 'success');
+                showToast(isFollowing ? '✅ Now following this business!' : '✅ Unfollowed this business', 'success');
             }
             loadBusinessProfile();
         }
     } catch (err) {
         console.error('Follow error:', err);
-        alert('Error updating follow status');
+        alert('Could not update follow status. Please try again.');
     }
 }
 
@@ -1282,7 +1282,7 @@ function initBusinessLiveMap() {
             },
             () => {
                 const distEl = document.getElementById('liveDistance');
-                if (distEl) distEl.textContent = '📍 Enable GPS to see distance';
+                if (distEl) distEl.textContent = '📍 Turn on GPS to see distance';
             }
         );
     }

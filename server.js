@@ -98,14 +98,6 @@ if (!JWT_SECRET) {
 //  WELCOME SPLASH — CONFIG
 // ============================================================
 
-// The name of the cookie that tracks whether the visitor has
-// already seen the welcome splash in this browser.
-const WELCOME_COOKIE = 'bidhaalink_welcomed';
-
-// How long the welcome cookie survives. 12 hours means a visitor
-// sees the splash once per working session, but not on every refresh.
-const WELCOME_COOKIE_MS = 1000 * 60 * 60 * 12;
-
 // Cached result of "does welcome.html exist on disk?" so we do not
 // hit the filesystem on every request to '/'.
 let welcomeFileExistsCache = null;
@@ -244,53 +236,33 @@ app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 // ============================================================
 
 // Root route:
-//   - First-time visitors (no `bidhaalink_welcomed` cookie) get
-//     welcome.html so they see the splash screen.
-//   - Anyone who has already acknowledged the welcome in this
-//     browser session goes straight to the marketplace.
-//   - The welcome page's Continue button calls POST /api/welcome/ack
-//     (see below) to set the cookie, then navigates to '/'.
+//   - The client (welcome.js) owns the "have they seen the splash yet?"
+//     decision, using localStorage. The server simply serves the
+//     welcome page at '/' so the splash is always the first thing a
+//     new visitor sees.
+//   - welcome.js redirects to '/' again once the visitor has
+//     acknowledged the splash; on that second hit the browser sends
+//     the same request, but welcome.js runs first, sees the flag, and
+//     replaces the URL with '/' — which lands here — then immediately
+//     rewrites to the marketplace below via a meta-refresh style
+//     redirect from the client. In practice, the flag means welcome.js
+//     sends the visitor straight to '/index.html' after the first
+//     acknowledgement, so this handler is only reached once per
+//     browser.
 //   - If welcome.html is missing from disk for any reason, we fall
 //     back to index.html so the marketplace never 404s.
 app.get('/', (req, res) => {
-  const welcomed = req.cookies && req.cookies[WELCOME_COOKIE] === '1';
-
-  if (welcomed || !welcomeFileExists()) {
+  if (!welcomeFileExists()) {
     return res.sendFile(path.join(__dirname, 'public/html/index.html'));
   }
-
   res.sendFile(path.join(__dirname, 'public/html/welcome.html'));
 });
 
-// Endpoint hit once when the visitor clicks Continue on the welcome
-// page. It sets a session cookie and returns 204. The welcome page
-// then navigates to '/'.
-//
-// Accepts both POST (canonical) and GET (fallback so a stale tab that
-// still fires a GET does not 404). The route is CSRF-exempt because
-// the visitor has no CSRF token yet at this point.
-function handleWelcomeAck(req, res) {
-  res.cookie(WELCOME_COOKIE, '1', {
-    httpOnly: false,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: WELCOME_COOKIE_MS
-  });
-  res.status(204).end();
-}
-
-app.post('/api/welcome/ack', handleWelcomeAck);
-app.get('/api/welcome/ack', handleWelcomeAck);
-
-// Development helper: clears the welcome cookie so you can re-test
-// the splash without clearing your whole browser cookie jar.
-// Safe to leave enabled in production — it only unsets a display flag.
+// Development helper: clears the welcome flag on the server side
+// so you can re-test the splash without clearing your whole browser
+// cookie jar. Kept as a no-op cookie clear for backwards compatibility;
+// the real flag lives in the browser's localStorage now.
 app.post('/api/welcome/reset', (req, res) => {
-  res.clearCookie(WELCOME_COOKIE, {
-    httpOnly: false,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production'
-  });
   res.status(204).end();
 });
 

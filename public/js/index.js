@@ -73,6 +73,14 @@
 //   specific input element. clearSpuriousSearchAutofill() below
 //   does exactly that — and also guards defaultValue and the
 //   `value` attribute path that some Chromium builds take.
+//
+//  Categories-load hardening:
+//   loadCategories() no longer throws when /api/businesses/categories/all
+//   returns a non-OK response (e.g. 500 from an upstream DB hiccup).
+//   Instead, it logs a warning and leaves the "All categories"
+//   dropdown in its default state. This means a single broken
+//   endpoint can no longer short-circuit the whole marketplace
+//   load and prevent businesses from rendering.
 // ============================================================
 
 // ============================================================
@@ -789,26 +797,45 @@ async function loadMarketplace() {
 
 // ============================================================
 //  LOAD CATEGORIES (for marketplace filter)
+//
+//  Hardened: a failing /api/businesses/categories/all response
+//  (e.g. 500 from a transient DB error) must not abort the whole
+//  marketplace load. We log a warning, keep the default "All
+//  categories" option, and let the rest of loadMarketplace()
+//  continue so businesses still render.
 // ============================================================
 
 async function loadCategories() {
+  const select = document.getElementById('businessCategoryFilter');
+  const defaultOption = '<option value="all">All categories</option>';
+
   try {
     const res = await fetch('/api/businesses/categories/all');
-    if (!res.ok) throw new Error('Failed to load categories');
+    if (!res.ok) {
+      console.warn(`⚠️ Categories endpoint returned ${res.status}; using default option.`);
+      if (select) select.innerHTML = defaultOption;
+      return;
+    }
+
     const categories = await res.json();
 
-    const select = document.getElementById('businessCategoryFilter');
-    if (select && categories.length > 0) {
-      select.innerHTML = '<option value="all">All categories</option>';
-      categories.forEach(cat => {
-        const option = document.createElement('option');
-        option.value = cat.id;
-        option.textContent = `${cat.icon || '📦'} ${cat.name}`;
-        select.appendChild(option);
-      });
+    if (!select) return;
+
+    if (!Array.isArray(categories) || categories.length === 0) {
+      select.innerHTML = defaultOption;
+      return;
     }
+
+    let html = defaultOption;
+    categories.forEach(cat => {
+      const value = String(cat.id);
+      const label = `${cat.icon || '📦'} ${cat.name}`;
+      html += `<option value="${value.replace(/"/g, '&quot;')}">${label.replace(/</g, '&lt;')}</option>`;
+    });
+    select.innerHTML = html;
   } catch (err) {
-    console.error('Error loading categories:', err);
+    console.warn('⚠️ Error loading categories:', err.message);
+    if (select) select.innerHTML = defaultOption;
   }
 }
 
@@ -1274,7 +1301,7 @@ function populateRegisterCategorySelect(categories) {
   const additionalList = document.getElementById('regBusinessAdditionalCategories');
   if (!primarySelect) return;
 
-  let html = '<option value="">Select a primary category...</option>';
+  let html = '<option value="">Select a main category...</option>';
   categories.forEach(cat => {
     const label = `${cat.icon || '📦'} ${cat.name}`;
     html += `<option value="${cat.id}">${label}</option>`;
@@ -1297,7 +1324,7 @@ function populateRegisterCategorySelect(categories) {
 
   const helpText = document.getElementById('regBusinessCategoryHelp');
   if (helpText) {
-    helpText.textContent = 'Choose the category (or categories) that best describe what your business sells.';
+    helpText.textContent = 'Pick the category (or categories) that best describe what your business sells.';
     helpText.style.color = '#94a3b8';
   }
 

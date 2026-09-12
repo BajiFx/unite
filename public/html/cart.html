@@ -39,7 +39,7 @@
 <div class="cart-page">
   <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Continue Shopping</a>
   <h1>🛒 Your Cart</h1>
-  <p class="sub">Review your items, then place your order on BidhaaLink.</p>
+  <p class="sub">Check your items, then place your order on BidhaaLink.</p>
 
   <div id="stockTimer" class="timer" style="display:none;">⏳ Items reserved for <span id="timerDisplay">15:00</span></div>
 
@@ -48,7 +48,7 @@
   <div id="checkoutSections" style="display:none;">
     <div style="margin: 6px 0;">
       <button class="review-all-btn" onclick="openReviewAllModal()">
-        <i class="fas fa-eye"></i> Click here to review all products details before submitting
+        <i class="fas fa-eye"></i> Tap here to check all product details before you order
       </button>
     </div>
 
@@ -56,12 +56,12 @@
 
       <!-- Delivery Location -->
       <div class="cart-section" id="locationSection">
-        <h3><i class="fas fa-map-marker-alt" style="color:#2563eb;"></i> Where to send your order?</h3>
+        <h3><i class="fas fa-map-marker-alt" style="color:#2563eb;"></i> Where should we send your order?</h3>
 
         <div style="background:#f0fdf4; padding:8px 12px; border-radius:6px; margin-bottom:10px; border-left:3px solid #22c55e;">
           <p style="font-size:0.8rem; color:#166534; margin:0;">
             <i class="fas fa-info-circle"></i>
-            Tell us exactly where to deliver. Please give clear directions so our driver can find you easily.
+            Tell us exactly where to deliver. Please give clear directions so the driver can find you easily.
           </p>
         </div>
 
@@ -80,7 +80,7 @@
           </div>
           <div>
             <label>📝 Extra info (optional)</label>
-            <input type="text" id="deliveryInstructions" placeholder="e.g., Call me when you arrive, or leave with guard">
+            <input type="text" id="deliveryInstructions" placeholder="e.g., Call me when you arrive, or leave with the guard">
           </div>
         </div>
 
@@ -92,10 +92,10 @@
       </div>
 
       <div class="cart-section">
-        <h3><i class="fas fa-truck" style="color:#f59e0b;"></i> Shipping Speed</h3>
-        <div id="freeShippingBanner" class="free-shipping-banner">🎉 Free Standard Shipping!</div>
+        <h3><i class="fas fa-truck" style="color:#f59e0b;"></i> How fast do you want it?</h3>
+        <div id="freeShippingBanner" class="free-shipping-banner">🎉 Free standard shipping!</div>
         <div class="shipping-options" id="shippingOptions"></div>
-        <div class="shipping-info">💡 Fee based on order total – more value when you buy more</div>
+        <div class="shipping-info">💡 The price depends on your order total — the more you buy, the more you save.</div>
       </div>
 
       <div class="cart-section">
@@ -106,13 +106,13 @@
         </div>
         <div class="promo-hint">
           <i class="fas fa-info-circle"></i>
-          What is a promo code? A discount code that gives you savings on your order.
+          What is a promo code? A special code that gives you a discount on your order.
         </div>
         <div id="promoMessage" style="font-size:0.65rem; margin-top:2px;"></div>
 
         <div style="margin-top:8px; border-top:1px solid #e8ecf1; padding-top:6px;">
           <h3 style="font-size:0.7rem; font-weight:700; margin:0 0 2px 0;"><i class="fas fa-pen" style="color:#64748b;"></i> Special Instructions</h3>
-          <textarea id="orderNotes" placeholder="e.g., Leave at gate, call on arrival" rows="1"></textarea>
+          <textarea id="orderNotes" placeholder="e.g., Leave at the gate, call on arrival" rows="1"></textarea>
         </div>
       </div>
 
@@ -135,7 +135,7 @@
 
   <div id="recommendedSection" style="margin-top:16px;">
     <h3 style="font-size:0.9rem; font-weight:700;">You may also like</h3>
-    <p style="margin:4px 0 10px; color:#64748b; font-size:0.78rem;">Explore a business to view its products and add what you like to your cart.</p>
+    <p style="margin:4px 0 10px; color:#64748b; font-size:0.78rem;">Pick a shop to see its products and add what you like to your cart.</p>
     <div id="recommendedGrid" class="business-recommendation-grid"></div>
   </div>
 </div>
@@ -160,7 +160,7 @@
 <div class="modal-overlay" id="reviewAllModal">
   <div class="modal-box">
     <button class="close-modal" onclick="closeReviewAll()">&times;</button>
-    <div class="modal-title">📋 Review All Products</div>
+    <div class="modal-title">📋 Check All Products</div>
     <div id="reviewAllContent"></div>
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="closeReviewAll()">Close</button>

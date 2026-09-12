@@ -118,7 +118,7 @@
       <!-- Announcement Bar -->
       <div class="announcement-bar">
         <marquee behavior="scroll" direction="left" scrollamount="3">
-          🎉 Welcome to BidhaaLink Marketplace! Discover amazing businesses across Kenya &nbsp;•&nbsp; Register your business today
+          🎉 Welcome to BidhaaLink! Find trusted shops across Kenya and shop with confidence &nbsp;•&nbsp; Own a business? Register it today.
         </marquee>
       </div>
 
@@ -179,7 +179,7 @@
             type="text"
             id="businessSearch"
             name="bidhaa-search-q"
-            placeholder='Search… try "shoes near", "beddings in Nairobi", or "verified electronics"'
+            placeholder='Search shops and products. Try "shoes near me", "beddings in Nairobi", or "verified electronics".'
             autocomplete="off"
             autocorrect="off"
             autocapitalize="off"
@@ -202,9 +202,9 @@
 
         <!-- 3. Sort -->
         <select id="sortFilter" onchange="filterBusinesses()" aria-label="Sort results">
-          <option value="newest">Newest</option>
-          <option value="popular">Most Popular</option>
-          <option value="rating">Highest Rated</option>
+          <option value="newest">Newest first</option>
+          <option value="popular">Most popular</option>
+          <option value="rating">Highest rated</option>
         </select>
 
         <!-- 4. Filters toggle (opens the collapsed dropdown row) -->
@@ -277,8 +277,8 @@
       <div class="location-banner" id="locationBanner" hidden role="status">
         <span class="location-banner-icon" aria-hidden="true">📍</span>
         <div class="location-banner-text">
-          <strong>Turn on location to see what's nearest to you.</strong>
-          <span class="location-banner-hint">Or try <code>in Nairobi</code> to search a specific area.</span>
+          <strong>Turn on location to see what's closest to you.</strong>
+          <span class="location-banner-hint">Or type <code>in Nairobi</code> to search a specific area.</span>
         </div>
         <button type="button" class="location-banner-btn" id="enableLocationBtn">
           <i class="fas fa-location-crosshairs"></i> Enable location
@@ -430,14 +430,14 @@
             <option value="">⏳ Loading categories...</option>
           </select>
           <small style="font-size:0.6rem; color:#64748b; display:block; margin-bottom:8px;">
-            <strong>Primary category</strong> — the main type of business you run.
+            <strong>Main category</strong> — the main type of business you run.
           </small>
 
           <!-- Additional categories -->
           <div id="regBusinessAdditionalCategoriesWrap"
                style="display:none; border:1px dashed #cbd5e1; border-radius:6px; padding:8px 10px; background:#f8fafc;">
             <div style="font-size:0.75rem; font-weight:600; color:#334155; margin-bottom:4px;">
-              Additional categories <span style="font-weight:400; color:#64748b;">(optional)</span>
+              Other categories you also belong to <span style="font-weight:400; color:#64748b;">(optional)</span>
             </div>
             <div id="regBusinessAdditionalCategories"
                  style="display:flex; flex-direction:column; gap:4px; max-height:140px; overflow-y:auto;">
@@ -446,7 +446,7 @@
           </div>
 
           <small id="regBusinessCategoryHelp" style="font-size:0.55rem; color:#94a3b8; display:block; margin-top:6px;">
-            Choose the category (or categories) that best describe what your business sells.
+            Pick the category (or categories) that best describe what your business sells.
           </small>
 
           <div id="businessCategoryError"
