@@ -332,8 +332,8 @@
       </div>
       <div id="loginForm">
         <div class="form-group">
-          <label>Username or Email</label>
-          <input type="text" id="loginUsername" placeholder="Enter your username or email">
+          <label>Username, Email or Phone</label>
+          <input type="text" id="loginUsername" placeholder="Enter your username, email or phone">
         </div>
         <div class="form-group" style="position:relative;">
           <label>Password</label>
@@ -363,26 +363,31 @@
         </button>
       </div>
 
-      <!-- Customer Registration -->
+      <!-- ============================================================ -->
+      <!-- CUSTOMER REGISTRATION — Section 6 simplified form            -->
+      <!--                                                              -->
+      <!-- Required: Full Name, Phone, Password, Confirm                -->
+      <!-- Optional: Email (kept for password recovery)                 -->
+      <!--                                                              -->
+      <!-- Username is auto-generated on the server from the name.       -->
+      <!-- The customer sees it on their dashboard after registering.    -->
+      <!-- ============================================================ -->
       <div id="customerRegisterForm">
-        <div class="form-group">
-          <label>Username *</label>
-          <input type="text" id="regCustomerUsername" placeholder="Choose a unique username" oninput="checkUsernameAvailability(this.value, 'customer')">
-          <small id="customerUsernameStatus" style="font-size:0.55rem; color:#94a3b8;">Username must be at least 3 characters</small>
-          <div id="customerUsernameSuggestions" style="display:none; background:#f8fafc; border-radius:6px; padding:4px 8px; margin-top:4px; font-size:0.75rem; color:#64748b;"></div>
-        </div>
         <div class="form-group">
           <label>Full Name *</label>
           <input type="text" id="regCustomerName" placeholder="Your full name">
         </div>
         <div class="form-group">
-          <label>Email *</label>
-          <input type="email" id="regCustomerEmail" placeholder="your@email.com">
-        </div>
-        <div class="form-group">
           <label>Phone Number *</label>
           <input type="tel" id="regCustomerPhone" placeholder="0712345678">
           <small>Enter a valid phone number (e.g., 0712345678)</small>
+        </div>
+        <div class="form-group">
+          <label>Email <span style="font-weight:400; color:#64748b; font-size:0.75rem;">(optional)</span></label>
+          <input type="email" id="regCustomerEmail" placeholder="your@email.com">
+          <small style="font-size:0.7rem; color:#94a3b8;">
+            Add your email later from Profile to enable password reset.
+          </small>
         </div>
         <div class="form-group" style="position:relative;">
           <label>Password *</label>

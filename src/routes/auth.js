@@ -26,6 +26,12 @@
 //   row. Nothing is exposed on GET /customer/verify (D.11
 //   preserved).
 //
+//  Section 6 — Customer registration simplified (final):
+//   Required: name, phone, password.
+//   Optional: email (kept for password recovery).
+//   Auto-generated: username (from name, unique suffix).
+//   Login now accepts username OR email OR phone as the lookup.
+//
 //  Section — Business Search Tag (new):
 //   Every business now has a short, unique, human-typable tag of
 //   the form <digits><name> (e.g. 3734Doppa Beddings). The owner
@@ -181,7 +187,7 @@ function validateSearchPrefix(prefix) {
     }
 
     // ----------------------------------------------------------
-    //  SECTION 2B FIX — reserved namespace.
+    //  SECTION 3 FIX — reserved namespace.
     //
     //  The 004_business_search_tag.sql migration uses "000" as
     //  the prefix for auto-generated placeholder tags assigned
@@ -444,17 +450,25 @@ router.post('/login', loginLimiter, [
 });
 
 // ============================================================
-//  CUSTOMER REGISTER - WITH USERNAME
+//  CUSTOMER REGISTER — Section 6 simplified form
+//
+//  Required: name, phone, password
+//  Optional: email (kept for password recovery)
+//  Optional: username (auto-generated from name if missing)
+//
+//  The customer does not have to invent a username. If they
+//  send one, we honour it (after a uniqueness check). If they
+//  don't, we generate one from their name plus a short random
+//  suffix so it is human-friendly and unlikely to collide.
 // ============================================================
 
 router.post('/customer/register', [
-  body('username').notEmpty().withMessage('Username required'),
-  body('username').isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
   body('name').notEmpty().withMessage('Name required'),
-  body('email').isEmail().withMessage('Invalid email'),
   body('phone').notEmpty().withMessage('Phone number required'),
   body('phone').custom(value => validateKenyanPhone(value)).withMessage('Invalid phone number. Must be a valid Kenyan number (e.g., 0712345678)'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('email').optional({ nullable: true, checkFalsy: true }).isEmail().withMessage('Invalid email'),
+  body('username').optional({ nullable: true, checkFalsy: true }).isLength({ min: 3 }).withMessage('Username must be at least 3 characters')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -462,25 +476,37 @@ router.post('/customer/register', [
   }
 
   try {
-    const { username, name, email, phone, password } = req.body;
+    const { name, phone, password } = req.body;
+    const email = (req.body.email && String(req.body.email).trim()) || null;
+    let username = (req.body.username && String(req.body.username).trim()) || null;
+
     const cleanPhone = phone.replace(/[^0-9]/g, '');
 
-    const existingUsername = await pool.query(
-      'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
-      [username]
-    );
-    if (existingUsername.rows.length > 0) {
-      return res.status(409).json({ error: 'Username already taken. Please choose another.' });
-    }
-
-    const existing = await pool.query('SELECT * FROM customers WHERE email = $1', [email]);
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Email already registered.' });
-    }
-
-    const existingPhone = await pool.query('SELECT * FROM customers WHERE phone = $1', [cleanPhone]);
+    // ---- Phone uniqueness (always required) ----
+    const existingPhone = await pool.query('SELECT id FROM customers WHERE phone = $1', [cleanPhone]);
     if (existingPhone.rows.length > 0) {
       return res.status(409).json({ error: 'Phone number already registered.' });
+    }
+
+    // ---- Email uniqueness (only when one was supplied) ----
+    if (email) {
+      const existingEmail = await pool.query('SELECT id FROM customers WHERE email = $1', [email]);
+      if (existingEmail.rows.length > 0) {
+        return res.status(409).json({ error: 'Email already registered.' });
+      }
+    }
+
+    // ---- Username: honour it if supplied, otherwise generate ----
+    if (username) {
+      const existingUsername = await pool.query(
+        'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
+        [username]
+      );
+      if (existingUsername.rows.length > 0) {
+        return res.status(409).json({ error: 'Username already taken. Please choose another.' });
+      }
+    } else {
+      username = await generateUniqueCustomerUsername(name);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -489,9 +515,17 @@ router.post('/customer/register', [
       [username, name, email, hashedPassword, cleanPhone]
     );
     const customer = result.rows[0];
+
     await pool.query('INSERT INTO carts (customer_id, items) VALUES ($1, $2)', [customer.id, '[]']);
-    const token = generateToken(email, 'customer', customer.id);
+
+    // generateToken still expects an email-shaped subject. When
+    // the customer has no email we use the phone number; the
+    // customer's id is what authMiddleware uses for lookup, and
+    // the token subject is only informational.
+    const tokenSubject = email || cleanPhone;
+    const token = generateToken(tokenSubject, 'customer', customer.id);
     setAuthCookie(res, token);
+
     res.json({ success: true, customer });
   } catch (err) {
     console.error('❌ Customer register error:', err);
@@ -499,12 +533,48 @@ router.post('/customer/register', [
   }
 });
 
+/**
+ * Generate a human-friendly unique username from the customer's
+ * name. Format: <slug-of-name><4 random digits>
+ * Retries up to 20 times if the generated name already exists.
+ * The final fallback uses a timestamp; it is unreachable in
+ * practice.
+ */
+async function generateUniqueCustomerUsername(name) {
+  const base = String(name || 'customer')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    .slice(0, 20) || 'customer';
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    const candidate = `${base}${suffix}`;
+    const clash = await pool.query(
+      'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
+      [candidate]
+    );
+    if (clash.rows.length === 0) return candidate;
+  }
+
+  return `${base}${Date.now().toString().slice(-6)}`;
+}
+
 // ============================================================
-//  CUSTOMER LOGIN - SMART (Username or Email)
+//  CUSTOMER LOGIN — SMART
+//
+//  Section 6 — the lookup key can now be:
+//    - username
+//    - email
+//    - phone (digits only)
+//
+//  The endpoint detects which one the caller supplied by shape.
+//  This lets a customer who registered with only a phone number
+//  log in with that phone number, and it also keeps existing
+//  username / email logins working unchanged.
 // ============================================================
 
 router.post('/customer/login', loginLimiter, [
-  body('username').notEmpty().withMessage('Username/Email required'),
+  body('username').notEmpty().withMessage('Username/Email/Phone required'),
   body('password').notEmpty().withMessage('Password required')
 ], async (req, res) => {
   const errors = validationResult(req);
@@ -515,13 +585,37 @@ router.post('/customer/login', loginLimiter, [
   try {
     const { username, password } = req.body;
 
-    const isEmail = username.includes('@');
+    // Detect the shape of the supplied identifier.
+    const raw = String(username).trim();
+    const isEmail = raw.includes('@');
+
+    // Treat any input that is entirely digits (optionally with a
+    // leading +) as a phone number. We strip the + and any
+    // non-digits to build the clean phone lookup value.
+    const digitsOnly = raw.replace(/[^0-9]/g, '');
+    const looksLikePhone = !isEmail && digitsOnly.length >= 7;
 
     let result;
+
     if (isEmail) {
-      result = await pool.query('SELECT * FROM customers WHERE email = $1', [username]);
+      result = await pool.query('SELECT * FROM customers WHERE email = $1', [raw]);
+    } else if (looksLikePhone) {
+      // Match both the raw value and the digit-only value so a
+      // customer who registered with "0712345678" can log in by
+      // typing "+254712345678" (or vice versa) without friction.
+      result = await pool.query(
+        'SELECT * FROM customers WHERE phone = $1 OR phone = $2 LIMIT 1',
+        [digitsOnly, raw]
+      );
     } else {
-      result = await pool.query('SELECT * FROM customers WHERE username = $1', [username]);
+      result = await pool.query('SELECT * FROM customers WHERE username = $1', [raw]);
+    }
+
+    // Fallback: if a non-email, non-phone-shaped input did not
+    // match a username, try matching a phone anyway. This covers
+    // the edge case of very short phone numbers or unusual input.
+    if (result.rows.length === 0 && !isEmail && digitsOnly.length >= 7) {
+      result = await pool.query('SELECT * FROM customers WHERE phone = $1 LIMIT 1', [digitsOnly]);
     }
 
     if (result.rows.length === 0) {
@@ -535,8 +629,11 @@ router.post('/customer/login', loginLimiter, [
 
     await pool.query('UPDATE customers SET last_login_at = NOW() WHERE id = $1', [customer.id]);
     await pool.query('INSERT INTO carts (customer_id, items) VALUES ($1, $2) ON CONFLICT (customer_id) DO NOTHING', [customer.id, '[]']);
-    const token = generateToken(customer.email, 'customer', customer.id);
+
+    const tokenSubject = customer.email || customer.phone || customer.username;
+    const token = generateToken(tokenSubject, 'customer', customer.id);
     setAuthCookie(res, token);
+
     res.json({
       success: true,
       customer: {

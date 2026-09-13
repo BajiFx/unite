@@ -15,6 +15,14 @@
 //   the location card. These names are used by the search handler
 //   as a soft anchor (E.4) and are never shared with any business.
 //
+//  Section 6 — Customer registration simplified:
+//   The customer's username is auto-generated on the server at
+//   registration. It is displayed read-only in the Profile panel
+//   via renderProfileUsername() so the customer knows what to
+//   type if they ever log in by username. Email is now optional
+//   in both registration and profile updates; updateProfile()
+//   no longer requires it.
+//
 //  Section J — Featured Businesses removal:
 //   J.4 — The account page no longer loads or renders the
 //         Featured Businesses grid. Featured businesses were
@@ -198,6 +206,9 @@ function loadDashboardContent() {
     if (nameInput) nameInput.value = user.name || '';
     if (emailInput) emailInput.value = user.email || '';
     if (phoneInput) phoneInput.value = user.phone || '';
+
+    // Section 6 — refresh the username chip.
+    renderProfileUsername(user.username);
 
     fetch('/api/orders', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -468,6 +479,30 @@ function loadOrdersContent() {
 //  PROFILE CONTENT
 // ============================================================
 
+/**
+ * Section 6 — Show the customer's auto-generated username in the
+ * Profile panel so they know what to type if they ever log in by
+ * username. Falls back to a hint when the user object predates
+ * Section 6 and does not carry a username yet.
+ */
+function renderProfileUsername(username) {
+    const el = document.getElementById('profileUsername');
+    if (!el) return;
+
+    const value = username && String(username).trim();
+    if (value) {
+        el.textContent = value;
+        el.style.color = '#0f172a';
+        el.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+        el.style.fontWeight = '700';
+    } else {
+        el.textContent = '(will be assigned automatically)';
+        el.style.color = '#94a3b8';
+        el.style.fontFamily = 'inherit';
+        el.style.fontWeight = '400';
+    }
+}
+
 function loadProfileContent() {
     console.log('👤 Loading profile content...');
     const user = window.currentUser || JSON.parse(localStorage.getItem('currentUser') || '{}');
@@ -479,6 +514,9 @@ function loadProfileContent() {
     if (nameInput) nameInput.value = user.name || '';
     if (emailInput) emailInput.value = user.email || '';
     if (phoneInput) phoneInput.value = user.phone || '';
+
+    // Section 6 — show the auto-generated username.
+    renderProfileUsername(user.username);
 
     // Section D — refresh the customer location card state.
     loadCustomerLocationState();
@@ -493,16 +531,29 @@ function updateProfile() {
     const phone = document.getElementById('profilePhone').value.trim();
     const status = document.getElementById('profileStatus');
 
-    if (!name || !email || !phone) {
-        status.textContent = '❌ All fields are required.';
+    // Section 6 — email is optional. A customer who registered
+    // without one must still be able to save their profile.
+    // Name and phone remain required.
+    if (!name || !phone) {
+        status.textContent = '❌ Name and phone number are required.';
         status.style.color = '#ef4444';
         return;
+    }
+
+    // If an email was typed, check it looks like an email.
+    if (email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            status.textContent = '❌ Please enter a valid email address, or leave it blank.';
+            status.style.color = '#ef4444';
+            return;
+        }
     }
 
     fetch('/api/auth/customer/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name, email, phone })
+        body: JSON.stringify({ name, email: email || null, phone })
     })
     .then(res => res.json())
     .then(data => {
@@ -514,6 +565,9 @@ function updateProfile() {
             const userNameEl = document.getElementById('headerUserName');
             if (userNameEl) userNameEl.textContent = data.user.name;
             loadDashboardContent();
+            // Refresh the username chip in case the server ever
+            // changes it (it should not, but stay consistent).
+            renderProfileUsername(data.user.username);
         } else {
             status.textContent = '❌ Failed to update profile.';
             status.style.color = '#ef4444';
@@ -1539,6 +1593,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Section E.2 — prime the preferred-area card state.
     loadCustomerPreferredAreaState();
 
+    // Section 6 — prime the username chip from the current user
+    // object so it appears even before the dashboard fetch lands.
+    renderProfileUsername(user.username);
+
     // The outer Marketplace remains the only business discovery surface in embedded mode.
     if (!isEmbeddedAccount) loadMarketplaceAccount();
 
@@ -1589,5 +1647,8 @@ window.loadCustomerLocationState = loadCustomerLocationState;
 window.saveCustomerPreferredArea = saveCustomerPreferredArea;
 window.clearCustomerPreferredArea = clearCustomerPreferredArea;
 window.loadCustomerPreferredAreaState = loadCustomerPreferredAreaState;
+
+// Section 6 — expose the username renderer so other scripts can refresh it.
+window.renderProfileUsername = renderProfileUsername;
 
 console.log('✅ Account.js loaded with horizontal layout');
