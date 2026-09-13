@@ -15,6 +15,16 @@
       "Username, Email or Phone" to reflect the server's new
       lookup that also accepts a phone number.
 
+     Section 7 changes:
+      The business register form now matches the simplified
+      flow used on the marketplace home page: Business Name,
+      Category, Email, Phone, City / Town, Password, Confirm.
+      Username, search-tag prefix, search-tag name, additional
+      categories and business description were removed from the
+      form and are auto-generated on the server (or added later
+      from My Shop). A success panel below the submit button
+      shows the generated search tag and username.
+
      Reviews removal (this revision):
       The reviews section and its write-a-review block have been
       removed from the customer-facing page. A warm thank-you band
@@ -414,11 +424,6 @@
 
       <!-- ============================================================ -->
       <!-- CUSTOMER REGISTRATION — Section 6 simplified form            -->
-      <!--                                                              -->
-      <!-- Required: Full Name, Phone, Password, Confirm                -->
-      <!-- Optional: Email (kept for password recovery)                 -->
-      <!--                                                              -->
-      <!-- Username is auto-generated on the server from the name.       -->
       <!-- ============================================================ -->
       <div id="customerRegisterForm">
         <div class="form-group">
@@ -451,51 +456,89 @@
         <div id="customerRegisterStatus" class="auth-status"></div>
       </div>
 
+      <!-- ============================================================ -->
+      <!-- BUSINESS REGISTRATION — Section 7 simplified form            -->
+      <!--                                                              -->
+      <!-- Required: Business Name, Category, Email, Phone, City / Town,-->
+      <!--           Password, Confirm                                    -->
+      <!--                                                              -->
+      <!-- Auto-generated on the server: username, search prefix,        -->
+      <!-- search name. Can be added later from My Shop: additional     -->
+      <!-- categories, business description, full address, socials.     -->
+      <!-- ============================================================ -->
       <div id="businessRegisterForm" style="display:none;">
-        <div class="form-group">
-          <label>Business Username *</label>
-          <input type="text" id="regBusinessUsername" placeholder="Choose a unique business username" oninput="checkUsernameAvailability(this.value, 'business')">
-          <small id="businessUsernameStatus" style="font-size:0.55rem; color:#94a3b8;">Username must be at least 3 characters</small>
-          <div id="businessUsernameSuggestions" style="display:none; background:#f8fafc; border-radius:6px; padding:4px 8px; margin-top:4px; font-size:0.75rem; color:#64748b;"></div>
-        </div>
+
         <div class="form-group">
           <label>Business Name *</label>
           <input type="text" id="regBusinessName" placeholder="Your business name">
         </div>
+
         <div class="form-group">
           <label>Business Category *</label>
-          <select id="regBusinessCategory" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem;">
-            <option value="">Select a category...</option>
+          <select id="regBusinessPrimaryCategory"
+                  aria-label="Business category"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem; background:white; cursor:pointer;">
+            <option value="">⏳ Loading categories...</option>
           </select>
+          <small id="regBusinessCategoryHelp" style="font-size:0.6rem; color:#94a3b8; display:block; margin-top:4px;">
+            Pick the category that best describes what your business sells.
+          </small>
+          <div id="businessCategoryError"
+               style="display:none; font-size:0.7rem; color:#ef4444; margin-top:4px;">
+            ❌ Please select a business category.
+          </div>
         </div>
+
         <div class="form-group">
           <label>Email *</label>
           <input type="email" id="regBusinessEmail" placeholder="business@email.com">
+          <small>Used for account notices and password recovery.</small>
         </div>
+
         <div class="form-group">
           <label>Phone Number *</label>
           <input type="tel" id="regBusinessPhone" placeholder="0712345678">
         </div>
+
         <div class="form-group">
-          <label>Location *</label>
-          <input type="text" id="regBusinessLocation" placeholder="Nairobi, Kenya">
+          <label>City / Town *</label>
+          <input type="text" id="regBusinessLocation" placeholder="e.g., Nairobi">
+          <small>You can add a full address later from My Shop.</small>
         </div>
-        <div class="form-group">
-          <label>Business Description</label>
-          <textarea id="regBusinessDescription" rows="2" placeholder="Tell customers about your business..." style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
-        </div>
+
         <div class="form-group" style="position:relative;">
           <label>Password *</label>
           <input type="password" id="regBusinessPassword" placeholder="Min 8 characters">
           <button class="toggle-pwd" onclick="togglePwd('regBusinessPassword', this)"><i class="fas fa-eye"></i></button>
         </div>
+
         <div class="form-group" style="position:relative;">
           <label>Confirm Password *</label>
           <input type="password" id="regBusinessConfirm" placeholder="Re-enter password">
           <button class="toggle-pwd" onclick="togglePwd('regBusinessConfirm', this)"><i class="fas fa-eye"></i></button>
         </div>
+
         <button class="btn btn-primary" style="width:100%;" onclick="handleBusinessRegister()">Create Business Account</button>
         <div id="businessRegisterStatus" class="auth-status"></div>
+
+        <!-- Success panel — hidden until index.js shows it after a
+             successful registration. Displays the generated search
+             tag and username. -->
+        <div id="businessRegisterSuccess" style="display:none; margin-top:14px; padding:14px 16px; background:#f0fdf4; border-radius:10px; border:1px solid #86efac;">
+          <strong style="display:block; color:#166534; font-size:0.9rem; margin-bottom:6px;">
+            ✅ Business registered!
+          </strong>
+          <p style="font-size:0.8rem; color:#14532d; margin:0 0 8px 0;">
+            Your shop will be found by typing this search tag into the marketplace search:
+          </p>
+          <div id="businessRegisterSearchTagValue"
+               style="padding:8px 12px; background:#ffffff; border:1px dashed #16a34a; border-radius:8px; font-family:monospace; font-weight:800; color:#14532d; font-size:0.95rem; letter-spacing:0.03em;">
+            —
+          </div>
+          <div id="businessRegisterUsernameValue"
+               style="font-size:0.72rem; color:#64748b; margin-top:8px;">
+          </div>
+        </div>
       </div>
     </div>
   </div>

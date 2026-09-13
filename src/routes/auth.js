@@ -26,31 +26,32 @@
 //   row. Nothing is exposed on GET /customer/verify (D.11
 //   preserved).
 //
-//  Section 6 — Customer registration simplified (final):
+//  Section 6 — Customer registration simplified:
 //   Required: name, phone, password.
 //   Optional: email (kept for password recovery).
 //   Auto-generated: username (from name, unique suffix).
 //   Login now accepts username OR email OR phone as the lookup.
 //
-//  Section — Business Search Tag (new):
-//   Every business now has a short, unique, human-typable tag of
-//   the form <digits><name> (e.g. 3734Doppa Beddings). The owner
-//   picks the digits (3 or 4) and the name during registration,
-//   and the server rejects the choice if the combination is
-//   already used by another business.
+//  Section 7 — Business registration simplified:
+//   Required: business_name, category, email, phone, password,
+//             location.
+//   Optional / auto-generated:
+//     - username       (from business name + random suffix)
+//     - search_prefix  (random 3–4 digits, never 000/0000)
+//     - search_name    (defaults to the business name)
+//     - additional_categories
+//     - description, mission, vision, address, website,
+//       socials, payment fields
+//   The route still accepts every old field, so an older client
+//   or a Postman call continues to work. Missing pieces are
+//   filled in on the server. Search-tag collisions retry with a
+//   new random prefix.
 //
-//   - GET  /check-business-tag   → availability check used by the
-//                                  registration form to mark the
-//                                  prefix input red when taken.
-//   - POST /business/register    → accepts search_prefix and
-//                                  search_name, validates them,
-//                                  rejects duplicates, and lets
-//                                  the DB trigger fill in the
-//                                  normalized search_tag.
-//
-//   Normalization and the final tag shape are handled by the
-//   database trigger defined in migrations/sql/004_business_search_tag.sql,
-//   so the write path and the search path can never drift apart.
+//  Section — Business Search Tag:
+//   Every business has a short, unique, human-typable tag of
+//   the form <digits><name> (e.g. 3734Doppa Beddings). The DB
+//   trigger in 004_business_search_tag.sql normalizes both
+//   pieces and fills in search_tag / search_display.
 // ============================================================
 
 const express = require('express');
@@ -157,13 +158,6 @@ function normalisePreferred(value) {
 
 // ============================================================
 //  BUSINESS SEARCH TAG — helpers
-//
-//  A tag is <digits><name> where digits are 3 or 4 numeric
-//  characters and name is any non-empty string. The DB trigger
-//  in 004_business_search_tag.sql normalizes both pieces, but
-//  we also do a defensive server-side check here so the register
-//  route can respond with a clean 400 before touching the
-//  database.
 // ============================================================
 
 function normalizeSearchTagPart(value) {
@@ -186,18 +180,9 @@ function validateSearchPrefix(prefix) {
         };
     }
 
-    // ----------------------------------------------------------
-    //  SECTION 3 FIX — reserved namespace.
-    //
-    //  The 004_business_search_tag.sql migration uses "000" as
-    //  the prefix for auto-generated placeholder tags assigned
-    //  to legacy businesses. If a new owner were allowed to pick
-    //  "000" or "0000", their tag would collide with those
-    //  placeholders. Block both exact strings here.
-    //
-    //  Only the exact strings "000" and "0000" are blocked.
-    //  "001", "0001", "100", "1000", etc. remain valid.
-    // ----------------------------------------------------------
+    // Section 3 — reserved namespace. The 004 migration uses
+    // "000" as the prefix for auto-generated placeholder tags
+    // assigned to legacy businesses. Block both exact strings.
     if (str === '000' || str === '0000') {
         return {
             ok: false,
@@ -223,6 +208,69 @@ function validateSearchName(name) {
         };
     }
     return { ok: true, value: str };
+}
+
+// ============================================================
+//  Section 7 — auto-generation helpers
+// ============================================================
+
+/**
+ * Build a valid, unique business username from the business name.
+ * Format: <slug-of-name><4 random digits>. Retries up to 20 times
+ * against both the admin_users and customers tables.
+ */
+async function generateUniqueBusinessUsername(businessName) {
+    const base = String(businessName || 'business')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '')
+        .slice(0, 20) || 'business';
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const suffix = Math.floor(1000 + Math.random() * 9000);
+        const candidate = `${base}${suffix}`;
+        const clash = await pool.query(
+            'SELECT id FROM admin_users WHERE username = $1 UNION SELECT id FROM customers WHERE username = $1',
+            [candidate]
+        );
+        if (clash.rows.length === 0) return candidate;
+    }
+
+    return `${base}${Date.now().toString().slice(-6)}`;
+}
+
+/**
+ * Pick a random 3–4 digit search-tag prefix that is not yet used
+ * by another business and is not the reserved "000"/"0000". The
+ * caller supplies the candidate tag to check against the unique
+ * index (which is what actually enforces uniqueness).
+ *
+ * Returns a string like "363" or "3734", or null if no free prefix
+ * could be found within the attempt limit (unreachable in practice).
+ */
+async function pickRandomFreeSearchPrefix(searchName, maxAttempts = 20) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        // 50/50 between 3-digit and 4-digit prefixes.
+        const useFour = Math.random() < 0.5;
+        let candidate;
+        if (useFour) {
+            candidate = String(Math.floor(1000 + Math.random() * 9000));
+        } else {
+            candidate = String(Math.floor(100 + Math.random() * 900));
+        }
+
+        // Never the reserved placeholders.
+        if (candidate === '000' || candidate === '0000') continue;
+
+        const candidateTag = buildSearchTag(candidate, searchName);
+        if (!candidateTag) continue;
+
+        const clash = await pool.query(
+            'SELECT id FROM businesses WHERE search_tag = $1 LIMIT 1',
+            [candidateTag]
+        );
+        if (clash.rows.length === 0) return candidate;
+    }
+    return null;
 }
 
 // ============================================================
@@ -264,19 +312,6 @@ router.get('/check-username', async (req, res) => {
 
 // ============================================================
 //  CHECK BUSINESS SEARCH TAG AVAILABILITY
-//
-//  Called by the registration form (debounced on input) and by
-//  the business-admin panel when the owner changes their tag.
-//  The response tells the UI whether the digits + name combo is
-//  free so it can turn the prefix input red and show the message
-//  "This number is already used. Please try another."
-//
-//  Query params:
-//    prefix   — the 3–4 digit number (required)
-//    name     — the name the owner wants customers to type (required)
-//    exclude  — optional business id to ignore (used when the
-//               owner is editing their own tag and the row
-//               already holds the same values)
 // ============================================================
 
 router.get('/check-business-tag', async (req, res) => {
@@ -300,11 +335,6 @@ router.get('/check-business-tag', async (req, res) => {
         const excludeId = Number.parseInt(req.query.exclude, 10);
         const hasExclude = Number.isInteger(excludeId) && excludeId > 0;
 
-        // The DB trigger recomputes search_tag from
-        // search_prefix + search_name, and the stored value is
-        // already normalized (lowercase, only [a-z0-9]). We use
-        // the same normalization here so the check matches the
-        // unique index exactly.
         const candidateTag = buildSearchTag(prefixCheck.value, nameCheck.value);
 
         const params = [candidateTag];
@@ -455,11 +485,6 @@ router.post('/login', loginLimiter, [
 //  Required: name, phone, password
 //  Optional: email (kept for password recovery)
 //  Optional: username (auto-generated from name if missing)
-//
-//  The customer does not have to invent a username. If they
-//  send one, we honour it (after a uniqueness check). If they
-//  don't, we generate one from their name plus a short random
-//  suffix so it is human-friendly and unlikely to collide.
 // ============================================================
 
 router.post('/customer/register', [
@@ -518,10 +543,6 @@ router.post('/customer/register', [
 
     await pool.query('INSERT INTO carts (customer_id, items) VALUES ($1, $2)', [customer.id, '[]']);
 
-    // generateToken still expects an email-shaped subject. When
-    // the customer has no email we use the phone number; the
-    // customer's id is what authMiddleware uses for lookup, and
-    // the token subject is only informational.
     const tokenSubject = email || cleanPhone;
     const token = generateToken(tokenSubject, 'customer', customer.id);
     setAuthCookie(res, token);
@@ -536,9 +557,6 @@ router.post('/customer/register', [
 /**
  * Generate a human-friendly unique username from the customer's
  * name. Format: <slug-of-name><4 random digits>
- * Retries up to 20 times if the generated name already exists.
- * The final fallback uses a timestamp; it is unreachable in
- * practice.
  */
 async function generateUniqueCustomerUsername(name) {
   const base = String(name || 'customer')
@@ -562,15 +580,7 @@ async function generateUniqueCustomerUsername(name) {
 // ============================================================
 //  CUSTOMER LOGIN — SMART
 //
-//  Section 6 — the lookup key can now be:
-//    - username
-//    - email
-//    - phone (digits only)
-//
-//  The endpoint detects which one the caller supplied by shape.
-//  This lets a customer who registered with only a phone number
-//  log in with that phone number, and it also keeps existing
-//  username / email logins working unchanged.
+//  Section 6 — the lookup key can be username, email, or phone.
 // ============================================================
 
 router.post('/customer/login', loginLimiter, [
@@ -585,13 +595,8 @@ router.post('/customer/login', loginLimiter, [
   try {
     const { username, password } = req.body;
 
-    // Detect the shape of the supplied identifier.
     const raw = String(username).trim();
     const isEmail = raw.includes('@');
-
-    // Treat any input that is entirely digits (optionally with a
-    // leading +) as a phone number. We strip the + and any
-    // non-digits to build the clean phone lookup value.
     const digitsOnly = raw.replace(/[^0-9]/g, '');
     const looksLikePhone = !isEmail && digitsOnly.length >= 7;
 
@@ -600,9 +605,6 @@ router.post('/customer/login', loginLimiter, [
     if (isEmail) {
       result = await pool.query('SELECT * FROM customers WHERE email = $1', [raw]);
     } else if (looksLikePhone) {
-      // Match both the raw value and the digit-only value so a
-      // customer who registered with "0712345678" can log in by
-      // typing "+254712345678" (or vice versa) without friction.
       result = await pool.query(
         'SELECT * FROM customers WHERE phone = $1 OR phone = $2 LIMIT 1',
         [digitsOnly, raw]
@@ -611,9 +613,6 @@ router.post('/customer/login', loginLimiter, [
       result = await pool.query('SELECT * FROM customers WHERE username = $1', [raw]);
     }
 
-    // Fallback: if a non-email, non-phone-shaped input did not
-    // match a username, try matching a phone anyway. This covers
-    // the edge case of very short phone numbers or unusual input.
     if (result.rows.length === 0 && !isEmail && digitsOnly.length >= 7) {
       result = await pool.query('SELECT * FROM customers WHERE phone = $1 LIMIT 1', [digitsOnly]);
     }
@@ -651,19 +650,22 @@ router.post('/customer/login', loginLimiter, [
 });
 
 // ============================================================
-//  BUSINESS REGISTRATION - WITH USERNAME AND MULTIPLE CATEGORIES
-//  A.4 — Validate category
-//  A.5 — Save selected category with the business record
-//  A.6 — Support primary + additional categories
+//  BUSINESS REGISTRATION — Section 7 simplified form
 //
-//  Search tag (new):
-//   - accepts `search_prefix` (3 or 4 digits) and `search_name`
-//     (the name the owner wants customers to type);
-//   - validates both, checks that the normalized combination is
-//     not already used by another business, and rejects the
-//     request with 409 if it is;
-//   - stores the raw prefix and name on the row; the DB trigger
-//     fills in search_tag and search_display automatically.
+//  Required: business_name, category, email, phone, password,
+//            location.
+//
+//  Optional / auto-generated:
+//    - username       → generated from business name + random suffix
+//    - search_prefix  → random 3 or 4 digits (never 000/0000)
+//    - search_name    → defaults to the business name
+//    - additional_categories, description, mission, vision,
+//      address, socials, payment fields → all optional
+//
+//  The route still accepts every old field, so a client that
+//  sends them keeps working. Missing pieces are filled in on the
+//  server. If the auto-generated search prefix collides with an
+//  existing tag, we retry with a new random prefix.
 // ============================================================
 
 router.post('/business/register', upload.fields([
@@ -675,18 +677,17 @@ router.post('/business/register', upload.fields([
   body('phone').notEmpty().withMessage('Phone number required'),
   body('location').notEmpty().withMessage('Location required'),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-  body('username').notEmpty().withMessage('Username required'),
-  body('username').isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
-  body('category').notEmpty().withMessage('Business category required')
+  body('category').notEmpty().withMessage('Business category required'),
+  body('username').optional({ nullable: true, checkFalsy: true }).isLength({ min: 3 }).withMessage('Username must be at least 3 characters')
 ], async (req, res) => {
   try {
     console.log('📝 Business registration request received');
     console.log('📝 Email:', req.body.email);
-    console.log('📝 Username:', req.body.username);
+    console.log('📝 Username (may be absent):', req.body.username);
     console.log('📝 Category:', req.body.category);
     console.log('📝 Additional categories:', req.body.additional_categories);
-    console.log('📝 Search prefix:', req.body.search_prefix);
-    console.log('📝 Search name:', req.body.search_name);
+    console.log('📝 Search prefix (may be absent):', req.body.search_prefix);
+    console.log('📝 Search name (may be absent):', req.body.search_name);
 
     const validationErrors = validationResult(req);
     if (!validationErrors.isEmpty()) {
@@ -703,13 +704,16 @@ router.post('/business/register', upload.fields([
       paypal_enabled, paypal_email,
       shipping_policy, return_policy, terms_policy, privacy_policy,
       delivery_enabled, online_orders_enabled,
-      username,
-      category,
-      search_prefix,
-      search_name
+      category
     } = req.body;
 
     const additional_categories = req.body.additional_categories;
+
+    // Section 7 — username, search_prefix and search_name are all
+    // optional now. Accept them if supplied, otherwise generate.
+    let username = (req.body.username && String(req.body.username).trim()) || null;
+    let search_prefix = (req.body.search_prefix && String(req.body.search_prefix).trim()) || null;
+    let search_name = (req.body.search_name && String(req.body.search_name).trim()) || null;
 
     const cleanPhone = phone.replace(/[^0-9]/g, '');
 
@@ -728,9 +732,6 @@ router.post('/business/register', upload.fields([
     if (!password || password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
-    if (!username || username.length < 3) {
-      return res.status(400).json({ error: 'Username must be at least 3 characters' });
-    }
     if (!category) {
       return res.status(400).json({ error: 'Business category is required' });
     }
@@ -741,7 +742,7 @@ router.post('/business/register', upload.fields([
       return res.status(400).json({ error: 'Invalid business category' });
     }
 
-    // A.6 — additional categories
+    // A.6 — additional categories (optional)
     const additionalCategoryIds = [
       ...new Set(
         String(additional_categories || '')
@@ -768,49 +769,20 @@ router.post('/business/register', upload.fields([
     }
 
     // ----------------------------------------------------------
-    //  Business Search Tag — validate the two pieces
-    // ----------------------------------------------------------
-    const prefixCheck = validateSearchPrefix(search_prefix);
-    if (!prefixCheck.ok) {
-      return res.status(400).json({
-        error: prefixCheck.error,
-        field: 'search_prefix'
-      });
-    }
-
-    const nameCheck = validateSearchName(search_name);
-    if (!nameCheck.ok) {
-      return res.status(400).json({
-        error: nameCheck.error,
-        field: 'search_name'
-      });
-    }
-
-    const candidateTag = buildSearchTag(prefixCheck.value, nameCheck.value);
-
-    const tagConflict = await pool.query(
-      'SELECT id, business_name FROM businesses WHERE search_tag = $1 LIMIT 1',
-      [candidateTag]
-    );
-
-    if (tagConflict.rows.length > 0) {
-      return res.status(409).json({
-        error: 'This number is already used. Please try another.',
-        field: 'search_prefix',
-        taken_by: tagConflict.rows[0].business_name || null
-      });
-    }
-
-    // ----------------------------------------------------------
     //  Existing username + email checks
     // ----------------------------------------------------------
 
-    const existingUsername = await pool.query(
-      'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
-      [username]
-    );
-    if (existingUsername.rows.length > 0) {
-      return res.status(409).json({ error: 'Username already taken. Please choose another.' });
+    if (username) {
+      const existingUsername = await pool.query(
+        'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
+        [username]
+      );
+      if (existingUsername.rows.length > 0) {
+        return res.status(409).json({ error: 'Username already taken. Please choose another.' });
+      }
+    } else {
+      // Section 7 — auto-generate a unique business username.
+      username = await generateUniqueBusinessUsername(business_name);
     }
 
     const existingAdmin = await pool.query('SELECT * FROM admin_users WHERE email = $1', [email]);
@@ -842,6 +814,69 @@ router.post('/business/register', upload.fields([
       }
     }
 
+    // ----------------------------------------------------------
+    //  Section 7 — resolve the search tag.
+    //
+    //  Precedence:
+    //   1. If the caller supplied BOTH search_prefix and
+    //      search_name, validate them the old way. If the tag is
+    //      already taken, reject with 409 (the old behaviour).
+    //   2. Otherwise, default search_name to the business name
+    //      and pick a random free prefix on the server.
+    //
+    //  This keeps Postman / old-client behaviour intact while
+    //  letting the simplified form skip the whole concept.
+    // ----------------------------------------------------------
+
+    let resolvedPrefix = null;
+    let resolvedName = null;
+
+    if (search_prefix && search_name) {
+      const prefixCheck = validateSearchPrefix(search_prefix);
+      if (!prefixCheck.ok) {
+        return res.status(400).json({
+          error: prefixCheck.error,
+          field: 'search_prefix'
+        });
+      }
+
+      const nameCheck = validateSearchName(search_name);
+      if (!nameCheck.ok) {
+        return res.status(400).json({
+          error: nameCheck.error,
+          field: 'search_name'
+        });
+      }
+
+      const candidateTag = buildSearchTag(prefixCheck.value, nameCheck.value);
+      const tagConflict = await pool.query(
+        'SELECT id, business_name FROM businesses WHERE search_tag = $1 LIMIT 1',
+        [candidateTag]
+      );
+      if (tagConflict.rows.length > 0) {
+        return res.status(409).json({
+          error: 'This number is already used. Please try another.',
+          field: 'search_prefix',
+          taken_by: tagConflict.rows[0].business_name || null
+        });
+      }
+
+      resolvedPrefix = prefixCheck.value;
+      resolvedName = nameCheck.value;
+    } else {
+      // Section 7 — auto-generate the search tag.
+      resolvedName = String(business_name || '').trim().slice(0, 120) || 'My Shop';
+
+      resolvedPrefix = await pickRandomFreeSearchPrefix(resolvedName);
+      if (!resolvedPrefix) {
+        // Extremely unlikely; surface a clean error rather than
+        // let the DB raise a raw unique-index violation.
+        return res.status(500).json({
+          error: 'Could not allocate a search tag right now. Please try again.'
+        });
+      }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     console.log('✅ Password hashed');
 
@@ -852,17 +887,8 @@ router.post('/business/register', upload.fields([
       [username, email, hashedPassword, 'business_admin']
     );
     const adminId = adminResult.rows[0].id;
-    console.log('✅ Admin user created:', adminId);
+    console.log('✅ Admin user created:', adminId, 'username:', username);
 
-    // ----------------------------------------------------------
-    //  Insert the business row.
-    //
-    //  search_prefix and search_name are written raw. The DB
-    //  trigger set_business_search_tag() fills in search_tag,
-    //  search_display and search_tag_updated_at in the same
-    //  statement. search_tag_confirmed is set TRUE here because
-    //  the owner is choosing it deliberately during registration.
-    // ----------------------------------------------------------
     const businessResult = await pool.query(`
       INSERT INTO businesses (
         business_name, slug, owner_id, location, address,
@@ -900,7 +926,7 @@ router.post('/business/register', upload.fields([
       terms_policy || null, privacy_policy || null,
       delivery_enabled !== 'false', online_orders_enabled !== 'false',
       true, true,
-      prefixCheck.value, nameCheck.value, true
+      resolvedPrefix, resolvedName, true
     ]);
     const businessId = businessResult.rows[0].id;
     console.log('✅ Business created:', businessId);
@@ -938,6 +964,7 @@ router.post('/business/register', upload.fields([
       business_id: businessId,
       business: savedBusiness,
       slug: slug,
+      username: username,
       category_ids: allCategoryIds,
       primary_category_id: primaryCategoryId,
       additional_category_ids: additionalCategoryIds,
@@ -949,10 +976,6 @@ router.post('/business/register', upload.fields([
   } catch (err) {
     await pool.query('ROLLBACK');
 
-    // The unique index on search_tag is the last line of defense
-    // against a race between two simultaneous registrations that
-    // picked the same digits + name. Convert the raw Postgres
-    // error into the same friendly message the pre-check returns.
     if (err && err.code === '23505' && err.constraint === 'idx_businesses_search_tag_unique') {
       return res.status(409).json({
         error: 'This number is already used. Please try another.',
@@ -1065,15 +1088,6 @@ router.get('/verify', authMiddleware, (req, res) => {
 
 // ============================================================
 //  GET MY BUSINESS (For logged-in business admin)
-//
-//  Section B: returns `has_business_category` so the admin UI can
-//  warn businesses that registered before Section B and have no
-//  business category assigned yet.
-//
-//  Search tag: returns search_prefix / search_name / search_tag /
-//  search_display / search_tag_confirmed so the business admin
-//  panel can show the owner their current tag and let them change
-//  it without a second request.
 // ============================================================
 
 router.get('/my-business', authMiddleware, async (req, res) => {
@@ -1173,15 +1187,6 @@ router.get('/my-business', authMiddleware, async (req, res) => {
 
 // ============================================================
 //  UPDATE MY BUSINESS SEARCH TAG
-//
-//  Lets a business admin change the search tag from the admin
-//  panel after registration. Uses the same validation and
-//  uniqueness rules as the register route, and returns the new
-//  tag so the UI can render it immediately.
-//
-//  Body:
-//    search_prefix   — 3 or 4 digits
-//    search_name     — the name customers will type
 // ============================================================
 
 router.put('/my-business/search-tag', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -1260,14 +1265,6 @@ router.put('/my-business/search-tag', authMiddleware, businessAdminOnly, getBusi
 
 // ============================================================
 //  CUSTOMER VERIFY
-//
-//  D.11 — this endpoint deliberately does NOT return latitude,
-//  longitude, location_accuracy, or any other location field.
-//  No auth route exposes a customer's coordinates.
-//
-//  E.2 — preferred_* names are also omitted from this response.
-//  The customer's own preferred area is only readable via
-//  GET /api/location/customer/preferred-locations.
 // ============================================================
 
 router.get('/customer/verify', authMiddleware, async (req, res) => {
@@ -1288,29 +1285,6 @@ router.get('/customer/verify', authMiddleware, async (req, res) => {
 
 // ============================================================
 //  CUSTOMER UPDATE PROFILE
-//
-//  Section D.1 / D.2 / D.10 / D.12 — the same endpoint now also
-//  accepts location fields so the profile UI can activate, refresh,
-//  or turn off location sharing without a separate page:
-//
-//    * body.latitude  + body.longitude  → save and mark activated
-//    * body.location_activated === false → clear coordinates and
-//                                          deactivate
-//    * body.accuracy (optional)          → store the browser accuracy
-//
-//  Section E.2 — the endpoint also accepts preferred area names:
-//
-//    * body.preferred_continent, preferred_country,
-//      preferred_county, preferred_sub_county,
-//      preferred_ward, preferred_town
-//
-//    A field that is not sent  → left unchanged.
-//    A field sent as "" or null → cleared.
-//
-//  Coordinates and preferred names are written only to the
-//  requesting customer's own row. The response echoes back the
-//  activation state and the saved preferred block so the UI can
-//  update without a second request.
 // ============================================================
 
 router.put('/customer/profile', authMiddleware, async (req, res) => {
@@ -1328,11 +1302,6 @@ router.put('/customer/profile', authMiddleware, async (req, res) => {
 
     const cleanPhone = phone ? phone.replace(/[^0-9]/g, '') : null;
 
-    // ----------------------------------------------------------
-    //  E.2 — Determine whether any preferred field was sent.
-    //  "Sent" means the key exists on req.body, even if empty.
-    //  This lets the caller clear a single field by passing ''.
-    // ----------------------------------------------------------
     const preferredUpdates = {};
     const preferredKeys = [
       ['preferred_continent', preferred_continent],
@@ -1353,10 +1322,6 @@ router.put('/customer/profile', authMiddleware, async (req, res) => {
       }
     }
 
-    // ----------------------------------------------------------
-    //  D.10 — explicit deactivation: clear stored coordinates
-    //  and turn the activation flag off.
-    // ----------------------------------------------------------
     if (location_activated === false) {
       const clearResult = await pool.query(`
         UPDATE customers
@@ -1380,8 +1345,6 @@ router.put('/customer/profile', authMiddleware, async (req, res) => {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      // Apply any preferred updates that were also sent in the
-      // same request.
       let preferredBlock = null;
       if (preferredSent) {
         preferredBlock = await applyPreferredUpdates(req.userId, preferredUpdates, preferredHasValue);
@@ -1401,10 +1364,6 @@ router.put('/customer/profile', authMiddleware, async (req, res) => {
       });
     }
 
-    // ----------------------------------------------------------
-    //  D.1 / D.2 / D.12 — coordinate save (initial activation or
-    //  refresh). Only runs when both coordinates were supplied.
-    // ----------------------------------------------------------
     const wantsLocationSave =
       latitude !== undefined && latitude !== null && latitude !== '' &&
       longitude !== undefined && longitude !== null && longitude !== '';
@@ -1468,10 +1427,6 @@ router.put('/customer/profile', authMiddleware, async (req, res) => {
       });
     }
 
-    // ----------------------------------------------------------
-    //  Plain profile update — no location fields were sent.
-    //  Apply preferred updates separately if any were sent.
-    // ----------------------------------------------------------
     const result = await pool.query(
       'UPDATE customers SET name = COALESCE($1, name), phone = COALESCE($2, phone), email = COALESCE($3, email) WHERE id = $4 RETURNING id, name, username, email, phone',
       [name, cleanPhone, email, req.userId]
@@ -1497,13 +1452,6 @@ router.put('/customer/profile', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * Internal helper — apply a set of preferred_* updates to the
- * customer's row. Any key present in `updates` is written, even if
- * its value is null (which clears the column). If
- * `hasValue` is false, every column ends up NULL and we also reset
- * the updated_at marker, matching the "cleared" state.
- */
 async function applyPreferredUpdates(customerId, updates, hasValue) {
   const columns = [
     'preferred_continent',
@@ -1619,7 +1567,7 @@ router.delete('/customer/delete', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-//  PASSWORD RESET (Supports both admin and customer)
+//  PASSWORD RESET
 // ============================================================
 
 router.post('/forgot-password', [

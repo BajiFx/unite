@@ -370,7 +370,6 @@
       <!-- Optional: Email (kept for password recovery)                 -->
       <!--                                                              -->
       <!-- Username is auto-generated on the server from the name.       -->
-      <!-- The customer sees it on their dashboard after registering.    -->
       <!-- ============================================================ -->
       <div id="customerRegisterForm">
         <div class="form-group">
@@ -403,165 +402,96 @@
         <div id="customerRegisterStatus" class="auth-status"></div>
       </div>
 
-      <!-- Business Registration -->
+      <!-- ============================================================ -->
+      <!-- BUSINESS REGISTRATION — Section 7 simplified form            -->
+      <!--                                                              -->
+      <!-- Required: Business Name, Category, Email, Phone, Password,   -->
+      <!--           Confirm, City / Town                                -->
+      <!--                                                              -->
+      <!-- Removed from the form (auto-generated on the server):        -->
+      <!--   • Business username                                         -->
+      <!--   • Search-tag prefix and search-tag name                     -->
+      <!--                                                              -->
+      <!-- Removed (can be added later from My Shop):                   -->
+      <!--   • Additional categories                                     -->
+      <!--   • Business description                                      -->
+      <!--                                                              -->
+      <!-- The owner sees their auto-generated search tag on the         -->
+      <!-- success screen immediately after registration.                -->
+      <!-- ============================================================ -->
       <div id="businessRegisterForm" style="display:none;">
-        <div class="form-group">
-          <label>Business Username *</label>
-          <input type="text" id="regBusinessUsername" placeholder="Choose a unique business username" oninput="checkUsernameAvailability(this.value, 'business')">
-          <small id="businessUsernameStatus" style="font-size:0.55rem; color:#94a3b8;">Username must be at least 3 characters</small>
-          <div id="businessUsernameSuggestions" style="display:none; background:#f8fafc; border-radius:6px; padding:4px 8px; margin-top:4px; font-size:0.75rem; color:#64748b;"></div>
-        </div>
+
         <div class="form-group">
           <label>Business Name *</label>
           <input type="text" id="regBusinessName" placeholder="Your business name">
         </div>
 
-        <!-- ============================================================ -->
-        <!-- BUSINESS CATEGORIES — MULTI-SELECT WITH PRIMARY -->
-        <!-- ============================================================ -->
         <div class="form-group">
-          <label>Business Categories * <span style="font-weight:400; color:#64748b; font-size:0.75rem;">(select one or more)</span></label>
-
-          <!-- Primary category (always required) -->
+          <label>Business Category *</label>
           <select id="regBusinessPrimaryCategory"
-                  aria-label="Primary business category"
-                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem; background:white; cursor:pointer; margin-bottom:6px;">
+                  aria-label="Business category"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem; background:white; cursor:pointer;">
             <option value="">⏳ Loading categories...</option>
           </select>
-          <small style="font-size:0.6rem; color:#64748b; display:block; margin-bottom:8px;">
-            <strong>Main category</strong> — the main type of business you run.
+          <small id="regBusinessCategoryHelp" style="font-size:0.6rem; color:#94a3b8; display:block; margin-top:4px;">
+            Pick the category that best describes what your business sells.
           </small>
-
-          <!-- Additional categories -->
-          <div id="regBusinessAdditionalCategoriesWrap"
-               style="display:none; border:1px dashed #cbd5e1; border-radius:6px; padding:8px 10px; background:#f8fafc;">
-            <div style="font-size:0.75rem; font-weight:600; color:#334155; margin-bottom:4px;">
-              Other categories you also belong to <span style="font-weight:400; color:#64748b;">(optional)</span>
-            </div>
-            <div id="regBusinessAdditionalCategories"
-                 style="display:flex; flex-direction:column; gap:4px; max-height:140px; overflow-y:auto;">
-              <!-- Checkboxes populated by JavaScript -->
-            </div>
-          </div>
-
-          <small id="regBusinessCategoryHelp" style="font-size:0.55rem; color:#94a3b8; display:block; margin-top:6px;">
-            Pick the category (or categories) that best describe what your business sells.
-          </small>
-
           <div id="businessCategoryError"
                style="display:none; font-size:0.7rem; color:#ef4444; margin-top:4px;">
-            ❌ Please select at least one business category.
+            ❌ Please select a business category.
           </div>
         </div>
-        <!-- ============================================================ -->
-
-        <!-- ============================================================ -->
-        <!-- BUSINESS SEARCH TAG — how customers find this specific shop  -->
-        <!--                                                              -->
-        <!-- The owner picks:                                             -->
-        <!--   - a 3 or 4 digit number (e.g. 363, 3734)                   -->
-        <!--   - the name customers will type (e.g. Doppa Beddings)       -->
-        <!--                                                              -->
-        <!-- The two combine into the search tag, e.g. 3734Doppa Beddings -->
-        <!-- Customers can then type that (spaces and case are ignored)  -->
-        <!-- and jump straight to this shop.                              -->
-        <!--                                                              -->
-        <!-- The prefix input is marked red by index.js when the          -->
-        <!-- availability check reports the tag is already in use.        -->
-        <!-- ============================================================ -->
-        <div class="form-group" style="background:#f0fdf4; padding:12px; border-radius:8px; border:1px solid #86efac;">
-          <label style="font-weight:700; font-size:0.85rem; display:block; margin-bottom:4px;">
-            🔖 Business Search Tag *
-          </label>
-          <p style="font-size:0.65rem; color:#166534; margin:0 0 8px 0; line-height:1.4;">
-            This is how customers will find your specific shop, even if other shops have a similar name.
-            Pick a short number and the name customers will type.
-          </p>
-
-          <div style="display:grid; grid-template-columns:110px 1fr; gap:8px; align-items:start;">
-            <div>
-              <label style="font-size:0.7rem; font-weight:600; color:#334155; display:block; margin-bottom:2px;">
-                Number
-              </label>
-              <input
-                type="text"
-                id="regBusinessSearchPrefix"
-                placeholder="3734"
-                maxlength="4"
-                inputmode="numeric"
-                pattern="[0-9]{3,4}"
-                autocomplete="off"
-                style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem; font-family:monospace; letter-spacing:0.05em;"
-              >
-              <small style="font-size:0.55rem; color:#64748b;">3 or 4 digits</small>
-            </div>
-            <div>
-              <label style="font-size:0.7rem; font-weight:600; color:#334155; display:block; margin-bottom:2px;">
-                Name customers will type
-              </label>
-              <input
-                type="text"
-                id="regBusinessSearchName"
-                placeholder="Doppa Beddings"
-                maxlength="120"
-                autocomplete="off"
-                style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem;"
-              >
-              <small style="font-size:0.55rem; color:#64748b;">Can be the same as your business name</small>
-            </div>
-          </div>
-
-          <!-- Live preview of the assembled tag -->
-          <div id="regBusinessSearchPreview"
-               style="display:none; margin-top:8px; padding:8px 12px; background:#dcfce7; border-radius:6px; border-left:3px solid #16a34a;">
-            <div style="font-size:0.65rem; color:#166534; margin-bottom:2px;">
-              Your business will be searched as:
-            </div>
-            <div id="regBusinessSearchPreviewValue"
-                 style="font-size:0.9rem; font-weight:800; color:#14532d; font-family:monospace; letter-spacing:0.02em;">
-            </div>
-          </div>
-
-          <!-- Availability status line — index.js writes into this -->
-          <div id="regBusinessSearchStatus"
-               style="display:none; margin-top:6px; font-size:0.7rem; line-height:1.4;">
-          </div>
-
-          <div id="regBusinessSearchError"
-               style="display:none; margin-top:4px; font-size:0.7rem; color:#ef4444;">
-            ❌ Please pick a number (3–4 digits) and a name for your search tag.
-          </div>
-        </div>
-        <!-- ============================================================ -->
 
         <div class="form-group">
           <label>Email *</label>
           <input type="email" id="regBusinessEmail" placeholder="business@email.com">
+          <small>Used for account notices and password recovery.</small>
         </div>
+
         <div class="form-group">
           <label>Phone Number *</label>
           <input type="tel" id="regBusinessPhone" placeholder="0712345678">
         </div>
+
         <div class="form-group">
-          <label>Location *</label>
-          <input type="text" id="regBusinessLocation" placeholder="Nairobi, Kenya">
+          <label>City / Town *</label>
+          <input type="text" id="regBusinessLocation" placeholder="e.g., Nairobi">
+          <small>You can add a full address later from My Shop.</small>
         </div>
-        <div class="form-group">
-          <label>Business Description</label>
-          <textarea id="regBusinessDescription" rows="2" placeholder="Tell customers about your business..." style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
-        </div>
+
         <div class="form-group" style="position:relative;">
           <label>Password *</label>
           <input type="password" id="regBusinessPassword" placeholder="Min 8 characters">
           <button class="toggle-pwd" onclick="togglePwd('regBusinessPassword', this)"><i class="fas fa-eye"></i></button>
         </div>
+
         <div class="form-group" style="position:relative;">
           <label>Confirm Password *</label>
           <input type="password" id="regBusinessConfirm" placeholder="Re-enter password">
           <button class="toggle-pwd" onclick="togglePwd('regBusinessConfirm', this)"><i class="fas fa-eye"></i></button>
         </div>
+
         <button class="btn btn-primary" style="width:100%;" onclick="handleBusinessRegister()">Create Business Account</button>
         <div id="businessRegisterStatus" class="auth-status"></div>
+
+        <!-- Success screen — shown by index.js after a successful
+             registration. Displays the auto-generated search tag
+             so the owner can copy it and share it with customers. -->
+        <div id="businessRegisterSuccess" style="display:none; margin-top:14px; padding:14px 16px; background:#f0fdf4; border-radius:10px; border:1px solid #86efac;">
+          <strong style="display:block; color:#166534; font-size:0.9rem; margin-bottom:6px;">
+            ✅ Business registered!
+          </strong>
+          <p style="font-size:0.8rem; color:#14532d; margin:0 0 8px 0;">
+            Your shop will be found by typing this search tag into the marketplace search:
+          </p>
+          <div id="businessRegisterSearchTagValue"
+               style="padding:8px 12px; background:#ffffff; border:1px dashed #16a34a; border-radius:8px; font-family:monospace; font-weight:800; color:#14532d; font-size:0.95rem; letter-spacing:0.03em;">
+            —
+          </div>
+          <div id="businessRegisterUsernameValue"
+               style="font-size:0.72rem; color:#64748b; margin-top:8px;">
+          </div>
+        </div>
       </div>
     </div>
   </div>

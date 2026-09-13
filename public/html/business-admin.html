@@ -19,13 +19,20 @@
             section (section-ads) inside the business admin,
             placed in the Main group right after Messages.
 
-            The section reuses the same markup / ids that
-            ad-management.html used so that the same JS
-            (ad-management.js) can drive both surfaces
-            unchanged. The standalone page can still be kept,
-            but this is now the primary surface.
+     Section 7 changes:
+      A new read-only "Search Tag" block was added inside the
+      existing Business Profile section (inside My Shop). It
+      shows the owner their current auto-generated search tag
+      (#searchTagCurrentValue) and provides a Copy button
+      (#copySearchTagBtn) wired to copySearchTagFromAdmin().
 
-     Section 2 changes:
+      The tag itself was auto-generated at registration by the
+      server. The change-tag UI is deferred to a follow-up round
+      once Section 8 has merged the settings into a single My
+      Shop page. The endpoint PUT /api/auth/my-business/search-tag
+      already exists and is fully validated server-side.
+
+     Section 2D changes:
       2D.A — Ad duration input caps at 20 (was 600).
       2D.B — Placeholder and hint text now state the new
              defaults: 4 seconds for images, 20 for videos.
@@ -33,10 +40,11 @@
              "6 seconds / 1 minute"; it now matches the caps
              enforced by the server.
 
-     Only these sections were rewritten:
-      - sidebar "Main" group (one new menu item)
-      - main content (one new section: section-ads)
-      - the #section-ads duration input + info banner
+     Only these sections were touched:
+      - Section 7: one new read-only block inside #section-profile
+        + one inline copySearchTagFromAdmin() helper before
+          </body>
+      - Section 2D: duration input + info banner inside #section-ads
 
      Everything else in this file is preserved byte-for-byte.
      ============================================================ -->
@@ -118,10 +126,7 @@
         <i class="fas fa-comment"></i> Messages
       </div>
 
-      <!-- Section J.2 — In-page Ad Management.
-           The section lives inside this same page (see #section-ads
-           further down). Clicking here switches to it via the same
-           navigateTo() mechanism used by Orders, Products, etc. -->
+      <!-- Section J.2 — In-page Ad Management. -->
       <div class="menu-item" data-section="ads" onclick="navigateTo('ads')">
         <i class="fas fa-bullhorn"></i> Manage Ads
       </div>
@@ -270,11 +275,6 @@
 
     <!-- ============================================================ -->
     <!-- SECTION: ADS (Section J.2)                                    -->
-    <!--                                                              -->
-    <!--  This is the in-page Ad Management surface. Markup mirrors    -->
-    <!--  the standalone ad-management.html so that ad-management.js   -->
-    <!--  can drive both. The section is hidden until navigateTo('ads')-->
-    <!--  is called; the IDs are kept identical.                       -->
     <!-- ============================================================ -->
     <div class="section" id="section-ads">
 
@@ -283,7 +283,7 @@
         <button class="btn-save" onclick="loadAds()"><i class="fas fa-sync-alt"></i> Refresh</button>
       </div>
 
-      <!-- Info banner — Section 2D.C: wording now matches the caps. -->
+      <!-- Info banner — Section 2D.C -->
       <div class="ad-info-banner">
         <i class="fas fa-info-circle"></i>
         <div>
@@ -323,7 +323,7 @@
               <input type="text" id="adTitle" name="title" maxlength="200" placeholder="e.g., New Arrivals — 30% Off">
             </div>
 
-            <!-- Duration — Section 2D.A / 2D.B: max is 20, placeholder names the new caps. -->
+            <!-- Duration — Section 2D.A / 2D.B -->
             <div>
               <label>Display Duration (seconds)</label>
               <input type="number" id="adDuration" name="display_duration" min="1" max="20" placeholder="Max 4s images, 20s videos">
@@ -575,6 +575,52 @@
         <div id="locationActivationStatus" style="margin-top:8px; font-size:0.85rem;"></div>
       </div>
 
+      <!-- ============================================================ -->
+      <!-- SECTION 7 — Search Tag (read-only)                            -->
+      <!--                                                              -->
+      <!--  The tag was auto-generated at registration. This block       -->
+      <!--  only displays it. business-admin.js fills                   -->
+      <!--  #searchTagCurrentValue from /api/auth/my-business            -->
+      <!--  (business.search_display).                                   -->
+      <!--                                                              -->
+      <!--  The change-tag UI is deferred to a follow-up round once      -->
+      <!--  Section 8 has merged the settings into a single My Shop      -->
+      <!--  page. The endpoint PUT /api/auth/my-business/search-tag      -->
+      <!--  already exists and is fully validated server-side.           -->
+      <!-- ============================================================ -->
+      <div class="settings-section" id="searchTagSection">
+        <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
+          🔖 Your Search Tag
+        </h3>
+        <p style="font-size:0.8rem; color:#64748b; margin:0 0 12px 0;">
+          Customers can type this tag into the marketplace search to jump straight to your shop.
+          The tag was generated for you automatically at registration.
+        </p>
+
+        <div id="searchTagCurrentBlock" style="padding:12px 14px; background:#f0fdf4; border-radius:10px; border-left:4px solid #16a34a; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:180px;">
+            <div style="font-size:0.7rem; color:#166534; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">
+              Your search tag
+            </div>
+            <div id="searchTagCurrentValue"
+                 style="font-family:monospace; font-weight:800; color:#14532d; font-size:1rem; letter-spacing:0.03em;">
+              —
+            </div>
+          </div>
+          <button type="button"
+                  id="copySearchTagBtn"
+                  onclick="copySearchTagFromAdmin()"
+                  title="Copy the search tag"
+                  style="display:inline-flex; align-items:center; gap:6px; padding:8px 14px; background:#16a34a; color:#ffffff; border:none; border-radius:8px; font-weight:700; font-size:0.8rem; cursor:pointer;">
+            <i class="fas fa-copy"></i> Copy
+          </button>
+        </div>
+
+        <p style="font-size:0.72rem; color:#94a3b8; margin:10px 0 0 0;">
+          Share this tag with customers so they can find your shop directly.
+        </p>
+      </div>
+
       <div class="settings-section">
         <form id="profileForm" enctype="multipart/form-data">
           <div class="form-row">
@@ -620,10 +666,8 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- SECTION: PAYMENT SETTINGS
-         I.2 — M-Pesa type radios + conditional fields
-         I.6 — read-only environment label
-         ============================================================ -->
+    <!-- SECTION: PAYMENT SETTINGS -->
+    <!-- ============================================================ -->
     <div class="section" id="section-payments">
       <div class="section-header">
         <h2>💳 Payment Settings</h2>
@@ -1186,6 +1230,59 @@
 <script src="/js/cookie-auth-client.js"></script>
 <script src="/js/business-admin.js"></script>
 <script src="/js/ad-management.js"></script>
+
+<!-- Section 7 — inline helper for the read-only search tag copy button. -->
+<script>
+  // copySearchTagFromAdmin() — copy the search tag shown in
+  // #searchTagCurrentValue to the clipboard.
+  //
+  // Kept inline in this file so Section 7 does not need a new
+  // JavaScript file. The tag itself is written into
+  // #searchTagCurrentValue by business-admin.js when the profile
+  // loads, sourced from /api/auth/my-business.
+  function copySearchTagFromAdmin() {
+    const valueEl = document.getElementById('searchTagCurrentValue');
+    const tag = valueEl ? String(valueEl.textContent || '').trim() : '';
+    if (!tag || tag === '—') {
+      if (typeof showToast === 'function') {
+        showToast('No search tag to copy yet.', 'warning');
+      }
+      return;
+    }
+
+    const fallback = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = tag;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (typeof showToast === 'function') {
+          showToast('Copied: ' + tag, 'success');
+        }
+      } catch (err) {
+        if (typeof showToast === 'function') {
+          showToast('Could not copy. Please copy it manually.', 'warning');
+        }
+      }
+    };
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(tag)
+        .then(() => {
+          if (typeof showToast === 'function') showToast('Copied: ' + tag, 'success');
+        })
+        .catch(fallback);
+    } else {
+      fallback();
+    }
+  }
+  window.copySearchTagFromAdmin = copySearchTagFromAdmin;
+</script>
 
 </body>
 </html>
