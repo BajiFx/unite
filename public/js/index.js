@@ -45,6 +45,35 @@
 //   auto-generated on the server. The response echoes back the
 //   generated search tag and username so the form can show them
 //   on a small success panel.
+//
+//  Section 8 — Workspace outer tabs simplified
+//   The outer marketplace workspace (the row of tabs above the
+//   iframe) no longer shows a "Settings" tab with its own row of
+//   sub-tabs. Instead:
+//     - The tab row is:
+//         Dashboard, Orders, Products, Manage Ads,
+//         Customers, Messages, My Shop, Preview.
+//     - "My Shop" opens business-admin.html?embedded=1&section=myshop
+//       which is the merged My Shop page built in Section 8.
+//     - The sub-tab row (#workspaceSubtabs) is removed entirely.
+//     - Legacy deep links (?workspace=profile, payments, delivery,
+//       ordersettings, productcategories) still work: they are
+//       mapped to their new home (myshop or products) before the
+//       iframe is loaded.
+//
+//  Section 9 — Customer workspace reduced to 4 tabs
+//   The customer side of the workspace (the row of tabs above the
+//   account iframe) now matches the account page itself:
+//     Home, Orders, Profile, Messages.
+//   The Cart tab is removed from the strip. The cart is reached
+//   in normal use via the floating button on the account page.
+//   The legacy deep link ?workspace=cart still resolves to
+//   /cart.html?embedded=1 so any existing bookmark or link
+//   continues to work.
+//   Legacy deep links ?workspace=addresses and
+//   ?workspace=payments fall back to the Profile tab, which is
+//   where those sub-sections now live.
+//   Kicker text and title logic are unchanged.
 // ============================================================
 
 // ============================================================
@@ -158,8 +187,6 @@ let inFeedAdsConsumed = 0;
 
 // ------------------------------------------------------------
 // Business Search Tag — registration-time state.
-// (Still used by the Business Admin Search Tag panel, even
-//  though the register form no longer uses it.)
 // ------------------------------------------------------------
 let searchTagCheckDebounceTimer = null;
 const SEARCH_TAG_CHECK_DEBOUNCE_MS = 400;
@@ -790,49 +817,23 @@ async function loadCategories() {
 
 // ============================================================
 //  SECTION J — MARKETPLACE AD SLIDER
-//
-//  STRICT ROUND-ROBIN, PER-TYPE DURATIONS, NO DOUBLE-SHOWS,
-//  VIDEO WITH SOUND.
 // ============================================================
 
-/**
- * Read the rotation metadata the server publishes. The server
- * still sends rotation_epoch_ms and rotation_offset for
- * compatibility, but the client no longer uses them to drive
- * the rotation. They are kept in the response so older clients
- * do not break.
- */
 function updateAdRotationMetaFromResponse(_data) {
-  // Intentionally a no-op on the client. The rotation is driven
-  // by the timer chain, not the wall clock.
+  // Intentionally a no-op on the client.
 }
 
-/**
- * Pick the on-screen duration for a given slide from its media
- * type. This is the ONLY place the two durations live.
- */
 function getAdSlotDurationMsForAd(ad) {
   if (ad && ad.media_type === 'video') return AD_VIDEO_SLOT_MS;
   return AD_IMAGE_SLOT_MS;
 }
 
-/**
- * Display the slide at `index` and arm the next transition.
- *
- * This is the single entry point for the rotation. Every path
- * that changes the current slide — the natural timer, the
- * prev/next buttons, the dots, and the initial render — calls
- * this function. That guarantees the timer chain is never left
- * with two pending timers, and the round-robin order is always
- * respected.
- */
 function showAdAtIndex(index) {
   if (!Array.isArray(adsList) || adsList.length === 0) return;
 
   const total = adsList.length;
   const next = ((index % total) + total) % total;
 
-  // Cancel any pending transition before scheduling the next one.
   if (adsTransitionTimer) {
     clearTimeout(adsTransitionTimer);
     adsTransitionTimer = null;
@@ -847,9 +848,6 @@ function showAdAtIndex(index) {
   fireAdImpression(next);
   restartAdsProgressLoop();
 
-  // Arm the next transition. If the slider is paused, the timer
-  // is not armed; unpausing calls `resumeAdChain()` which arms
-  // it again from the current slide.
   if (!adsIsPaused) {
     adsTransitionTimer = setTimeout(() => {
       adsTransitionTimer = null;
@@ -858,21 +856,11 @@ function showAdAtIndex(index) {
   }
 }
 
-/**
- * Advance one slide. Used by the prev/next buttons and the dots.
- * Kept under the old name so existing inline handlers keep
- * working.
- */
 function jumpAdClockToIndex(index) {
   if (!Array.isArray(adsList) || adsList.length === 0) return;
   showAdAtIndex(index);
 }
 
-/**
- * Called when the user stops hovering / focusing the slider.
- * Re-arms the timer for the remainder of the current slide so
- * the rotation does not jump or stall.
- */
 function resumeAdChain() {
   if (!Array.isArray(adsList) || adsList.length === 0) return;
   if (adsIsPaused) return;
@@ -891,30 +879,16 @@ function resumeAdChain() {
   }, remaining);
 }
 
-/**
- * Stop the rotation entirely. Safe to call multiple times.
- */
 function stopAdClock() {
   if (adsTransitionTimer) { clearTimeout(adsTransitionTimer); adsTransitionTimer = null; }
   if (adsProgressTimer) { clearInterval(adsProgressTimer); adsProgressTimer = null; }
 }
 
-/**
- * Kept for backward compatibility with the old name. The
- * rotation now starts as soon as `showAdAtIndex(0)` is called
- * from `renderAdsSlider`, so this function is a no-op unless the
- * caller explicitly wants to restart the chain from index 0.
- */
 function startAdClock() {
   if (!Array.isArray(adsList) || adsList.length <= 1) return;
   showAdAtIndex(0);
 }
 
-/**
- * Restart the progress bar for the current slide. The bar runs
- * off `adsSlideStartedAt` and `adsSlideDuration`, not off the
- * wall clock, so it always matches what the user sees.
- */
 function restartAdsProgressLoop() {
   if (adsProgressTimer) clearInterval(adsProgressTimer);
 
@@ -965,7 +939,6 @@ async function loadAds() {
     renderAdsSlider();
     section.hidden = false;
     bindAdsSliderOnce();
-    // Kick off the rotation from index 0.
     showAdAtIndex(0);
   } catch (err) {
     console.warn('Ads slider skipped:', err.message);
@@ -1030,10 +1003,6 @@ function renderAdSlide(ad, index) {
   const mediaAlt = escapeAdsAttr(ad.title || ad.business_name || 'Sponsored');
   const [bgA, bgB] = pickAdBackdrop(ad);
 
-  // Video: no `muted` attribute. Audio will play when the browser
-  // allows it (see updateAdsActiveSlide for the fallback logic).
-  // preload="auto" buffers the whole file so sound starts as soon
-  // as the slide becomes active.
   const media = isVideo
     ? `<video class="ads-media" src="${mediaSrc}" playsinline preload="auto"></video>`
     : `
@@ -1131,37 +1100,23 @@ function updateAdsActiveSlide() {
       if (!video) return;
 
       if (idx === adsCurrentIndex) {
-        // This is the active video.
         try { video.currentTime = 0; } catch (e) {}
 
-        // Try to play WITH SOUND first. If the browser blocks
-        // autoplay-with-audio (no user gesture yet, or a strict
-        // autoplay policy), fall back to muted playback so the
-        // video is at least visibly running. We do NOT set the
-        // muted attribute permanently — only the .muted property
-        // for this one attempt — so the next slide transition
-        // will try with sound again.
         video.muted = false;
         video.volume = 1;
 
         const playAttempt = video.play();
         if (playAttempt && typeof playAttempt.catch === 'function') {
           playAttempt.catch(() => {
-            // Browser blocked sound. Retry once, muted, so the
-            // frame is not frozen. Sound stays off for THIS slide
-            // only; the next transition tries with sound again.
             try {
               video.muted = true;
               video.play().catch(() => {});
             } catch (e) {
-              // Give up silently — the poster / first frame is fine.
+              // Give up silently.
             }
           });
         }
       } else {
-        // Not the active slide. Pause and mute so a background
-        // video does not emit sound if it was somehow still
-        // playing.
         try { video.pause(); } catch (e) {}
         try { video.muted = true; } catch (e) {}
       }
@@ -1392,11 +1347,6 @@ function populateRegisterCategorySelect(categories) {
 
 // ============================================================
 //  BUSINESS SEARCH TAG — form wiring
-//
-//  Section 7 removed the search-tag inputs from the register
-//  form, but these helpers are still used by the Business Admin
-//  "Search Tag" panel (see business-admin.html). They no-op
-//  silently when the inputs are absent from the page.
 // ============================================================
 
 function normalizeSearchTagPart(value) {
@@ -2178,9 +2128,6 @@ function selectRegisterType(type) {
     document.getElementById('customerRegisterForm').style.display = 'none';
     document.getElementById('businessRegisterForm').style.display = 'block';
 
-    // Section 7 — the register form only needs the category
-    // dropdown populated. The search-tag inputs are gone from
-    // this form, so the search-tag wiring is not invoked here.
     loadBusinessCategoriesForRegistration();
   }
 }
@@ -2200,9 +2147,6 @@ function togglePwd(inputId, btn) {
 
 // ============================================================
 //  CHECK USERNAME AVAILABILITY
-// (Only used by the business register form when an older
-//  client still supplies one. The simplified Section 7 form
-//  no longer calls this.)
 // ============================================================
 
 async function checkUsernameAvailability(username, type) {
@@ -2483,14 +2427,6 @@ async function handleCustomerRegister() {
 
 // ============================================================
 //  HANDLE BUSINESS REGISTER — Section 7 simplified form
-//
-//  Only 6 fields are read from the form:
-//    business_name, category, email, phone, city/town,
-//    password, confirm.
-//
-//  Username, search-tag prefix and search-tag name are all
-//  generated on the server. On success we show the returned
-//  search_display and username on the success panel.
 // ============================================================
 
 async function handleBusinessRegister() {
@@ -2519,7 +2455,6 @@ async function handleBusinessRegister() {
   if (categoryError) categoryError.style.display = 'none';
   if (primarySelect) primarySelect.style.borderColor = '#d1d5db';
 
-  // ---- Required field checks ----
   if (!businessName) {
     status.textContent = '❌ Please enter your business name.';
     status.className = 'auth-status error';
@@ -2597,8 +2532,6 @@ async function handleBusinessRegister() {
   formData.append('password', password);
   formData.append('category', primaryCategory);
 
-  // Section 7 — the payment flags default to a sane baseline.
-  // The owner can change them from My Shop > Payment Settings.
   formData.append('mpesa_enabled', 'false');
   formData.append('airtel_enabled', 'false');
   formData.append('bank_enabled', 'true');
@@ -2628,8 +2561,6 @@ async function handleBusinessRegister() {
 
       businessCategoriesCache = null;
 
-      // Clear the form fields so a subsequent registration
-      // starts fresh.
       const nameEl = document.getElementById('regBusinessName');
       const emailEl = document.getElementById('regBusinessEmail');
       const phoneEl = document.getElementById('regBusinessPhone');
@@ -2647,9 +2578,6 @@ async function handleBusinessRegister() {
         primarySelect.style.borderColor = '#d1d5db';
       }
 
-      // Show the success panel with the generated search tag
-      // and username so the owner can copy the tag and share
-      // it with customers.
       if (successPanel && successTagValue) {
         successTagValue.textContent = data.search_display || '(pending)';
         if (successUsernameValue) {
@@ -2807,18 +2735,27 @@ window.buildSearchTagDisplay = buildSearchTagDisplay;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
+//
+//  Section 9 — Customer workspace reduced to 4 tabs:
+//    Home, Orders, Profile, Messages.
+//
+//  The Cart tab is removed from the strip. The legacy deep link
+//  ?workspace=cart still resolves to /cart.html?embedded=1.
+//
+//  Legacy deep links ?workspace=addresses and ?workspace=payments
+//  fall back to the Profile tab, where those sub-sections now
+//  live inside the account page.
+//
+//  The business side is unchanged from Section 8.
 // ============================================================
 
 const MARKETPLACE_WORKSPACE = Object.freeze({
   customer: {
     kicker: 'Your BidhaaLink space',
     tabs: [
-      { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-pie' },
-      { id: 'profile', label: 'My Profile', icon: 'fa-user' },
-      { id: 'orders', label: 'My Orders', icon: 'fa-box' },
-      { id: 'addresses', label: 'Addresses', icon: 'fa-map-marker-alt' },
-      { id: 'payments', label: 'Payments', icon: 'fa-credit-card' },
-      { id: 'cart', label: 'Cart', icon: 'fa-shopping-cart' },
+      { id: 'home',     label: 'Home',     icon: 'fa-home' },
+      { id: 'orders',   label: 'Orders',   icon: 'fa-box' },
+      { id: 'profile',  label: 'Profile',  icon: 'fa-user' },
       { id: 'messages', label: 'Messages', icon: 'fa-comment' }
     ],
     bottom: []
@@ -2832,19 +2769,30 @@ const MARKETPLACE_WORKSPACE = Object.freeze({
       { id: 'ads', label: 'Manage Ads', icon: 'fa-bullhorn' },
       { id: 'customers', label: 'Customers', icon: 'fa-users' },
       { id: 'messages', label: 'Messages', icon: 'fa-comment' },
-      { id: 'settings', label: 'Settings', icon: 'fa-sliders-h' },
+      { id: 'myshop', label: 'My Shop', icon: 'fa-store' },
       { id: 'preview', label: 'Preview', icon: 'fa-eye' }
     ],
     bottom: []
   }
 });
 
-const BUSINESS_SETTINGS_TABS = Object.freeze([
-  { id: 'profile', label: 'Business Profile' },
-  { id: 'delivery', label: 'Delivery' },
-  { id: 'payments', label: 'Payments' },
-  { id: 'ordersettings', label: 'Order Settings' }
-]);
+// Section 9 — legacy customer deep-link names are still accepted
+// and mapped to their new home. The sub-tab row
+// (#workspaceSubtabs) is not used for the customer side.
+const LEGACY_CUSTOMER_SECTIONS = Object.freeze({
+  dashboard: 'home',
+  addresses: 'profile',
+  payments: 'profile'
+});
+
+// Section 8 — legacy business deep-link names.
+const LEGACY_BUSINESS_SECTIONS = Object.freeze({
+  profile: 'myshop',
+  payments: 'myshop',
+  delivery: 'myshop',
+  ordersettings: 'myshop',
+  productcategories: 'products'
+});
 
 let workspaceSection = 'dashboard';
 let workspaceSubsection = null;
@@ -2958,12 +2906,14 @@ function showGuestState() {
   const bottomNav = document.getElementById('marketplaceBottomNav');
   const divider = document.getElementById('marketplaceDivider');
   const frame = document.getElementById('workspaceFrame');
+  const subtabs = document.getElementById('workspaceSubtabs');
 
   if (publicNav) publicNav.style.display = 'flex';
   if (loggedInNav) loggedInNav.style.display = 'none';
   if (workspace) workspace.hidden = true;
   if (bottomNav) bottomNav.hidden = true;
   if (divider) divider.hidden = true;
+  if (subtabs) subtabs.hidden = true;
   if (frame) {
     frame.removeAttribute('src');
     delete frame.dataset.workspaceSource;
@@ -3006,26 +2956,29 @@ function renderWorkspaceNavigation(role) {
 function getWorkspaceTarget(role, requestedSection) {
   const config = MARKETPLACE_WORKSPACE[role];
   let section = requestedSection || 'dashboard';
-  let subsection = null;
 
-  if (role === 'business' && BUSINESS_SETTINGS_TABS.some(tab => tab.id === section)) {
-    subsection = section;
-    section = 'settings';
+  // Section 9 — Customer legacy names.
+  if (role === 'customer' && LEGACY_CUSTOMER_SECTIONS[section]) {
+    section = LEGACY_CUSTOMER_SECTIONS[section];
+  }
+
+  // Section 8 — Business legacy names.
+  if (role === 'business' && LEGACY_BUSINESS_SECTIONS[section]) {
+    section = LEGACY_BUSINESS_SECTIONS[section];
   }
 
   if (!config.tabs.some(tab => tab.id === section)) {
-    section = 'dashboard';
+    // Fall back to the first tab for this role.
+    section = config.tabs[0].id;
   }
 
-  if (role === 'business' && section === 'settings') {
-    subsection = subsection || workspaceSubsection || 'profile';
-  }
-
-  return { section, subsection };
+  return { section, subsection: null };
 }
 
-async function getWorkspaceSource(role, section, subsection) {
+async function getWorkspaceSource(role, section, _subsection) {
   if (role === 'customer') {
+    // Section 9 — the Cart tab is gone from the strip, but the
+    // deep link ?workspace=cart still resolves to the cart page.
     if (section === 'cart') return '/cart.html?embedded=1';
     return `/account.html?embedded=1&section=${encodeURIComponent(section)}`;
   }
@@ -3047,11 +3000,13 @@ async function getWorkspaceSource(role, section, subsection) {
     return `/business-profile.html?embedded=1&slug=${encodeURIComponent(slug || '')}`;
   }
 
-  const childSection = section === 'settings' ? subsection || 'profile' : section;
-  return `/business-admin.html?embedded=1&section=${encodeURIComponent(childSection)}`;
+  // Section 8 — My Shop and Products both load the business-admin
+  // iframe with an explicit section id so business-admin.js can
+  // route to the right in-page section.
+  return `/business-admin.html?embedded=1&section=${encodeURIComponent(section)}`;
 }
 
-function updateWorkspacePresentation(role, section, subsection) {
+function updateWorkspacePresentation(role, section, _subsection) {
   const config = MARKETPLACE_WORKSPACE[role];
   const workspace = document.getElementById('integratedWorkspace');
   const kicker = document.getElementById('workspaceKicker');
@@ -3082,23 +3037,12 @@ function updateWorkspacePresentation(role, section, subsection) {
     button.classList.toggle('is-active', button.dataset.section === section);
   });
 
-  if (!subtabs) return;
-  subtabs.replaceChildren();
-  if (role !== 'business' || section !== 'settings') {
+  // Section 8 — the sub-tab row is never used. It is emptied and
+  // hidden on every presentation update.
+  if (subtabs) {
+    subtabs.replaceChildren();
     subtabs.hidden = true;
-    return;
   }
-
-  BUSINESS_SETTINGS_TABS.forEach(tab => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'workspace-subtab';
-    button.textContent = tab.label;
-    button.classList.toggle('is-active', tab.id === subsection);
-    button.addEventListener('click', () => toggleDashboardPanel(tab.id));
-    subtabs.appendChild(button);
-  });
-  subtabs.hidden = false;
 }
 
 async function openDashboardPanel(requestedSection) {
@@ -3129,7 +3073,7 @@ async function openDashboardPanel(requestedSection) {
   }
 
   const url = new URL(window.location.href);
-  url.searchParams.set('workspace', target.section === 'settings' ? target.subsection : target.section);
+  url.searchParams.set('workspace', target.section);
   window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
@@ -3237,4 +3181,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (Section 6 + Section 7 registration simplified; strict round-robin, 4s images / 20s videos, video with sound)');
+console.log('✅ Index.js loaded successfully (Section 9 — customer workspace reduced to 4 tabs: Home, Orders, Profile, Messages)');

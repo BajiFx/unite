@@ -2,6 +2,17 @@
 //  BUSINESS PROFILE JAVASCRIPT - COMPLETE VERSION (FIXED)
 //  Location: public/js/business-profile.js
 //
+//  Section 10 — Removed the last remaining business rating
+//  reference:
+//   - renderBusinessProfile() no longer writes to #avgRating.
+//   - The avgRating local was dropped because nothing else used
+//     it. Product count and follower count remain.
+//   - The reviews list, the write-a-review form, and the review
+//     counters on cards were already removed in earlier rounds.
+//   - Backend review routes and the aggregate rating on the
+//     product detail page are left in place, as Section 10
+//     requires.
+//
 //  Section B (Product Categories) additions:
 //   - Defined product-category filter (B.7) alongside the legacy one.
 //   - Single render path for product cards (B.8, no drift).
@@ -32,13 +43,13 @@
 //   On phones the CSS reorders the three columns to
 //     logo → media → info.
 //
-//  About card (this revision):
+//  About card:
 //   The About card is now a full-width Mission + Vision band.
 //   The description block that used to live beside it has been
 //   removed from the About card and moved into the hero media
 //   overlay.
 //
-//  Reviews removal (this revision):
+//  Reviews removal:
 //   The reviews section and its write-a-review block have been
 //   removed from the customer-facing page. A warm thank-you band
 //   takes their place. The band's business name is injected here
@@ -46,7 +57,7 @@
 //   tables and routes remain in the backend, untouched; only the
 //   customer-facing surface is gone.
 //
-//  Search tag chip (this revision):
+//  Search tag chip:
 //   A small click-to-copy chip is rendered in the hero info
 //   panel so a customer who lands on a shop can copy its search
 //   tag and paste it back into the marketplace search bar
@@ -144,14 +155,6 @@ let isOwnBusiness = window.isOwnBusiness;
 
 // ============================================================
 //  VIEWER ROLE HELPERS
-//
-//  Single source of truth for "who is looking at this page".
-//  Every role-scoped behaviour below reads from getViewerRole().
-//
-//   - 'customer'        → logged-in customer
-//   - 'business_admin'  → logged-in business admin (own or other)
-//   - 'super_admin'     → logged-in platform admin
-//   - 'guest'           → no session
 // ============================================================
 
 function getViewerRole() {
@@ -179,11 +182,6 @@ function isBusinessAdminViewer() {
 
 // ============================================================
 //  LOGOUT
-//
-//  The header of business-profile.html calls logout() inline.
-//  The page does not load app.js, so this file must own it.
-//  Behaviour matches app.js: post to /api/auth/logout, clear the
-//  session keys, then redirect to the marketplace.
 // ============================================================
 
 async function logout() {
@@ -382,10 +380,6 @@ async function loadBusinessProfile() {
         await loadBusinessProducts();
         buildBusinessSlider();
 
-        // Role-scoped calls. Follow and customer location status are
-        // customer-only endpoints. For business admins and super
-        // admins we skip them entirely and hide the Follow button so
-        // there is no 403 in the console.
         if (isCustomerViewer()) {
             checkFollowStatus();
             checkLocationStatus();
@@ -437,13 +431,15 @@ function renderBusinessProfile() {
     if (heroLocation) heroLocation.textContent = business.location ? `📍 ${business.location}` : '';
     if (heroAddress) heroAddress.textContent = business.address ? `🏠 ${business.address}` : '';
 
+    // Section 10 — the average rating line has been removed from
+    // the hero. We only render the counts that still exist.
     const productCount = business.product_count || 0;
-    const avgRating = parseFloat(business.avg_rating) || 0;
     const followerCount = business.follower_count || 0;
 
-    document.getElementById('productCount').textContent = productCount;
-    document.getElementById('avgRating').textContent = avgRating.toFixed(1);
-    document.getElementById('followerCount').textContent = followerCount;
+    const productCountEl = document.getElementById('productCount');
+    const followerCountEl = document.getElementById('followerCount');
+    if (productCountEl) productCountEl.textContent = productCount;
+    if (followerCountEl) followerCountEl.textContent = followerCount;
 
     if (heroLogo) {
         if (business.logo && business.logo !== '') {
@@ -479,27 +475,17 @@ function renderBusinessProfile() {
     renderSocialLinks(business);
     renderMap(business);
 
-    // Non-customer viewers do not get a Follow button.
     if (!isCustomerViewer()) {
         hideFollowButtonForNonCustomer();
     }
 
-    // Section H — reflect H.4 banner and H.5 contact-only block
-    // as soon as the business data is available. This is safe to
-    // call even when the blocks are already hidden.
     applyOrderVisibilityState();
 
-    // Thank-you band — replace the old reviews section with a warm,
-    // personalised closing band. The business name is injected here.
     renderThankYouBand(business);
 }
 
 // ============================================================
 //  HERO SEARCH TAG CHIP
-//
-//  The chip is rendered in the HTML (public/html/business-profile.html)
-//  and this function only fills its text and wires the copy button.
-//  It is hidden when the business has no confirmed search tag.
 // ============================================================
 
 function renderHeroSearchTagChip(business) {
@@ -556,12 +542,6 @@ function renderHeroSearchTagChip(business) {
 
 // ============================================================
 //  THANK-YOU BAND
-//
-//  Replaces the old reviews section. The band is a static DOM
-//  block in public/html/business-profile.html; this function only
-//  injects the business name into it so the band feels personal.
-//
-//  The band is always visible once the business is loaded.
 // ============================================================
 
 function renderThankYouBand(business) {
@@ -588,11 +568,10 @@ function renderHeroMedia(business) {
     const slot = document.getElementById('heroMediaSlot');
     if (!slot) return;
 
-    // Reset any previous media so a re-render always starts clean.
     slot.innerHTML = '';
 
     const coverUrl = business && (business.heroImage || business.heroimage);
-    if (!coverUrl) return;   // gradient backdrop is enough
+    if (!coverUrl) return;
 
     if (isVideoUrl(coverUrl)) {
         const video = document.createElement('video');
@@ -615,8 +594,6 @@ function renderHeroMedia(business) {
     img.alt = (business.business_name || 'Business') + ' cover';
     img.loading = 'lazy';
     img.onerror = function () {
-        // If the image fails, remove it so the gradient backdrop
-        // shows through instead of a broken-image icon.
         this.remove();
     };
     slot.appendChild(img);
@@ -624,17 +601,6 @@ function renderHeroMedia(business) {
 
 // ============================================================
 //  HERO DESCRIPTION OVERLAY
-//
-//  Fills #heroDescriptionTrack with the whole description block
-//  (business name, tagline, feature bullets, location, contact
-//  line). When the block is taller than the media frame, it
-//  adds the .is-scrolling class to the overlay, sets
-//  --hero-desc-scroll so the CSS keyframe scrolls the track up
-//  by exactly the overflow distance, and sets an animation
-//  duration that scales with the overflow amount so longer
-//  text scrolls more slowly.
-//
-//  This overlay sits ON TOP of the hero cover photo or video.
 // ============================================================
 
 function renderHeroDescriptionOverlay(business) {
@@ -642,8 +608,6 @@ function renderHeroDescriptionOverlay(business) {
     const track = document.getElementById('heroDescriptionTrack');
     if (!overlay || !track) return;
 
-    // Always start clean so a re-render (or a hot reload) does
-    // not leave stale animation classes behind.
     overlay.classList.remove('is-scrolling');
     track.style.animationDuration = '';
     track.style.removeProperty('--hero-desc-scroll');
@@ -663,8 +627,6 @@ function renderHeroDescriptionOverlay(business) {
     if (locationParts.length === 0 && business.location) locationParts.push(business.location);
     const locationText = locationParts.length > 0 ? locationParts.join(', ') : 'Kenya';
 
-    // Build the block. Every value is escaped before it is
-    // injected so a business-authored name can never inject HTML.
     const safe = (value) => {
         const div = document.createElement('div');
         div.textContent = String(value == null ? '' : value);
@@ -692,25 +654,18 @@ function renderHeroDescriptionOverlay(business) {
 
     overlay.style.display = '';
 
-    // Wait a frame for the browser to lay the text out at the
-    // current overlay size before we measure it.
     requestAnimationFrame(() => {
         const overlayHeight = overlay.clientHeight;
         const trackHeight = track.scrollHeight;
 
-        // Only scroll when the text is taller than the frame.
-        // Subtract a small buffer so a 1-2px rounding error never
-        // triggers a scroll for content that just barely fits.
         if (trackHeight <= overlayHeight - 4) {
             return;
         }
 
         const overflow = trackHeight - overlayHeight;
 
-        // Distance the track should travel (negative = up).
         track.style.setProperty('--hero-desc-scroll', `-${overflow}px`);
 
-        // ~40 px per second, clamped between 20 s and 90 s.
         const durationSeconds = Math.min(90, Math.max(20, overflow / 40));
         track.style.animationDuration = `${durationSeconds}s`;
 
@@ -1000,11 +955,9 @@ async function loadBusinessProducts() {
         window.businessProductList = allProducts;
         businessProductList = window.businessProductList;
         window.nextProductPage = totalPages + 1;
-        window.hasMoreProducts = false; // eagerly loaded all pages for now
+        window.hasMoreProducts = false;
 
-        // Legacy free-text filter (kept for backward compatibility).
         populateBusinessProductCategories();
-        // B.7 — defined product-category filter from the product_categories table.
         populateDefinedProductCategories();
 
         console.log(`📦 Loaded ${businessProductList.length} products for ${businessData.business_name}`);
@@ -1021,17 +974,10 @@ async function loadBusinessProducts() {
 
 // ============================================================
 //  FALLBACK IMAGE — deterministic SVG, matches product-detail.js
-//
-//  HARDENED: strips control characters and unpaired surrogates
-//  before encoding, and wraps encodeURIComponent in a try/catch
-//  with a static fallback. Fixes "URIError: URI malformed" that
-//  occurs when a product name contains a broken emoji or lone
-//  high surrogate.
 // ============================================================
 
 function businessFallbackImage(product) {
     const rawLabel = String((product && product.name) || 'Product').slice(0, 32);
-    // Strip anything that cannot be safely URI-encoded.
     const safeLabel = rawLabel.replace(/[\u0000-\u001F\u007F\uD800-\uDFFF\uFFFE\uFFFF]/g, '');
 
     let encoded;
@@ -1040,7 +986,6 @@ function businessFallbackImage(product) {
             `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${safeLabel}</text></svg>`
         );
     } catch (err) {
-        // Absolute last-resort fallback — no dynamic content at all.
         encoded = encodeURIComponent(
             `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text></svg>`
         );
@@ -1053,7 +998,6 @@ function businessFallbackImage(product) {
 //  POPULATE PRODUCT-CATEGORY FILTERS
 // ============================================================
 
-// Legacy free-text picker — kept so existing filters continue to work.
 function populateBusinessProductCategories() {
     const select = document.getElementById('businessProductCategoryFilter');
     if (!select) return;
@@ -1070,8 +1014,6 @@ function populateBusinessProductCategories() {
     select.value = categories.includes(selected) ? selected : 'all';
 }
 
-// B.7 — defined-list picker. Only shows categories that yield at least one
-// result for this business, so every option is guaranteed to be useful.
 function populateDefinedProductCategories() {
     const select = document.getElementById('businessProductCategoryIdFilter');
     if (!select) return;
@@ -1131,8 +1073,6 @@ function renderBusinessProductGrid(products) {
         const disabled = !onlineOrdersEnabled ? 'disabled' : '';
 
         const imageSrc = p.image || businessFallbackImage(p);
-        // The onerror handler rebuilds the fallback for this product on demand,
-        // so a broken remote image still ends up showing a clean SVG card.
         const fallbackForThisProduct = businessFallbackImage(p).replace(/'/g, "\\'");
         const imageHtml = `<img src="${imageSrc}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackForThisProduct}'">`;
 
@@ -1272,11 +1212,6 @@ async function toggleBusinessWishlist(productId) {
 
 // ============================================================
 //  FOLLOW/UNFOLLOW BUSINESS
-//
-//  Role-scoped. The /follow-status and /follow endpoints require
-//  req.role === 'customer'. Non-customers skip the request
-//  entirely (see the guard inside loadBusinessProfile) so no 403
-//  is produced in the console.
 // ============================================================
 
 async function checkFollowStatus() {
@@ -1285,8 +1220,6 @@ async function checkFollowStatus() {
     try {
         const res = await fetch(`/api/businesses/${businessSlug}/follow-status`);
         if (!res.ok) {
-            // Silently ignore — the Follow button just stays in its
-            // default state.
             return;
         }
         const data = await res.json();
@@ -1340,9 +1273,6 @@ async function toggleFollow() {
 
 // ============================================================
 //  LOCATION REQUEST
-//
-//  Role-scoped. /api/location/customer/status requires the
-//  customer role. Non-customers skip the request entirely.
 // ============================================================
 
 async function checkLocationStatus() {
@@ -1569,29 +1499,22 @@ window.filterBusinessProducts = filterBusinessProducts;
 window.showToast = showToast;
 window.checkIfOwnBusiness = checkIfOwnBusiness;
 
-// Role helpers — exposed so any future surface on this page can reuse
-// the same "who is looking at this page" answer.
 window.getViewerRole = getViewerRole;
 window.isCustomerViewer = isCustomerViewer;
 window.isBusinessAdminViewer = isBusinessAdminViewer;
 
-// Section B exposures
 window.renderBusinessProductGrid = renderBusinessProductGrid;
 window.populateDefinedProductCategories = populateDefinedProductCategories;
 window.businessFallbackImage = businessFallbackImage;
 
-// Section H exposures
 window.applyOrderVisibilityState = applyOrderVisibilityState;
 window.renderOrdersPausedBanner = renderOrdersPausedBanner;
 window.renderOrdersPausedContactBlock = renderOrdersPausedContactBlock;
 
-// Hero media + description overlay exposure — so other surfaces can
-// re-render them without a full page reload.
 window.renderHeroMedia = renderHeroMedia;
 window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
 
-// Thank-you band + search tag chip exposures.
 window.renderThankYouBand = renderThankYouBand;
 window.renderHeroSearchTagChip = renderHeroSearchTagChip;
 
-console.log('✅ Business Profile JS loaded successfully (FIXED - reviews removed, thank-you band added)');
+console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed)');

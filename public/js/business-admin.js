@@ -2,6 +2,11 @@
 //  BUSINESS ADMIN JAVASCRIPT - COMPLETE VERSION
 //  Location: public/js/business-admin.js
 //
+//  Section 10 — Removed the last business-admin rating tile.
+//   renderDashboardStats() no longer renders the
+//   `average_rating` tile. The tile is not present anywhere
+//   else in the admin panel.
+//
 //  B.1 — Product categories come from the database
 //  B.3 — Picker shows only categories relevant to the business
 //  B.4 — Picker is searchable (with visible match feedback)
@@ -10,58 +15,43 @@
 //  B.8 — Joined product category name shown on each product
 //
 //  Section B — missing-category warning
-//   Every business admin load now checks /api/auth/my-business
-//   for has_business_category. If false, a red banner and a red
-//   dot on the Business Profile sidebar item are shown until the
-//   admin assigns a category. This catches businesses that
-//   registered before Section B and still have no category.
 //
 //  Section C — Business location activation
-//  C.1 — manual latitude/longitude inputs removed from the form
-//  C.2 — "Make people find you by your location" section driven
-//        by this file
-//  C.3 — activateBusinessLocation() requests browser geolocation
-//  C.4 — coordinates are posted to /api/business-admin/location/activate
-//  C.5 — renderBusinessLocationMap() draws the pin; the admin can
-//        drag it and saveAdjustedBusinessPin() persists the change
-//  C.6 — the same Activate button re-runs to refresh coordinates
-//  C.7 — location name fields (continent → postal_code) are read
-//        and written by loadBusinessProfile / the profile submit
-//  C.8 — updateLocationStatusBadge() shows the green "Activated"
-//        badge
-//  C.9 — renderLocationWarning() shows the "not findable" warning
 //
 //  Section H — Cart and order visibility
-//  H.1 — read/write show_cart_when_disabled
-//  H.2 — read/write order_disabled_message
-//  H.3 — updateOrderDeliveryWarning() flags delivery-off + orders-on
-//  H.7 — updateOrderPreview() reflects the customer-facing state
 //
 //  Section I — M-Pesa payment types
-//  I.1 / I.2 — reads/writes mpesa_payment_type + per-type fields
-//  I.3 — validateMpesaSettings() blocks save when required fields
-//        are missing for the selected type
-//  I.5 — every save sends all the type-specific fields so the
-//        backend stores the whole record
-//  I.6 — read-only environment label from the server
 //
 //  Section J — In-page ad management
-//  J.2 — navigateTo('ads') shows the #section-ads block that
-//        lives inside business-admin.html. The ad form and ad
-//        list are driven by ad-management.js which is loaded
-//        on the same page.
 //
-//  Section — Business Search Tag
-//   A read-only card in the Business Profile section shows the
-//   owner their current Search Tag (e.g. 3734Doppa Beddings)
-//   with a copy button. The same card has an "Edit" affordance
-//   that opens a small inline form with the two raw pieces:
-//     - search_prefix (3–4 digits)
-//     - search_name   (the name customers will type)
-//   Availability is checked live against /api/auth/check-business-tag
-//   so the owner sees a red prefix input the moment the combination
-//   collides with another business. Saving calls
-//   PUT /api/auth/my-business/search-tag.
+//  Section 7 — Business Search Tag
+//
+//  Section 8 — Sidebar simplification
+//   The sidebar now has six items: Dashboard, Orders, Products,
+//   Messages, My Shop, Manage Ads. The four settings sections
+//   (profile, payments, delivery, ordersettings) are kept as
+//   real <div class="section"> wrappers inside #myshopPage so
+//   every existing id, loader, and form submit still resolves.
+//
+//   navigateTo() understands:
+//     'myshop'   → show #section-myshop
+//     'messages' → show #section-messages
+//     'profile'  → show #section-myshop then scroll to
+//                  #section-profile
+//     'payments' → show #section-myshop then scroll to
+//                  #section-payments
+//     'delivery' → show #section-myshop then scroll to
+//                  #section-delivery
+//     'ordersettings' → show #section-myshop then scroll to
+//                  #section-ordersettings
+//     'productcategories' → show #section-products then call
+//                  switchProductsTab('categories')
+//
+//   The Products page has an in-page tab bar (Products /
+//   Categories) wired through switchProductsTab().
+//
+//   jumpToShopSection(name) is called by the My Shop jump bar
+//   and simply forwards to navigateTo(name).
 // ============================================================
 
 // Check if running in embedded mode (inside dashboard panel)
@@ -129,6 +119,17 @@ let currentSearchTag = {
 // Business Search Tag — debounce timer for the live availability check.
 let adminSearchTagDebounceTimer = null;
 const ADMIN_SEARCH_TAG_DEBOUNCE_MS = 400;
+
+// Section 8 — the four settings sections keep their real ids.
+const MYSHOP_SECTION_MAP = {
+    profile: 'section-profile',
+    payments: 'section-payments',
+    delivery: 'section-delivery',
+    ordersettings: 'section-ordersettings'
+};
+
+// Section 8 — current Products page tab.
+let currentProductsTab = 'products';
 
 function escapeHtml(value) {
     const element = document.createElement('div');
@@ -282,11 +283,8 @@ async function verifyBusinessAccess() {
         const productBadge = document.querySelector('.menu-item[data-section="products"] .badge');
         if (productBadge) productBadge.textContent = businessData.product_count || 0;
 
-        // Section B — warn / prompt if the business has no business category yet.
         applyCategoryWarning(data.has_business_category === true);
 
-        // Section C — reflect location state on load so the badge and
-        // warning are correct even before the profile section is opened.
         applyLocationState({
             activated: data.business.location_activated === true,
             complete: data.business.location_complete === true,
@@ -294,8 +292,6 @@ async function verifyBusinessAccess() {
             longitude: data.business.longitude || null
         });
 
-        // Business Search Tag — hydrate the read-only card and cache
-        // the raw pieces so the edit form starts from the right place.
         hydrateSearchTagFromBusiness(businessData);
 
         initSocket();
@@ -305,7 +301,20 @@ async function verifyBusinessAccess() {
         ]);
 
         const section = new URLSearchParams(window.location.search).get('section');
-        const validSections = ['dashboard', 'orders', 'customers', 'ads', 'products', 'productcategories', 'profile', 'payments', 'delivery', 'ordersettings'];
+        const validSections = [
+            'dashboard',
+            'orders',
+            'customers',
+            'ads',
+            'products',
+            'productcategories',
+            'profile',
+            'payments',
+            'delivery',
+            'ordersettings',
+            'myshop',
+            'messages'
+        ];
         navigateTo(validSections.includes(section) ? section : 'dashboard');
 
         console.log('✅ Business admin initialized for:', businessData.business_name);
@@ -322,7 +331,8 @@ async function verifyBusinessAccess() {
 
 function applyCategoryWarning(hasCategory) {
     const existing = document.getElementById('missingCategoryBanner');
-    const profileItem = document.querySelector('.menu-item[data-section="profile"]');
+    const profileItem = document.querySelector('.menu-item[data-section="myshop"]')
+        || document.querySelector('.menu-item[data-section="profile"]');
 
     if (hasCategory) {
         if (existing) existing.remove();
@@ -619,23 +629,8 @@ async function saveAdjustedBusinessPin() {
 
 // ============================================================
 //  BUSINESS SEARCH TAG — admin panel card + edit form
-//
-//  The owner sees a small read-only card in the Business Profile
-//  section showing their current tag. From that card they can:
-//    - Copy the tag (so they can tell customers)
-//    - Edit the two raw pieces (number + name) with live
-//      availability feedback from /api/auth/check-business-tag
-//
-//  The save calls PUT /api/auth/my-business/search-tag, which is
-//  the only endpoint that writes search_prefix / search_name from
-//  the admin panel. The DB trigger handles normalization.
 // ============================================================
 
-/**
- * Copy the current search tag to the clipboard.
- * Uses the async clipboard API when available, falls back to a
- * hidden textarea + execCommand for older browsers.
- */
 function copySearchTag(tag) {
     const value = String(tag || currentSearchTag.display || '').trim();
     if (!value) return;
@@ -666,11 +661,6 @@ function copySearchTag(tag) {
     }
 }
 
-/**
- * Read the tag state out of the business row returned by
- * /api/auth/my-business and store it in `currentSearchTag`, then
- * render the read-only card. Safe to call more than once.
- */
 function hydrateSearchTagFromBusiness(business) {
     if (!business) return;
 
@@ -686,14 +676,6 @@ function hydrateSearchTagFromBusiness(business) {
     renderSearchTagCard();
 }
 
-/**
- * Render the read-only Search Tag card inside the Business Profile
- * section. Creates the container lazily on first call and re-uses it
- * afterwards so the section markup stays stable.
- *
- * The card hides its Edit form when the owner is not editing, and
- * shows the current tag with a copy button.
- */
 function renderSearchTagCard() {
     const profileSection = document.getElementById('section-profile');
     if (!profileSection) return;
@@ -706,8 +688,6 @@ function renderSearchTagCard() {
         card.className = 'settings-section';
         card.style.cssText = 'margin-bottom:16px; background:#f0fdf4; border:1px solid #86efac;';
 
-        // Insert the card before the first existing settings-section
-        // in the profile section (i.e. above the location card).
         const firstSettings = profileSection.querySelector('.settings-section');
         if (firstSettings) {
             profileSection.insertBefore(card, firstSettings);
@@ -724,7 +704,6 @@ function renderSearchTagCard() {
     let bodyHtml;
 
     if (hasTag && !isPlaceholder) {
-        // The happy path: the owner already has a real tag.
         const confirmedBadge = currentSearchTag.confirmed
             ? ''
             : `<span style="font-size:0.65rem; color:#92400e; background:#fef3c7; padding:2px 8px; border-radius:10px; margin-left:6px;">Not yet confirmed</span>`;
@@ -759,7 +738,6 @@ function renderSearchTagCard() {
             <div id="searchTagEditWrap" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid #bbf7d0;"></div>
         `;
     } else {
-        // No tag yet, or the auto-generated placeholder is still in place.
         const msg = isPlaceholder
             ? 'Your current tag is a temporary placeholder. Please pick a real one below.'
             : 'You do not have a search tag yet. Pick a number and a name below so customers can find your shop.';
@@ -782,18 +760,12 @@ function renderSearchTagCard() {
         ${bodyHtml}
     `;
 
-    // If the edit form should be visible right away, render it now.
     const editWrap = document.getElementById('searchTagEditWrap');
     if (editWrap && editWrap.style.display !== 'none') {
         renderSearchTagEditForm(editWrap);
     }
 }
 
-/**
- * Draw the inline edit form (number + name + preview + save/cancel).
- * Called once by openSearchTagEdit() and again by renderSearchTagCard()
- * when the owner has no tag yet (so the form is shown inline).
- */
 function renderSearchTagEditForm(container) {
     if (!container) return;
 
@@ -863,7 +835,6 @@ function renderSearchTagEditForm(container) {
         </div>
     `;
 
-    // Wire the live preview + debounced availability check.
     const prefixInput = document.getElementById('adminSearchTagPrefix');
     const nameInput = document.getElementById('adminSearchTagName');
 
@@ -1060,8 +1031,6 @@ async function saveBusinessSearchTag() {
             updated_at: saved.search_tag_updated_at || new Date().toISOString()
         };
 
-        // Keep the cached businessData in sync so a reload does not
-        // show stale values before the next /my-business call.
         if (businessData) {
             businessData.search_prefix = currentSearchTag.prefix;
             businessData.search_name = currentSearchTag.name;
@@ -1164,7 +1133,7 @@ function openPublicPreview() {
 }
 
 // ============================================================
-//  NAVIGATE TO SECTION
+//  NAVIGATE TO SECTION — Section 8
 // ============================================================
 
 function navigateTo(section) {
@@ -1173,18 +1142,40 @@ function navigateTo(section) {
         return;
     }
 
+    let targetSection = section;
+    let scrollTargetId = null;
+    let openProductsCategoriesTab = false;
+
+    if (MYSHOP_SECTION_MAP[section]) {
+        targetSection = 'myshop';
+        scrollTargetId = MYSHOP_SECTION_MAP[section];
+    } else if (section === 'productcategories') {
+        targetSection = 'products';
+        openProductsCategoriesTab = true;
+    }
+
     document.querySelectorAll('.section').forEach(function(el) {
         el.classList.remove('active');
     });
-
-    const target = document.getElementById('section-' + section);
+    const target = document.getElementById('section-' + targetSection);
     if (target) target.classList.add('active');
+
+    if (targetSection === 'myshop') {
+        ['section-profile', 'section-payments', 'section-delivery', 'section-ordersettings'].forEach(function(id) {
+            const inner = document.getElementById(id);
+            if (inner) inner.classList.add('active');
+        });
+    }
+
+    const myshopToolbar = document.getElementById('myshopToolbar');
+    const myshopJumpbar = document.getElementById('myshopJumpbar');
+    if (myshopToolbar) myshopToolbar.style.display = targetSection === 'myshop' ? 'flex' : 'none';
+    if (myshopJumpbar) myshopJumpbar.style.display = targetSection === 'myshop' ? 'flex' : 'none';
 
     document.querySelectorAll('.menu-item').forEach(function(el) {
         el.classList.remove('active');
     });
-
-    const menuItem = document.querySelector('.menu-item[data-section="' + section + '"]');
+    const menuItem = document.querySelector('.menu-item[data-section="' + targetSection + '"]');
     if (menuItem) menuItem.classList.add('active');
 
     const titles = {
@@ -1194,19 +1185,31 @@ function navigateTo(section) {
         ads: 'Ad Management',
         products: 'Products',
         productcategories: 'Product Categories',
+        messages: 'Messages',
+        myshop: 'My Shop',
         profile: 'Business Profile',
         payments: 'Payment Settings',
         delivery: 'Delivery / Shipping',
         ordersettings: 'Order Settings'
     };
-
     const headerTitle = document.getElementById('headerTitle');
     if (headerTitle) headerTitle.textContent = titles[section] || 'Dashboard';
 
-    currentSection = section;
+    currentSection = targetSection;
     closeSidebar();
 
-    switch (section) {
+    if (scrollTargetId) {
+        setTimeout(() => {
+            scrollToShopSection(scrollTargetId);
+        }, 60);
+    }
+    if (openProductsCategoriesTab) {
+        setTimeout(() => {
+            try { switchProductsTab('categories'); } catch (e) { /* noop */ }
+        }, 30);
+    }
+
+    switch (targetSection) {
         case 'dashboard':
             loadDashboard();
             break;
@@ -1241,25 +1244,84 @@ function navigateTo(section) {
             break;
         case 'products':
             loadProducts();
-            break;
-        case 'productcategories':
-            loadProductCategorySection();
+            if (openProductsCategoriesTab) {
+                loadProductCategorySection();
+            }
             break;
         case 'customers':
             loadCustomers();
             break;
-        case 'profile':
+        case 'messages':
+            break;
+        case 'myshop':
             loadBusinessProfile();
-            break;
-        case 'payments':
             loadPaymentSettings();
-            break;
-        case 'delivery':
             loadDeliverySettings();
-            break;
-        case 'ordersettings':
             loadOrderSettings();
             break;
+    }
+}
+
+// ============================================================
+//  Section 8 — My Shop scroll helpers
+// ============================================================
+
+function scrollToShopSection(blockId) {
+    if (!blockId) return;
+    const el = document.getElementById(blockId);
+    if (!el) return;
+
+    try {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+        el.scrollIntoView();
+    }
+
+    const previousOutline = el.style.outline;
+    const previousTransition = el.style.transition;
+    el.style.transition = 'outline 0.6s ease';
+    el.style.outline = '3px solid #2563eb';
+
+    setTimeout(() => {
+        el.style.outline = previousOutline || '';
+        el.style.transition = previousTransition || '';
+    }, 1200);
+}
+
+function jumpToShopSection(name) {
+    if (!name) return;
+    navigateTo(name);
+}
+
+// ============================================================
+//  Section 8 — Products tab helpers
+// ============================================================
+
+function switchProductsTab(tab) {
+    const next = tab === 'categories' ? 'categories' : 'products';
+    currentProductsTab = next;
+
+    const productsPanel = document.getElementById('productsPanelProducts');
+    const categoriesPanel = document.getElementById('productsPanelCategories');
+    const productsTabBtn = document.getElementById('productsTabProducts');
+    const categoriesTabBtn = document.getElementById('productsTabCategories');
+
+    if (productsPanel) productsPanel.classList.toggle('is-active', next === 'products');
+    if (categoriesPanel) categoriesPanel.classList.toggle('is-active', next === 'categories');
+
+    if (productsTabBtn) {
+        productsTabBtn.classList.toggle('is-active', next === 'products');
+        productsTabBtn.setAttribute('aria-selected', next === 'products' ? 'true' : 'false');
+    }
+    if (categoriesTabBtn) {
+        categoriesTabBtn.classList.toggle('is-active', next === 'categories');
+        categoriesTabBtn.setAttribute('aria-selected', next === 'categories' ? 'true' : 'false');
+    }
+
+    if (next === 'categories') {
+        loadProductCategorySection();
+    } else {
+        loadProducts();
     }
 }
 
@@ -1558,6 +1620,9 @@ async function submitProductCategoryRequest() {
 
 // ============================================================
 //  DASHBOARD STATS / RECENT ORDERS / BADGES
+//
+//  Section 10 — the `average_rating` tile has been removed
+//  from the items array. Everything else is unchanged.
 // ============================================================
 
 function renderDashboardStats(data) {
@@ -1574,8 +1639,7 @@ function renderDashboardStats(data) {
         { key: 'total_orders', label: 'Total Orders', icon: 'fa-shopping-bag', css: 'total' },
         { key: 'total_revenue', label: 'Revenue (Ksh)', icon: 'fa-money-bill-wave', css: 'revenue' },
         { key: 'total_products', label: 'Products', icon: 'fa-tag', css: 'total' },
-        { key: 'total_followers', label: 'Followers', icon: 'fa-users', css: 'total' },
-        { key: 'average_rating', label: 'Rating', icon: 'fa-star', css: 'total' }
+        { key: 'total_followers', label: 'Followers', icon: 'fa-users', css: 'total' }
     ];
 
     const statusItems = [
@@ -1593,7 +1657,6 @@ function renderDashboardStats(data) {
     items.forEach(function(item) {
         let value = stats[item.key] || 0;
         if (item.key === 'total_revenue') value = 'Ksh ' + parseFloat(value).toFixed(2);
-        if (item.key === 'average_rating') value = parseFloat(value).toFixed(1) + ' ⭐';
         html += `
             <div class="stat-link ${item.css}" style="cursor:default;">
                 <span class="stat-icon"><i class="fas ${item.icon}"></i></span>
@@ -2286,8 +2349,6 @@ async function loadBusinessProfile() {
             renderBusinessLocationMap(business.latitude, business.longitude);
         }
 
-        // Business Search Tag — keep the read-only card in sync if the
-        // profile response carries the freshest values.
         hydrateSearchTagFromBusiness(business);
 
     } catch (err) {
@@ -2326,15 +2387,12 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
             businessData = data.business;
             document.getElementById('businessNameDisplay').textContent = businessData.business_name;
 
-            // Section B — re-evaluate the missing-category warning.
             const afterSave = await fetch('/api/auth/my-business', {
                 headers: { 'Authorization': `Bearer ${token}` }
             }).then(r => r.ok ? r.json() : { has_business_category: false })
               .catch(() => ({ has_business_category: false }));
             applyCategoryWarning(afterSave.has_business_category === true);
 
-            // Section C — re-evaluate the location badge and warning
-            // after the human-readable names have been saved.
             applyLocationState({
                 activated: businessData.location_activated === true,
                 complete: businessData.location_complete === true,
@@ -2342,10 +2400,8 @@ document.getElementById('profileForm')?.addEventListener('submit', async functio
                 longitude: businessData.longitude || null
             });
 
-            // Business categories changed → product categories may have changed.
             await loadProductCategories(true);
 
-            // Refresh the Search Tag card from the freshest business row.
             hydrateSearchTagFromBusiness(businessData);
         } else {
             if (status) { status.textContent = '❌ ' + (data.error || 'Failed to update'); status.style.color = '#ef4444'; }
@@ -3299,10 +3355,8 @@ window.confirmDelivery = confirmDelivery;
 window.reportDeliveryIssue = reportDeliveryIssue;
 window.showToast = showToast;
 
-// Section B — expose the missing-category warning helper
 window.applyCategoryWarning = applyCategoryWarning;
 
-// Section C — expose location helpers
 window.activateBusinessLocation = activateBusinessLocation;
 window.saveAdjustedBusinessPin = saveAdjustedBusinessPin;
 window.applyLocationState = applyLocationState;
@@ -3310,15 +3364,12 @@ window.updateLocationStatusBadge = updateLocationStatusBadge;
 window.renderLocationWarning = renderLocationWarning;
 window.renderBusinessLocationMap = renderBusinessLocationMap;
 
-// Section H — expose order-visibility helpers
 window.updateOrderDeliveryWarning = updateOrderDeliveryWarning;
 
-// Section I — expose M-Pesa helpers
 window.updateMpesaFields = updateMpesaFields;
 window.validateMpesaSettings = validateMpesaSettings;
 window.renderMpesaEnvironmentLabel = renderMpesaEnvironmentLabel;
 
-// Business Search Tag — expose admin panel helpers
 window.renderSearchTagCard = renderSearchTagCard;
 window.copySearchTag = copySearchTag;
 window.openSearchTagEdit = openSearchTagEdit;
@@ -3327,4 +3378,8 @@ window.saveBusinessSearchTag = saveBusinessSearchTag;
 window.checkAdminSearchTagAvailability = checkAdminSearchTagAvailability;
 window.hydrateSearchTagFromBusiness = hydrateSearchTagFromBusiness;
 
-console.log('✅ Business Admin JS loaded successfully');
+window.scrollToShopSection = scrollToShopSection;
+window.jumpToShopSection = jumpToShopSection;
+window.switchProductsTab = switchProductsTab;
+
+console.log('✅ Business Admin JS loaded successfully (Section 10 — rating tile removed)');

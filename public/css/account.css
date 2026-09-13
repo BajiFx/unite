@@ -2,33 +2,45 @@
    ACCOUNT PAGE STYLES - HORIZONTAL LAYOUT
    Location: public/css/account.css
 
+   Section 9 — Customer account simplified:
+    - The horizontal nav bar now carries only 4 tabs:
+        Home, Orders, Profile, Messages.
+    - Logout lives in the top header. Its button is styled by
+      .header-logout-btn.
+    - The Cart is no longer a tab. It is a floating button
+      styled by .account-floating-cart, positioned bottom-right,
+      with a live count badge (.account-floating-cart-badge).
+    - The Profile panel is a single scrollable page containing
+      five sub-sections wrapped in .profile-subsection, each
+      with a header styled by .profile-subsection-title.
+
    Section J.4:
     The Featured Businesses grid is no longer rendered on the
-    account page. It was replaced by the marketplace hero ad
-    slider, which lives only on the marketplace home page
-    (public/html/index.html) and is styled by
-    public/css/marketplace.css.
+    account page. #featuredGridAccount is kept in account.html
+    as a hidden placeholder.
 
-    #featuredGridAccount is kept in account.html as a hidden
-    placeholder so any external caller still referencing it
-    does not throw. No CSS is required for it beyond the
-    browser default `[hidden] { display: none }`.
-
-   All other styles here are unchanged and still apply to the
-   account page's horizontal layout, the customer location card
-   (Section D), the preferred-area card (Section E.2), and the
-   embedded workspace view.
+   All pre-existing styles for Section D (customer location),
+   Section E.2 (preferred area), the orders table, the payment
+   table, the address list, the modal, and the embedded
+   workspace remain unchanged.
    ============================================================ */
 
 /* ============================================================
    SECTION J.4 — Featured Businesses grid is retired.
-   Defensive rule: if any stale markup still carries the old
-   #featuredGridAccount node, hide it explicitly so it can
-   never appear above the "All Businesses" heading.
    ============================================================ */
 #featuredGridAccount,
 .featured-grid-account,
 #featuredGridAccount[hidden] {
+  display: none !important;
+}
+
+/* ============================================================
+   SECTION 9 — The marketplace block is hidden by default.
+   The HTML already carries `hidden`, but this defensive rule
+   ensures it can never appear even if the attribute is removed.
+   ============================================================ */
+.marketplace-section-account[hidden],
+.marketplace-section-account.is-retired {
   display: none !important;
 }
 
@@ -86,6 +98,38 @@
 .account-top-header .user-info .user-phone i {
   color: #22c55e;
   margin-right: 6px;
+}
+
+/* ------------------------------------------------------------
+   Section 9 — header logout button
+   ------------------------------------------------------------ */
+
+.header-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: #ef4444;
+  color: #ffffff;
+  border: none;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.header-logout-btn:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+.header-logout-btn:active {
+  transform: scale(0.97);
+}
+
+.header-logout-btn i {
+  font-size: 0.75rem;
 }
 
 /* ============================================================
@@ -172,6 +216,9 @@
   display: inline;
 }
 
+/* Section 9 — `.logout` and `.cart` nav-item variants are kept
+   here so any legacy markup still gets the old colours, even
+   though the current HTML no longer renders them. */
 .account-nav-horizontal .nav-item.logout {
   margin-left: auto;
   color: #ef4444;
@@ -274,9 +321,105 @@
 }
 
 /* ============================================================
+   SECTION 9 — PROFILE SUB-SECTIONS
+   The Profile panel is one scrollable page made of five
+   .profile-subsection blocks. Each block has a header that
+   uses .profile-subsection-title.
+   ============================================================ */
+
+.profile-subsection {
+  margin: 0 0 20px 0;
+  padding: 16px 18px;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+}
+
+.profile-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.profile-subsection-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.profile-subsection-title i {
+  color: #2e7d32;
+}
+
+/* ============================================================
+   SECTION 9 — FLOATING CART BUTTON
+   Replaces the old Cart tab. Positioned bottom-right of the
+   viewport. Hidden when the account is embedded in a workspace
+   because the workspace owns its own navigation.
+   ============================================================ */
+
+.account-floating-cart {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 900;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 1.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.35);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.account-floating-cart:hover {
+  background: #1d4ed8;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.45);
+}
+
+.account-floating-cart:active {
+  transform: scale(0.96);
+}
+
+.account-floating-cart-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+  display: none;
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+.account-floating-cart-badge.show {
+  display: inline-block;
+}
+
+/* ============================================================
    SECTION D — CUSTOMER LOCATION CARD
-   Shown inside the profile panel. Lets a signed-in customer
-   activate, refresh, or turn off location sharing.
+   Shown inside the profile panel's Location sub-section. Lets
+   a signed-in customer activate, refresh, or turn off location
+   sharing.
    ============================================================ */
 
 .customer-location-card {
@@ -389,7 +532,10 @@
 }
 
 /* ============================================================
-   MARKETPLACE SECTION - ALWAYS VISIBLE
+   MARKETPLACE SECTION - ALWAYS VISIBLE (kept for compatibility)
+   Section 9 — The block is hidden in HTML. These rules stay so
+   the internal classes render correctly if the block is ever
+   shown again.
    ============================================================ */
 
 .marketplace-section-account {
@@ -987,7 +1133,9 @@
 }
 
 /* ============================================================
-   CART ITEMS
+   CART ITEMS (kept for compatibility — the cart is now a
+   standalone page, but these rules remain in case any panel
+   ever renders a cart list again).
    ============================================================ */
 
 .cart-item-panel {
@@ -1246,6 +1394,13 @@
     justify-content: center;
   }
 
+  /* Section 9 — logout button becomes full width on small screens */
+  .header-logout-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 8px 14px;
+  }
+
   .account-nav-horizontal {
     padding: 4px 8px;
     overflow-x: auto;
@@ -1284,6 +1439,16 @@
 
   .account-content-panel .panel-title {
     font-size: 1.1rem;
+  }
+
+  /* Section 9 — profile sub-sections tighten on small screens */
+  .profile-subsection {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .profile-subsection-title {
+    font-size: 0.9rem;
   }
 
   .customer-location-card {
@@ -1382,6 +1547,22 @@
   .payment-table-panel td {
     padding: 6px 10px;
   }
+
+  /* Section 9 — floating cart shrinks slightly on phones */
+  .account-floating-cart {
+    right: 12px;
+    bottom: 12px;
+    width: 50px;
+    height: 50px;
+    font-size: 1.15rem;
+  }
+
+  .account-floating-cart-badge {
+    font-size: 0.6rem;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1449,9 +1630,22 @@
     font-size: 0.7rem;
     padding: 3px 10px;
   }
+
+  /* Section 9 — profile sub-sections even tighter */
+  .profile-subsection {
+    padding: 12px;
+  }
+
+  .profile-subsection-title {
+    font-size: 0.85rem;
+  }
 }
 
-/* The account page is a reusable view inside the Marketplace workspace. */
+/* ============================================================
+   The account page is a reusable view inside the Marketplace
+   workspace.
+   ============================================================ */
+
 html.embedded,
 html.embedded body {
   min-height: 100%;
@@ -1461,6 +1655,13 @@ html.embedded body {
 html.embedded .account-top-header,
 html.embedded .account-nav-horizontal,
 html.embedded .marketplace-section-account {
+  display: none !important;
+}
+
+/* Section 9 — hide the floating cart inside the workspace. The
+   workspace owns its own navigation, so the floating button
+   would otherwise appear on top of the iframe chrome. */
+html.embedded .account-floating-cart {
   display: none !important;
 }
 

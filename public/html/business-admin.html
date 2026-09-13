@@ -1,52 +1,38 @@
 <!-- ============================================================
-     BUSINESS ADMIN — ORDER SETTINGS + PAYMENT SETTINGS UPDATES
+     BUSINESS ADMIN — SECTION 8 (SIMPLIFIED SIDEBAR)
      Location: public/html/business-admin.html
 
-     Section H changes:
-      H.1 — added show_cart_when_disabled checkbox
-      H.2 — added order_disabled_message textarea
-      H.3 — added delivery-vs-orders warning banner placeholder
-      H.7 — the preview block now covers the H.4 / H.5
-            customer-facing state
+     Section 8 changes:
+      - Sidebar reduced from 11 items to 6:
+          Dashboard, Orders, Products, Messages, My Shop, Ads.
+      - Logout moved to the top-right header (already there,
+        sidebar item removed).
+      - Public Preview removed from sidebar; it becomes a
+        button inside My Shop.
+      - Live Chat and Customer Tracking removed from sidebar;
+        they become secondary buttons inside the Messages
+        section (which is a small in-page hub, not an iframe,
+        because the sidebar no longer has a "Messages" data
+        target — Messages now uses the in-page hub).
+      - The four settings sections (profile, payments,
+        delivery, ordersettings) stay as four real
+        <div class="section"> blocks so every existing id
+        still exists. A new "My Shop" nav item makes all four
+        visible together in one scroll.
+      - Product Categories stays as its own <div
+        class="section" id="section-productcategories"> so
+        its deep link still works, but the sidebar no longer
+        has a top-level "Product Categories" item — it is
+        reachable from inside the Products section via a
+        tab bar and from the empty-state link on the
+        product form.
+      - Deep links (?section=profile, payments, delivery,
+        ordersettings, productcategories) keep working.
+        business-admin.js is responsible for handling the
+        new scroll/tab behavior; the HTML here only needs
+        the anchors and tab structure to exist.
 
-     Section I changes:
-      I.2 — M-Pesa block replaced with type radios + conditional
-            fields (Paybill / Till / Pochi)
-      I.6 — read-only environment label
-
-     Section J changes:
-      J.2 — new sidebar item "Manage Ads" that opens an IN-PAGE
-            section (section-ads) inside the business admin,
-            placed in the Main group right after Messages.
-
-     Section 7 changes:
-      A new read-only "Search Tag" block was added inside the
-      existing Business Profile section (inside My Shop). It
-      shows the owner their current auto-generated search tag
-      (#searchTagCurrentValue) and provides a Copy button
-      (#copySearchTagBtn) wired to copySearchTagFromAdmin().
-
-      The tag itself was auto-generated at registration by the
-      server. The change-tag UI is deferred to a follow-up round
-      once Section 8 has merged the settings into a single My
-      Shop page. The endpoint PUT /api/auth/my-business/search-tag
-      already exists and is fully validated server-side.
-
-     Section 2D changes:
-      2D.A — Ad duration input caps at 20 (was 600).
-      2D.B — Placeholder and hint text now state the new
-             defaults: 4 seconds for images, 20 for videos.
-      2D.C — Info banner above the form no longer promises
-             "6 seconds / 1 minute"; it now matches the caps
-             enforced by the server.
-
-     Only these sections were touched:
-      - Section 7: one new read-only block inside #section-profile
-        + one inline copySearchTagFromAdmin() helper before
-          </body>
-      - Section 2D: duration input + info banner inside #section-ads
-
-     Everything else in this file is preserved byte-for-byte.
+     Everything not related to Section 8 is preserved.
      ============================================================ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -110,78 +96,43 @@
     </div>
     <div class="sidebar-menu">
 
-      <!-- ===== MAIN ===== -->
+      <!-- ===== MAIN (6 items only) ===== -->
       <div class="menu-label">Main</div>
+
       <div class="menu-item active" data-section="dashboard" onclick="navigateTo('dashboard')">
         <i class="fas fa-chart-pie"></i> Dashboard
       </div>
+
       <div class="menu-item" data-section="orders" onclick="navigateTo('orders')">
         <i class="fas fa-box"></i> Orders
         <span class="badge" id="orderBadge">0</span>
       </div>
-      <div class="menu-item" data-section="customers" onclick="navigateTo('customers')">
-        <i class="fas fa-users"></i> Customers
-      </div>
-      <div class="menu-item" onclick="openMarketplaceMessages()">
-        <i class="fas fa-comment"></i> Messages
-      </div>
 
-      <!-- Section J.2 — In-page Ad Management. -->
-      <div class="menu-item" data-section="ads" onclick="navigateTo('ads')">
-        <i class="fas fa-bullhorn"></i> Manage Ads
-      </div>
-
-      <!-- ===== PRODUCTS ===== -->
-      <div class="menu-label">Products</div>
       <div class="menu-item" data-section="products" onclick="navigateTo('products')">
         <i class="fas fa-tag"></i> Products
         <span class="badge" id="productBadge">0</span>
       </div>
-      <div class="menu-item" data-section="productcategories" onclick="navigateTo('productcategories')">
-        <i class="fas fa-list"></i> Product Categories
+
+      <div class="menu-item" data-section="messages" onclick="navigateTo('messages')">
+        <i class="fas fa-comment"></i> Messages
       </div>
 
-      <!-- ===== SETTINGS ===== -->
-      <div class="menu-label">Settings</div>
-
-      <!-- Business Profile -->
-      <div class="menu-item" data-section="profile" onclick="navigateTo('profile')">
-        <i class="fas fa-store"></i> Business Profile
-      </div>
-      <div class="menu-item" onclick="openPublicPreview()">
-        <i class="fas fa-eye"></i> Public Preview
+      <div class="menu-item" data-section="myshop" onclick="navigateTo('myshop')">
+        <i class="fas fa-store"></i> My Shop
       </div>
 
-      <!-- Payment Settings -->
-      <div class="menu-item" data-section="payments" onclick="navigateTo('payments')">
-        <i class="fas fa-credit-card"></i> Payment Settings
+      <div class="menu-item" data-section="ads" onclick="navigateTo('ads')">
+        <i class="fas fa-bullhorn"></i> Manage Ads
       </div>
 
-      <!-- ORDER SETTINGS -->
-      <div class="menu-item" data-section="ordersettings" onclick="navigateTo('ordersettings')">
-        <i class="fas fa-sliders-h"></i> Order Settings
-        <span class="badge green">⚙️</span>
-      </div>
-
-      <!-- Delivery / Shipping -->
-      <div class="menu-item" data-section="delivery" onclick="navigateTo('delivery')">
-        <i class="fas fa-truck"></i> Delivery / Shipping
-        <span class="badge green" id="deliveryBadge">⚙️</span>
-      </div>
-
-      <!-- ===== SUPPORT ===== -->
-      <div class="menu-label">Support</div>
-      <div class="menu-item" onclick="openMarketplaceMessages()">
-        <i class="fas fa-comment"></i> Live Chat
-      </div>
-      <div class="menu-item" onclick="window.open('/seller-track.html', '_blank')">
-        <i class="fas fa-map"></i> Customer Tracking
-      </div>
-      <div class="menu-item" onclick="logout()" style="color:#ef4444;">
-        <i class="fas fa-sign-out-alt"></i> Logout
-      </div>
     </div>
-    <div class="sidebar-public-view"><button type="button" class="menu-item" onclick="openPublicPreview()"><i class="fas fa-eye"></i> Public View</button></div>
+
+    <!-- Sidebar bottom: quick public-view shortcut, kept small -->
+    <div class="sidebar-public-view">
+      <button type="button" class="menu-item" onclick="openPublicPreview()">
+        <i class="fas fa-eye"></i> Public View
+      </button>
+    </div>
   </div>
 
   <!-- ============================================================ -->
@@ -209,7 +160,7 @@
         <div class="quick-actions">
           <button class="btn-save" onclick="navigateTo('products')"><i class="fas fa-plus"></i> Add product</button>
           <button class="btn-save" onclick="navigateTo('orders')"><i class="fas fa-box"></i> Manage orders</button>
-          <button class="btn-save" onclick="navigateTo('delivery')"><i class="fas fa-truck"></i> Delivery settings</button>
+          <button class="btn-save" onclick="navigateTo('myshop')"><i class="fas fa-store"></i> My Shop</button>
           <button class="btn-save" onclick="openPublicPreview()"><i class="fas fa-eye"></i> Public preview</button>
         </div>
       </div>
@@ -245,36 +196,924 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- SECTION: CUSTOMERS -->
+    <!-- SECTION: MESSAGES (Section 8 — new in-page hub)              -->
+    <!--                                                              -->
+    <!-- Replaces the old sidebar entry that opened the marketplace   -->
+    <!-- chat. Now the admin gets a small hub with two buttons:       -->
+    <!-- Live Chat (opens the marketplace chat panel) and Customer    -->
+    <!-- Tracking (opens /seller-track.html in a new tab).           -->
     <!-- ============================================================ -->
-    <div class="section" id="section-customers">
+    <div class="section" id="section-messages">
       <div class="section-header">
-        <h2>👥 Customers</h2>
-        <button class="btn-save" onclick="loadCustomers()"><i class="fas fa-sync-alt"></i> Refresh</button>
+        <h2>💬 Messages</h2>
       </div>
+
       <div class="settings-section">
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Orders</th>
-                <th>Total Spent</th>
-                <th>Joined</th>
-              </tr>
-            </thead>
-            <tbody id="customerTableBody">
-              <tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Loading customers...</td></tr>
-            </tbody>
-          </table>
+        <h3 style="font-size:0.95rem; font-weight:700; margin:0 0 6px 0;">
+          Talk to your customers
+        </h3>
+        <p style="font-size:0.82rem; color:#64748b; margin:0 0 14px 0;">
+          Open the live chat to reply to customers, or see where your
+          active customers are right now.
+        </p>
+
+        <div class="quick-actions" style="flex-wrap:wrap;">
+          <button class="btn-save" onclick="openMarketplaceMessages()">
+            <i class="fas fa-comment"></i> Open Live Chat
+          </button>
+          <button class="btn-secondary" onclick="window.open('/seller-track.html', '_blank', 'noopener')">
+            <i class="fas fa-map"></i> Customer Tracking
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-section" style="margin-top:12px;">
+        <h3 style="font-size:0.9rem; font-weight:700; margin:0 0 6px 0;">Order chats</h3>
+        <p style="font-size:0.78rem; color:#64748b; margin:0;">
+          Order-specific chats live inside each order. Open
+          <a href="#" onclick="navigateTo('orders'); return false;">Orders</a>
+          and pick an order to view its chat thread.
+        </p>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SECTION: PRODUCTS (Section 8 — now carries the Categories     -->
+    <!-- tab inline so the sidebar no longer needs a separate item)    -->
+    <!-- ============================================================ -->
+    <div class="section" id="section-products">
+      <div class="section-header">
+        <h2>📦 Products</h2>
+      </div>
+
+      <!-- In-page tab bar: Products | Categories -->
+      <div class="shop-tabs" role="tablist" aria-label="Products sections">
+        <button type="button"
+                class="shop-tab is-active"
+                id="productsTabProducts"
+                data-shop-tab="products"
+                role="tab"
+                aria-selected="true"
+                onclick="switchProductsTab('products')">
+          <i class="fas fa-tag"></i> Products
+        </button>
+        <button type="button"
+                class="shop-tab"
+                id="productsTabCategories"
+                data-shop-tab="categories"
+                role="tab"
+                aria-selected="false"
+                onclick="switchProductsTab('categories')">
+          <i class="fas fa-list"></i> Categories
+        </button>
+      </div>
+
+      <!-- ---------- Products tab ---------- -->
+      <div class="shop-tab-panel is-active" id="productsPanelProducts" role="tabpanel">
+        <div class="settings-section">
+          <form id="productForm" enctype="multipart/form-data">
+            <input type="hidden" id="editProductId" value="">
+            <div class="form-row">
+              <div class="full"><label>Product Name *</label><input type="text" id="pName" name="name" required></div>
+              <div><label>Price (Ksh) *</label><input type="text" id="pPrice" name="price" required></div>
+              <div><label>Old Price (Ksh)</label><input type="text" id="pOldPrice" name="old_price" placeholder="e.g., 799"></div>
+              <div><label>Discount (%)</label><input type="text" id="pDiscount" name="discount_percent" placeholder="e.g., 20"></div>
+
+              <div class="full">
+                <label>Product Category *</label>
+                <input type="search" id="pProductCategorySearch" placeholder="Search product categories..." autocomplete="off" oninput="filterProductCategoryOptions()">
+                <select id="pProductCategory" name="product_category_id" required style="margin-top:4px;">
+                  <option value="">⏳ Loading categories...</option>
+                </select>
+                <small id="pProductCategoryHelp">Pick from the platform's defined product categories. Can't find yours? <a href="#" onclick="switchProductsTab('categories'); return false;">Request a new category</a>.</small>
+              </div>
+
+              <div><label>Stock</label><input type="number" id="pStock" name="stock" placeholder="0" value="0"></div>
+              <div><label>Contact</label><input type="text" id="pContact" name="contact" value="+254700000000"></div>
+              <div><label>Rating</label><input type="text" id="pRating" name="rating" placeholder="e.g., 4.5"></div>
+              <div><label>Badge 1</label><input type="text" id="pBadge1" name="badge1" placeholder="Brand Official"></div>
+              <div><label>Badge 2</label><input type="text" id="pBadge2" name="badge2" placeholder="Fulfilled By Kilimall"></div>
+              <div class="full"><label>Shipping Info</label><input type="text" id="pShipping" name="shipping" placeholder="Ships from Mavoko"></div>
+              <div class="full"><label>Description</label><textarea id="pDescription" name="description" rows="3"></textarea></div>
+              <div class="full checkbox-group">
+                <label><input type="checkbox" id="pFlashSale" name="isFlashSale"> 🔥 Flash Sale</label>
+                <label><input type="checkbox" id="pNewArrival" name="isNewArrival"> 🆕 New Arrival</label>
+              </div>
+              <div><label>Images</label><input type="file" id="pImage" name="image" accept="image/*" multiple><small>Choose several colours or angles.</small></div>
+              <div><label>Videos</label><input type="file" id="pVideo" name="video" accept="video/*" multiple><small>Choose one or more videos.</small></div>
+              <div class="full">
+                <label>Color Variants</label>
+                <div id="variantsContainer"></div>
+                <button type="button" class="btn-secondary" onclick="addVariantRow()">➕ Add Color Variant</button>
+              </div>
+            </div>
+            <button type="submit" class="btn-save" id="productSubmitBtn">➕ Add Product</button>
+            <button type="button" class="btn-secondary" onclick="cancelEditProduct()" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
+          </form>
+
+          <details style="margin-top:16px">
+            <summary><strong>Bulk add products</strong> (one product per line)</summary>
+            <p class="help-text">Paste CSV values: name, price, stock, description. All products in a batch share the product category you select below. Media can be added by editing a product afterward.</p>
+            <label style="display:block; margin:8px 0 4px; font-weight:600; font-size:0.85rem;">Product Category for this batch *</label>
+            <input type="search" id="bulkProductCategorySearch" placeholder="Search product categories..." autocomplete="off" oninput="filterProductCategoryOptions('bulk')">
+            <select id="bulkProductCategory" required style="margin-top:4px;">
+              <option value="">⏳ Loading categories...</option>
+            </select>
+            <textarea id="bulkProductsInput" rows="6" placeholder="Blue T-shirt,1200,8,Soft cotton" style="margin-top:8px;"></textarea>
+            <button type="button" class="btn-secondary" onclick="submitProductBatch()">Add product batch</button>
+          </details>
+
+          <div style="margin-top:20px; border-top:1px solid #e2e8f0; padding-top:16px;">
+            <h3>📋 Your Products</h3>
+            <div id="productList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Categories tab ---------- -->
+      <div class="shop-tab-panel" id="productsPanelCategories" role="tabpanel">
+        <div class="settings-section">
+          <h3 style="font-size:0.95rem; font-weight:700; margin-bottom:8px;">Categories available to you</h3>
+          <p class="help-text" style="margin-bottom:10px;">
+            These categories are defined by the platform and are shared by every business.
+            Only categories that match your business categories are shown here.
+          </p>
+          <div id="productCategoriesList"><p class="empty-msg">Loading product categories...</p></div>
+        </div>
+
+        <div class="settings-section" style="margin-top:16px;">
+          <h3 style="font-size:0.95rem; font-weight:700; margin-bottom:8px;">Request a new product category</h3>
+          <p class="help-text" style="margin-bottom:10px;">
+            If you sell a product that doesn't fit any of the categories above, you can request a new one.
+            The platform admin will review your request and, once approved, it will become available to every business.
+          </p>
+          <form id="requestProductCategoryForm" onsubmit="event.preventDefault(); submitProductCategoryRequest();">
+            <div class="form-row">
+              <div class="full">
+                <label>Category Name *</label>
+                <input type="text" id="requestCategoryName" name="name" placeholder="e.g., Reusable Shopping Bags" required>
+              </div>
+              <div class="full">
+                <label>Description (optional)</label>
+                <textarea id="requestCategoryDescription" rows="2" placeholder="Briefly describe the kind of products this category covers."></textarea>
+              </div>
+              <div class="full">
+                <label>Related Business Category (optional)</label>
+                <select id="requestCategoryBusinessCategory">
+                  <option value="">Leave blank for a generic category</option>
+                </select>
+                <small>The platform admin can move it under a different business category if needed.</small>
+              </div>
+            </div>
+            <button type="submit" class="btn-save">📨 Submit Request</button>
+            <div id="requestCategoryStatus" style="margin-top:8px; font-size:0.9rem;"></div>
+          </form>
         </div>
       </div>
     </div>
 
     <!-- ============================================================ -->
-    <!-- SECTION: ADS (Section J.2)                                    -->
+    <!-- SECTION: PRODUCT CATEGORIES (kept as a hidden anchor so the   -->
+    <!-- old ?section=productcategories deep link does not 404).       -->
+    <!-- business-admin.js forwards this to the Products tab.          -->
+    <!-- ============================================================ -->
+    <div class="section" id="section-productcategories" aria-hidden="true" style="display:none;"></div>
+
+    <!-- ============================================================ -->
+    <!-- SECTION: MY SHOP                                             -->
+    <!--                                                              -->
+    <!-- Section 8 — one sidebar item, one scroll, four groups.       -->
+    <!-- Each group lives in its own <div class="section"> wrapper     -->
+    <!-- so every existing id and every existing loader keep          -->
+    <!-- working unchanged. navigateTo('myshop') makes all four        -->
+    <!-- visible together. Deep links to ?section=payments and         -->
+    <!-- friends still land on the matching wrapper and scroll.        -->
+    <!-- ============================================================ -->
+    <div class="myshop-page" id="myshopPage">
+
+      <!-- Small header + Preview button, only visible when My Shop is open -->
+      <div class="myshop-toolbar" id="myshopToolbar" style="display:none;">
+        <div>
+          <h2 style="font-size:1.15rem; font-weight:800; margin:0 0 2px 0; color:#0f172a;">
+            🏪 My Shop
+          </h2>
+          <p style="font-size:0.78rem; color:#64748b; margin:0;">
+            Everything about your shop in one place: profile, payments, delivery, and order rules.
+          </p>
+        </div>
+        <button class="btn-secondary" type="button" onclick="openPublicPreview()">
+          <i class="fas fa-eye"></i> Public Preview
+        </button>
+      </div>
+
+      <!-- Jump bar: quick anchor to each of the four groups -->
+      <nav class="myshop-jumpbar" id="myshopJumpbar" style="display:none;" aria-label="My Shop sections">
+        <button type="button" class="myshop-jump" data-jump="profile" onclick="jumpToShopSection('profile')">
+          <i class="fas fa-store"></i> Business Profile
+        </button>
+        <button type="button" class="myshop-jump" data-jump="payments" onclick="jumpToShopSection('payments')">
+          <i class="fas fa-credit-card"></i> Payment Settings
+        </button>
+        <button type="button" class="myshop-jump" data-jump="delivery" onclick="jumpToShopSection('delivery')">
+          <i class="fas fa-truck"></i> Delivery
+        </button>
+        <button type="button" class="myshop-jump" data-jump="ordersettings" onclick="jumpToShopSection('ordersettings')">
+          <i class="fas fa-sliders-h"></i> Order Settings
+        </button>
+      </nav>
+
+      <!-- ===== GROUP 1 — BUSINESS PROFILE ===== -->
+      <div class="section" id="section-profile">
+        <div class="section-header">
+          <h2>🏪 Business Profile</h2>
+        </div>
+
+        <div id="businessLocationWarning" style="display:none; margin:0 0 12px 0; padding:14px 18px; background:#fef2f2; border-radius:10px; border-left:4px solid #ef4444; color:#991b1b; font-size:0.85rem;">
+          <strong>⚠️ Your business cannot be found by nearby customers until you add a location.</strong>
+          <p style="margin:4px 0 0 0; color:#7f1d1d;">
+            Press <em>Activate Your Location</em> below, or fill in at least your town or county.
+          </p>
+        </div>
+
+        <div class="settings-section" id="locationActivationSection">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:220px;">
+              <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
+                📍 Make people find you by your location
+              </h3>
+              <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">
+                Activate your location so nearby customers can discover your business.
+                We use your device's GPS — you don't need to type latitude or longitude.
+                You can re-activate any time if you move.
+              </p>
+              <div id="locationStatusBadge" style="display:none; font-size:0.8rem; font-weight:600; color:#166534; background:#dcfce7; padding:4px 12px; border-radius:20px; display:inline-block;">
+                ✅ Location Activated
+              </div>
+              <div id="locationStatusBadgeInactive" style="font-size:0.8rem; font-weight:600; color:#92400e; background:#fef3c7; padding:4px 12px; border-radius:20px; display:inline-block;">
+                ⏳ Location Not Activated
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:6px; min-width:180px;">
+              <button type="button" class="btn-save" id="activateLocationBtn" onclick="activateBusinessLocation()" style="background:#16a34a; padding:10px 18px;">
+                <i class="fas fa-location-crosshairs"></i> Activate Your Location
+              </button>
+              <button type="button" class="btn-secondary" id="refreshLocationBtn" onclick="activateBusinessLocation()" style="display:none;">
+                <i class="fas fa-sync-alt"></i> Refresh Location
+              </button>
+              <small style="font-size:0.65rem; color:#94a3b8; text-align:center;">
+                Your browser will ask for permission
+              </small>
+            </div>
+          </div>
+
+          <div id="businessLocationMapWrapper" style="display:none; margin-top:14px;">
+            <div id="businessLocationMap" style="width:100%; height:260px; border-radius:10px; border:1px solid #e2e8f0;"></div>
+            <p style="font-size:0.75rem; color:#64748b; margin:6px 0 0 0;">
+              Drag the pin to adjust. Then press one of the buttons below.
+            </p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn-save" onclick="saveAdjustedBusinessPin()" style="background:#2563eb;">
+                <i class="fas fa-check"></i> Yes, this is correct
+              </button>
+              <button type="button" class="btn-secondary" onclick="document.getElementById('businessLocationMap').scrollIntoView({behavior:'smooth'})">
+                <i class="fas fa-map-pin"></i> Adjust the pin
+              </button>
+            </div>
+          </div>
+
+          <div id="locationActivationStatus" style="margin-top:8px; font-size:0.85rem;"></div>
+        </div>
+
+        <!-- Search Tag (read-only) -->
+        <div class="settings-section" id="searchTagSection">
+          <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
+            🔖 Your Search Tag
+          </h3>
+          <p style="font-size:0.8rem; color:#64748b; margin:0 0 12px 0;">
+            Customers can type this tag into the marketplace search to jump straight to your shop.
+            The tag was generated for you automatically at registration.
+          </p>
+
+          <div id="searchTagCurrentBlock" style="padding:12px 14px; background:#f0fdf4; border-radius:10px; border-left:4px solid #16a34a; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:180px;">
+              <div style="font-size:0.7rem; color:#166534; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">
+                Your search tag
+              </div>
+              <div id="searchTagCurrentValue"
+                   style="font-family:monospace; font-weight:800; color:#14532d; font-size:1rem; letter-spacing:0.03em;">
+                —
+              </div>
+            </div>
+            <button type="button"
+                    id="copySearchTagBtn"
+                    onclick="copySearchTagFromAdmin()"
+                    title="Copy the search tag"
+                    style="display:inline-flex; align-items:center; gap:6px; padding:8px 14px; background:#16a34a; color:#ffffff; border:none; border-radius:8px; font-weight:700; font-size:0.8rem; cursor:pointer;">
+              <i class="fas fa-copy"></i> Copy
+            </button>
+          </div>
+
+          <p style="font-size:0.72rem; color:#94a3b8; margin:10px 0 0 0;">
+            Share this tag with customers so they can find your shop directly.
+          </p>
+        </div>
+
+        <div class="settings-section">
+          <form id="profileForm" enctype="multipart/form-data">
+            <div class="form-row">
+              <div class="full"><label>Business Name</label><input type="text" id="bName" name="business_name"></div>
+              <div class="full"><label>Business categories</label><input type="search" id="businessCategorySearch" placeholder="Filter categories" oninput="filterBusinessCategoryOptions()"><select id="businessCategories" multiple size="7" aria-label="Business categories"></select><small>Hold Ctrl/Cmd to select more than one category.</small></div>
+              <div class="full"><label>Location</label><input type="text" id="bLocation" name="location"></div>
+              <div class="full"><label>Address</label><input type="text" id="bAddress" name="address"></div>
+              <div class="full"><label>Description</label><textarea id="bDescription" name="description" rows="3"></textarea></div>
+              <div><label>Mission</label><textarea id="bMission" name="mission" rows="2"></textarea></div>
+              <div><label>Vision</label><textarea id="bVision" name="vision" rows="2"></textarea></div>
+
+              <div class="full">
+                <label style="font-weight:700; font-size:0.85rem; display:block; margin:6px 0 4px 0;">
+                  🗺️ Where is your business? (helps customers find you by name)
+                </label>
+              </div>
+              <div><label>Continent</label><input type="text" id="bContinent" name="continent" placeholder="Africa"></div>
+              <div><label>Country</label><input type="text" id="bCountry" name="country" placeholder="Kenya"></div>
+              <div><label>County</label><input type="text" id="bCounty" name="county" placeholder="Nairobi"></div>
+              <div><label>Sub-County</label><input type="text" id="bSubCounty" name="sub_county" placeholder="Westlands"></div>
+              <div><label>Ward</label><input type="text" id="bWard" name="ward" placeholder="Parklands"></div>
+              <div><label>Town / City</label><input type="text" id="bTown" name="town" placeholder="Nairobi"></div>
+              <div><label>Specific Area</label><input type="text" id="bSpecificArea" name="specific_area" placeholder="Near Sarit Centre"></div>
+              <div><label>Postal Code</label><input type="text" id="bPostalCode" name="postal_code" placeholder="00100"></div>
+
+              <div class="full"><label>Logo</label><input type="file" id="bLogo" name="logo" accept="image/*"></div>
+              <div class="full"><label>Hero Image</label><input type="file" id="bHero" name="heroImage" accept="image/*"></div>
+              <div class="full"><label>WhatsApp</label><input type="text" id="bWhatsapp" name="whatsapp"></div>
+              <div><label>TikTok</label><input type="text" id="bTiktok" name="tiktok"></div>
+              <div><label>Instagram</label><input type="text" id="bInstagram" name="instagram"></div>
+              <div><label>Facebook</label><input type="text" id="bFacebook" name="facebook"></div>
+              <div><label>LinkedIn</label><input type="text" id="bLinkedin" name="linkedin"></div>
+              <div><label>Phone</label><input type="text" id="bPhone" name="phone"></div>
+              <div><label>Additional phones</label><input type="text" id="bPhoneNumbers" name="phone_numbers" placeholder="Comma-separated numbers"></div>
+              <div><label>Website</label><input type="text" id="bWebsite" name="website"></div>
+              <div><label>Email</label><input type="email" id="bEmail" name="email"></div>
+              <div><label>Additional emails</label><input type="text" id="bEmailAddresses" name="email_addresses" placeholder="Comma-separated emails"></div>
+            </div>
+            <button type="submit" class="btn-save">💾 Save Profile</button>
+            <div id="profileStatus" style="margin-top:8px; font-size:0.9rem;"></div>
+          </form>
+        </div>
+      </div>
+
+      <!-- ===== GROUP 2 — PAYMENT SETTINGS ===== -->
+      <div class="section" id="section-payments">
+        <div class="section-header">
+          <h2>💳 Payment Settings</h2>
+        </div>
+        <div class="settings-section">
+          <form id="paymentSettingsForm">
+            <div class="form-row">
+
+              <div class="full" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
+                <h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">M-Pesa</h3>
+
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="pMpesaEnabled"> Enable M-Pesa</label>
+                </div>
+
+                <p style="font-size:0.75rem; color:#64748b; margin:8px 0 6px 0;">
+                  Choose how customers pay you. Only the fields for the selected type are required.
+                </p>
+
+                <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px;">
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="mpesa_payment_type" value="paybill" onchange="updateMpesaFields()"> Paybill
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="mpesa_payment_type" value="till" onchange="updateMpesaFields()"> Till (Buy Goods)
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="mpesa_payment_type" value="pochi" onchange="updateMpesaFields()"> Pochi la Biashara
+                  </label>
+                </div>
+
+                <div id="mpesaPaybillFields" style="display:none;">
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <div>
+                      <label style="font-weight:600; font-size:0.8rem;">Paybill Number</label>
+                      <input type="text" id="pMpesaPaybillNumber" placeholder="123456" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                    </div>
+                    <div>
+                      <label style="font-weight:600; font-size:0.8rem;">Account Number</label>
+                      <input type="text" id="pMpesaPaybillAccount" placeholder="Your account or order ref" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                    </div>
+                  </div>
+                </div>
+
+                <div id="mpesaTillFields" style="display:none;">
+                  <label style="font-weight:600; font-size:0.8rem;">Till Number</label>
+                  <input type="text" id="pMpesaTillNumber" placeholder="123456" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                </div>
+
+                <div id="mpesaPochiFields" style="display:none;">
+                  <label style="font-weight:600; font-size:0.8rem;">Pochi la Biashara Number</label>
+                  <input type="text" id="pPochiNumber" placeholder="0712345678" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                </div>
+
+                <p id="mpesaEnvironmentLabel" style="font-size:0.7rem; color:#64748b; margin:10px 0 0 0;">
+                  Environment: <span style="font-weight:600;">Loading...</span>
+                </p>
+              </div>
+
+              <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">Airtel Money</h3>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="pAirtelEnabled"> Enable Airtel Money</label>
+                </div>
+                <label>Airtel Number</label>
+                <input type="text" id="pAirtelNumber" placeholder="0712345678">
+              </div>
+
+              <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">Bank Transfer</h3>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="pBankEnabled"> Enable Bank Transfer</label>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                  <div><label>Bank Name</label><input type="text" id="pBankName" placeholder="Equity Bank"></div>
+                  <div><label>Account Number</label><input type="text" id="pBankAccount" placeholder="1234567890"></div>
+                </div>
+                <label>Account Holder Name</label>
+                <input type="text" id="pBankHolder" placeholder="Your Business Name">
+              </div>
+
+              <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">PayPal</h3>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="pPaypalEnabled"> Enable PayPal</label>
+                </div>
+                <label>PayPal Email</label>
+                <input type="email" id="pPaypalEmail" placeholder="your@email.com">
+              </div>
+
+              <div class="full">
+                <button type="submit" class="btn-save">💾 Save Payment Settings</button>
+                <div id="paymentStatus" style="margin-top:8px; font-size:0.9rem;"></div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- ===== GROUP 3 — DELIVERY / SHIPPING ===== -->
+      <div class="section" id="section-delivery">
+        <div class="section-header">
+          <h2>🚚 Delivery / Shipping</h2>
+          <button class="btn-save" onclick="loadDeliverySettings()"><i class="fas fa-sync-alt"></i> Refresh</button>
+        </div>
+
+        <div class="settings-section">
+          <form id="deliveryForm">
+
+            <div class="form-group" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
+              <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
+                📦 Do you offer delivery?
+              </label>
+              <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">
+                Choose YES if you can deliver products to customers. Choose NO if customers must pick up from you.
+              </p>
+
+              <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                <label style="font-size:0.95rem; cursor:pointer;">
+                  <input type="radio" name="delivery_offered" value="yes" onchange="toggleDeliveryOffered('yes')">
+                  ✅ Yes, I offer delivery
+                </label>
+                <label style="font-size:0.95rem; cursor:pointer;">
+                  <input type="radio" name="delivery_offered" value="no" onchange="toggleDeliveryOffered('no')">
+                  ❌ No, customers pick up
+                </label>
+              </div>
+            </div>
+
+            <div id="deliveryNoContainer" style="display:none; margin-top:12px; padding:16px; background:#fefce8; border-radius:10px; border:1px solid #f59e0b;">
+              <label style="font-weight:600; display:block; margin-bottom:4px;">
+                📝 Message for customers
+              </label>
+              <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;">
+                Write a clear message that customers will see on your profile and products.
+                They can chat with you to arrange delivery.
+              </p>
+
+              <div style="background:#fefce8; padding:10px 14px; border-radius:8px; border-left:4px solid #f59e0b; margin-bottom:10px;">
+                <p style="font-size:0.75rem; color:#92400e; margin:0;">
+                  <strong>💡 Here are some examples:</strong><br>
+                  • "Let's talk about delivery. Chat with me to arrange how you can get your products."<br>
+                  • "Pickup only. Contact me on WhatsApp to arrange delivery."<br>
+                  • "I don't offer delivery. Please come to my shop to pick up your items."<br>
+                  • "Chat with me to arrange a meeting point or delivery."
+                </p>
+              </div>
+
+              <textarea id="deliveryNoMessage" rows="3" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="e.g., Let's talk about delivery. Chat with me to arrange how you can get your products."></textarea>
+              <p style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">
+                💡 Tip: Include your phone number so customers can call you
+              </p>
+            </div>
+
+            <div id="deliveryYesContainer" style="display:none; margin-top:16px;">
+
+              <div class="form-group" style="background:#f0fdf4; padding:16px; border-radius:10px; border:1px solid #22c55e;">
+                <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
+                  🎁 Do you offer FREE delivery?
+                </label>
+                <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">
+                  Choose YES if you deliver for free. Choose NO if you charge customers for delivery.
+                </p>
+
+                <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                  <label style="font-size:0.95rem; cursor:pointer;">
+                    <input type="radio" name="delivery_free" value="yes" onchange="toggleDeliveryFree('yes')">
+                    ✅ Yes, FREE delivery
+                  </label>
+                  <label style="font-size:0.95rem; cursor:pointer;">
+                    <input type="radio" name="delivery_free" value="no" onchange="toggleDeliveryFree('no')">
+                    ❌ No, I charge for delivery
+                  </label>
+                </div>
+              </div>
+
+              <div id="deliveryFreeYesContainer" style="display:none; margin-top:12px; padding:16px; background:#f0fdf4; border-radius:10px; border:1px solid #22c55e;">
+                <label style="font-weight:600; display:block; margin-bottom:8px;">
+                  📍 Where do you deliver for FREE?
+                </label>
+
+                <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:10px;">
+                  <label style="font-size:0.9rem; cursor:pointer;">
+                    <input type="radio" name="delivery_free_where" value="everywhere" onchange="toggleFreeWhere('everywhere')">
+                    🌍 Everywhere in Kenya
+                  </label>
+                  <label style="font-size:0.9rem; cursor:pointer;">
+                    <input type="radio" name="delivery_free_where" value="specific" onchange="toggleFreeWhere('specific')">
+                    📍 Only in certain places
+                  </label>
+                </div>
+
+                <div id="freeEverywhereContainer" style="display:none;">
+                  <div style="background:#dcfce7; padding:12px 16px; border-radius:8px; border-left:4px solid #22c55e;">
+                    <p style="font-size:0.9rem; color:#166534; margin:0;">
+                      ✅ <strong>What customers will see:</strong>
+                      <br>
+                      "I deliver FREE everywhere in Kenya! 🎉"
+                    </p>
+                  </div>
+                </div>
+
+                <div id="freeSpecificContainer" style="display:none;">
+                  <p style="font-size:0.8rem; color:#64748b; margin-bottom:8px;">
+                    <i class="fas fa-info-circle" style="color:#2563eb;"></i>
+                    Be honest with your customers. Explain when you offer free delivery or when you charge.
+                  </p>
+
+                  <div style="margin-bottom:8px;">
+                    <label style="font-weight:600; font-size:0.8rem;">📝 Your delivery message</label>
+                    <textarea id="freeDeliveryMessage" rows="4" style="width:100%; padding:10px 14px; border:1.5px solid #d1d5db; border-radius:8px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="e.g., I deliver FREE within Nairobi CBD. Outside Nairobi, I charge Ksh 150 per km. Orders over Ksh 2,000 get FREE delivery!"></textarea>
+                    <small style="font-size:0.7rem; color:#94a3b8;">This message will be shown to customers on your profile</small>
+                  </div>
+                </div>
+              </div>
+
+              <div id="deliveryFreeNoContainer" style="display:none; margin-top:12px; padding:16px; background:#fff7ed; border-radius:10px; border:1px solid #f59e0b;">
+                <label style="font-weight:600; display:block; margin-bottom:8px;">
+                  📝 Tell customers about your delivery charges
+                </label>
+
+                <div style="margin-bottom:8px;">
+                  <label style="font-weight:600; font-size:0.8rem;">📝 Your delivery message</label>
+                  <textarea id="deliveryPaidMessage" rows="4" style="width:100%; padding:10px 14px; border:1.5px solid #d1d5db; border-radius:8px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="e.g., I charge Ksh 200 for delivery within Nairobi. Outside Nairobi, I charge Ksh 150 per km. Orders over Ksh 2,000 get FREE delivery!"></textarea>
+                  <small style="font-size:0.7rem; color:#94a3b8;">This message will be shown to customers on your profile</small>
+                </div>
+              </div>
+
+              <div style="margin-top:16px; padding:16px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0;">
+                <label style="font-weight:600; display:block; margin-bottom:8px;">
+                  💰 How do you charge for delivery?
+                </label>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+                  <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_fee_type" value="fixed" onchange="updateDeliveryPreview()">
+                    Fixed fee
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_fee_type" value="per_km" onchange="updateDeliveryPreview()">
+                    Per km
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_fee_type" value="free" onchange="updateDeliveryPreview()">
+                    Free
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_fee_type" value="distance_based" onchange="updateDeliveryPreview()">
+                    Distance based
+                  </label>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                  <div>
+                    <label style="font-weight:600; font-size:0.8rem;">Fixed Fee (Ksh)</label>
+                    <input type="number" id="deliveryFeeFixed" value="0" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  </div>
+                  <div>
+                    <label style="font-weight:600; font-size:0.8rem;">Fee Per Km (Ksh)</label>
+                    <input type="number" id="deliveryFeePerKm" value="0" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px;">
+                  <div>
+                    <label style="font-weight:600; font-size:0.8rem;">Free Delivery Threshold (Ksh)</label>
+                    <input type="number" id="deliveryMinOrderFree" value="0" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                    <small style="font-size:0.6rem; color:#94a3b8;">Orders above this get free delivery</small>
+                  </div>
+                  <div>
+                    <label style="font-weight:600; font-size:0.8rem;">Max Distance (km)</label>
+                    <input type="number" id="deliveryMaxDistance" value="50" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                    <small style="font-size:0.6rem; color:#94a3b8;">Maximum distance you deliver</small>
+                  </div>
+                </div>
+              </div>
+
+              <div id="deliveryCommonContainer" style="display:none; margin-top:16px; padding:16px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0;">
+                <label style="font-weight:600; display:block; margin-bottom:8px;">
+                  📅 How fast do you deliver?
+                </label>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:10px;">
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_days" value="same_day" onchange="updateDeliveryPreview()"> Same day
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_days" value="next_day" onchange="updateDeliveryPreview()"> Next day
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_days" value="within_2_days" onchange="updateDeliveryPreview()"> Within 2 days
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_days" value="within_3_days" onchange="updateDeliveryPreview()"> Within 3 days
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_days" value="within_5_days" onchange="updateDeliveryPreview()"> Within 5 days
+                  </label>
+                  <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
+                    <input type="radio" name="delivery_days" value="within_7_days" onchange="updateDeliveryPreview()"> Within 7 days
+                  </label>
+                </div>
+              </div>
+
+              <div style="margin-top:12px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div>
+                  <label style="font-weight:600; font-size:0.8rem;">⏰ Estimated Time</label>
+                  <input type="text" id="deliveryEstimatedTime" value="Same day" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.6rem; color:#94a3b8;">e.g., "Same day", "Next day", "Within 3 days"</small>
+                </div>
+                <div>
+                  <label style="font-weight:600; font-size:0.8rem;">📋 Cutoff Time</label>
+                  <input type="time" id="deliveryCutoffTime" value="14:00" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.6rem; color:#94a3b8;">Orders before this time get same day delivery</small>
+                </div>
+              </div>
+
+              <div style="margin-top:12px;">
+                <label style="font-weight:600; font-size:0.8rem;">📋 Delivery Policy</label>
+                <textarea id="deliveryPolicy" rows="3" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1.5px solid #d1d5db; border-radius:8px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="Explain your delivery policy to customers..."></textarea>
+              </div>
+
+              <div style="margin-top:12px;">
+                <label style="font-weight:600; font-size:0.8rem;">🕐 Available Time Slots</label>
+                <input type="text" id="deliveryTimeSlots" placeholder="Morning, Afternoon, Evening" style="width:100%; padding:8px 12px; border:1.5px solid #d1d5db; border-radius:6px;">
+                <small style="font-size:0.6rem; color:#94a3b8;">Comma separated: e.g., "Morning, Afternoon, Evening"</small>
+              </div>
+
+            </div>
+
+            <div id="deliveryPreviewContainer" style="display:none; margin-top:16px; padding:16px; background:#eff6ff; border-radius:10px; border:2px dashed #2563eb;">
+              <h4 style="font-size:0.9rem; font-weight:700; margin:0 0 8px 0; color:#2563eb;">
+                👁️ Preview: What Customers Will See
+              </h4>
+              <div id="deliveryPreviewContent" style="background:white; border-radius:8px; padding:16px; border:1px solid #e2e8f0;">
+                <p style="color:#94a3b8; font-size:0.85rem;">Loading preview...</p>
+              </div>
+              <p style="font-size:0.65rem; color:#94a3b8; margin-top:6px;">
+                This preview updates automatically as you make changes
+              </p>
+            </div>
+
+            <div style="margin-top:16px;">
+              <button type="submit" class="btn-save" style="width:100%; padding:12px;">💾 Save Delivery Settings</button>
+              <div id="deliveryStatus" style="margin-top:8px; font-size:0.9rem;"></div>
+            </div>
+
+          </form>
+        </div>
+
+        <div class="settings-section" style="margin-top:16px;">
+          <h3 style="font-size:0.9rem; font-weight:700; margin-bottom:8px;">📋 Orders with Delivery</h3>
+          <div id="deliveryOrdersContainer">
+            <p class="empty-msg">Loading delivery orders...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== GROUP 4 — ORDER SETTINGS ===== -->
+      <div class="section" id="section-ordersettings">
+        <div class="section-header">
+          <h2>📋 Order Settings</h2>
+          <div class="section-actions">
+            <button class="btn-save" onclick="loadOrderSettings()"><i class="fas fa-sync-alt"></i> Refresh</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <form id="orderSettingsForm" onsubmit="event.preventDefault(); saveOrderSettings();">
+
+            <div id="orderDeliveryWarning" style="display:none; margin-bottom:12px; padding:14px 18px; background:#fff7ed; border-radius:10px; border-left:4px solid #f59e0b; color:#7c2d12; font-size:0.85rem;">
+              <strong>⚠️ You are accepting online orders, but delivery is turned off.</strong>
+              <p style="margin:4px 0 0 0; color:#7c2d12;">
+                Customers will have to pick up their items. If that is not what you want,
+                open <em>Delivery / Shipping</em> and enable delivery, or pause online orders below.
+              </p>
+            </div>
+
+            <div class="form-group" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
+              <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
+                🛒 Allow Online Orders?
+              </label>
+              <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">
+                Enable this to allow customers to place orders online. If disabled, customers will see a message that you are not accepting orders.
+              </p>
+
+              <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                <label style="font-size:0.95rem; cursor:pointer; padding:8px 16px; background:#f0fdf4; border-radius:8px; border:1px solid #22c55e;">
+                  <input type="radio" name="order_online" value="yes" onchange="updateOrderSettingsUI()" id="orderOnlineEnabled" checked>
+                  ✅ Yes, allow online orders
+                </label>
+                <label style="font-size:0.95rem; cursor:pointer; padding:8px 16px; background:#fef2f2; border-radius:8px; border:1px solid #ef4444;">
+                  <input type="radio" name="order_online" value="no" onchange="updateOrderSettingsUI()">
+                  ❌ No, pause online orders
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top:12px; background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
+              <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
+                👀 What customers see when orders are paused
+              </label>
+
+              <label style="display:block; margin:8px 0;">
+                <input type="checkbox" id="showCartWhenDisabled">
+                Keep the cart button visible (but disabled) instead of hiding it
+              </label>
+
+              <label style="font-weight:600; font-size:0.8rem; display:block; margin-top:8px;">
+                Custom message shown to customers
+              </label>
+              <textarea id="orderDisabledMessageText" rows="3"
+                placeholder="This business is not currently accepting online orders. Please contact us directly."
+                style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
+              <small style="font-size:0.65rem; color:#94a3b8;">
+                Leave blank to use the default message above.
+              </small>
+            </div>
+
+            <div class="form-group" style="margin-top:12px; background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
+              <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">Payment options</label>
+              <label style="display:block; margin:8px 0;"><input type="checkbox" id="onlinePaymentEnabled" checked> Accept online payment when an order is placed</label>
+              <label style="display:block; margin:8px 0;"><input type="checkbox" id="paymentOnDeliveryEnabled"> Accept payment on delivery</label>
+              <label style="display:block; margin:8px 0;"><input type="checkbox" id="requirePodAgreement" checked> Require the payment-on-delivery agreement</label>
+              <textarea id="podAgreementText" rows="3" placeholder="Payment on Delivery Agreement" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.85rem; resize:vertical;"></textarea>
+            </div>
+
+            <div id="orderDisabledMessage" style="display:none; margin-top:12px; padding:16px; background:#fef2f2; border-radius:10px; border:1px solid #ef4444;">
+              <p style="font-size:0.85rem; color:#991b1b; margin:0;">
+                <i class="fas fa-info-circle"></i>
+                Customers will see: "This business is not currently accepting online orders. Please contact the business directly."
+              </p>
+            </div>
+
+            <div id="orderSettingsContainer" style="display:none; margin-top:16px;">
+
+              <div class="form-group">
+                <label style="font-weight:600; font-size:0.85rem;">📍 Order Regions</label>
+                <input type="text" id="orderRegions" placeholder="e.g., Anywhere in Kenya, Nairobi only, Within 50km" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                <small style="font-size:0.65rem; color:#94a3b8;">Where do you accept orders from? (e.g., "Anywhere in Kenya", "Nairobi only", "Within 50km")</small>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="form-group">
+                  <label style="font-weight:600; font-size:0.85rem;">⏰ Cutoff Time</label>
+                  <input type="time" id="orderCutoffTime" value="14:00" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.65rem; color:#94a3b8;">Orders before this time get same-day processing</small>
+                </div>
+
+                <div class="form-group">
+                  <label style="font-weight:600; font-size:0.85rem;">⏳ Processing Time</label>
+                  <input type="text" id="orderProcessingTime" placeholder="e.g., 1-2 hours, Same day" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.65rem; color:#94a3b8;">How long does it take to process orders?</small>
+                </div>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:8px;">
+                <div class="form-group">
+                  <label style="font-weight:600; font-size:0.85rem;">⏰ Auto-Cancel (Hours)</label>
+                  <input type="number" id="orderAutoCancelHours" value="24" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.65rem; color:#94a3b8;">Auto-cancel unpaid orders after X hours</small>
+                </div>
+
+                <div class="form-group">
+                  <label style="font-weight:600; font-size:0.85rem;">✅ Auto-Complete (Days)</label>
+                  <input type="number" id="orderAutoCompleteDays" value="7" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.65rem; color:#94a3b8;">Auto-complete after X days of receipt</small>
+                </div>
+
+                <div class="form-group">
+                  <label style="font-weight:600; font-size:0.85rem;">🔁 Replacement Window (Hours)</label>
+                  <input type="number" id="orderReplacementHours" value="6" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.65rem; color:#94a3b8;">Time limit for customers to request replacement</small>
+                </div>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
+                <div class="form-group">
+                  <label style="font-weight:600; font-size:0.85rem;">📦 Return Window (Days)</label>
+                  <input type="number" id="orderReturnWindow" value="14" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
+                  <small style="font-size:0.65rem; color:#94a3b8;">Number of days customers have to return items</small>
+                </div>
+              </div>
+
+              <div style="margin-top:12px;">
+                <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:4px;">📋 Custom Status Messages</label>
+                <p style="font-size:0.7rem; color:#64748b; margin-bottom:6px;">These messages will be shown to customers when their order status changes.</p>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Pending</label>
+                    <input type="text" id="orderStatusPending" placeholder="📋 Your order is being reviewed." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Awaiting Payment</label>
+                    <input type="text" id="orderStatusPendingPayment" placeholder="⏳ Awaiting payment confirmation." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Confirmed</label>
+                    <input type="text" id="orderStatusConfirmed" placeholder="✅ Your order is confirmed and being prepared." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Shipped</label>
+                    <input type="text" id="orderStatusShipped" placeholder="🚚 Your order is on the way!" style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Delivered</label>
+                    <input type="text" id="orderStatusDelivered" placeholder="📦 Your order is ready for pickup." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Received</label>
+                    <input type="text" id="orderStatusReceived" placeholder="✔️ You have confirmed receipt. Thank you!" style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Cancelled</label>
+                    <input type="text" id="orderStatusCancelled" placeholder="❌ This order has been cancelled." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                  <div>
+                    <label style="font-size:0.7rem; font-weight:600; color:#475569;">Completed</label>
+                    <input type="text" id="orderStatusCompleted" placeholder="✅ Order completed. Thank you for shopping!" style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top:12px;">
+                <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:4px;">🔄 Return Policy</label>
+                <textarea id="orderReturnPolicy" rows="2" placeholder="Returns accepted within 14 days of delivery. Products must be in original condition." style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
+              </div>
+
+            </div>
+
+            <div style="margin-top:16px; padding:16px; background:#eff6ff; border-radius:10px; border:2px dashed #2563eb;">
+              <h4 style="font-size:0.9rem; font-weight:700; margin:0 0 8px 0; color:#2563eb;">
+                👁️ Preview: What Customers Will See
+              </h4>
+              <div id="orderPreviewContent">
+                <p style="color:#94a3b8; font-size:0.85rem;">Loading preview...</p>
+              </div>
+            </div>
+
+            <div style="margin-top:16px;">
+              <button type="submit" class="btn-save" style="width:100%; padding:12px;">💾 Save Order Settings</button>
+              <div id="orderSettingsStatus" style="margin-top:8px; font-size:0.9rem;"></div>
+            </div>
+
+          </form>
+        </div>
+      </div>
+
+    </div><!-- /#myshopPage -->
+
+    <!-- ============================================================ -->
+    <!-- SECTION: ADS (unchanged)                                    -->
     <!-- ============================================================ -->
     <div class="section" id="section-ads">
 
@@ -283,7 +1122,6 @@
         <button class="btn-save" onclick="loadAds()"><i class="fas fa-sync-alt"></i> Refresh</button>
       </div>
 
-      <!-- Info banner — Section 2D.C -->
       <div class="ad-info-banner">
         <i class="fas fa-info-circle"></i>
         <div>
@@ -292,7 +1130,6 @@
         </div>
       </div>
 
-      <!-- ===== CREATE / EDIT FORM ===== -->
       <div class="settings-section">
         <h2 class="section-title" id="formTitle">
           <i class="fas fa-plus-circle"></i> Create New Ad
@@ -302,7 +1139,6 @@
           <input type="hidden" id="editAdId" value="">
 
           <div class="form-row">
-            <!-- Media upload -->
             <div class="full">
               <label>Ad Media * <span class="hint">(Image or Video — max 50MB)</span></label>
               <div class="media-drop" id="mediaDrop">
@@ -317,26 +1153,22 @@
               <small id="mediaHelp" class="hint">Pick one file. The media type is detected automatically.</small>
             </div>
 
-            <!-- Title -->
             <div>
               <label>Title <span class="hint">(optional, shown over the media)</span></label>
               <input type="text" id="adTitle" name="title" maxlength="200" placeholder="e.g., New Arrivals — 30% Off">
             </div>
 
-            <!-- Duration — Section 2D.A / 2D.B -->
             <div>
               <label>Display Duration (seconds)</label>
               <input type="number" id="adDuration" name="display_duration" min="1" max="20" placeholder="Max 4s images, 20s videos">
               <small class="hint">Leave blank for the defaults (4s images, 20s videos).</small>
             </div>
 
-            <!-- Description -->
             <div class="full">
               <label>Description <span class="hint">(optional)</span></label>
               <textarea id="adDescription" name="description" rows="2" maxlength="2000" placeholder="Short message shown under the title."></textarea>
             </div>
 
-            <!-- Link target -->
             <div>
               <label>When clicked, this ad should *</label>
               <select id="adLinkType" name="link_type" onchange="updateLinkTargetField()">
@@ -354,7 +1186,6 @@
               <small class="hint" id="productTargetHelp">Only active products from your business are listed.</small>
             </div>
 
-            <!-- Active toggle -->
             <div class="full">
               <label class="checkbox-label">
                 <input type="checkbox" id="adIsActive" name="is_active" checked>
@@ -376,7 +1207,6 @@
         </form>
       </div>
 
-      <!-- ===== EXISTING ADS ===== -->
       <div class="settings-section" style="margin-top:20px;">
         <div class="section-header-row">
           <h2 class="section-title">
@@ -395,830 +1225,6 @@
 
     </div>
 
-    <!-- ============================================================ -->
-    <!-- SECTION: PRODUCTS -->
-    <!-- ============================================================ -->
-    <div class="section" id="section-products">
-      <div class="section-header">
-        <h2>📦 Products</h2>
-      </div>
-      <div class="settings-section">
-        <form id="productForm" enctype="multipart/form-data">
-          <input type="hidden" id="editProductId" value="">
-          <div class="form-row">
-            <div class="full"><label>Product Name *</label><input type="text" id="pName" name="name" required></div>
-            <div><label>Price (Ksh) *</label><input type="text" id="pPrice" name="price" required></div>
-            <div><label>Old Price (Ksh)</label><input type="text" id="pOldPrice" name="old_price" placeholder="e.g., 799"></div>
-            <div><label>Discount (%)</label><input type="text" id="pDiscount" name="discount_percent" placeholder="e.g., 20"></div>
-
-            <div class="full">
-              <label>Product Category *</label>
-              <input type="search" id="pProductCategorySearch" placeholder="Search product categories..." autocomplete="off" oninput="filterProductCategoryOptions()">
-              <select id="pProductCategory" name="product_category_id" required style="margin-top:4px;">
-                <option value="">⏳ Loading categories...</option>
-              </select>
-              <small id="pProductCategoryHelp">Pick from the platform's defined product categories. Can't find yours? <a href="#" onclick="navigateTo('productcategories'); return false;">Request a new category</a>.</small>
-            </div>
-
-            <div><label>Stock</label><input type="number" id="pStock" name="stock" placeholder="0" value="0"></div>
-            <div><label>Contact</label><input type="text" id="pContact" name="contact" value="+254700000000"></div>
-            <div><label>Rating</label><input type="text" id="pRating" name="rating" placeholder="e.g., 4.5"></div>
-            <div><label>Badge 1</label><input type="text" id="pBadge1" name="badge1" placeholder="Brand Official"></div>
-            <div><label>Badge 2</label><input type="text" id="pBadge2" name="badge2" placeholder="Fulfilled By Kilimall"></div>
-            <div class="full"><label>Shipping Info</label><input type="text" id="pShipping" name="shipping" placeholder="Ships from Mavoko"></div>
-            <div class="full"><label>Description</label><textarea id="pDescription" name="description" rows="3"></textarea></div>
-            <div class="full checkbox-group">
-              <label><input type="checkbox" id="pFlashSale" name="isFlashSale"> 🔥 Flash Sale</label>
-              <label><input type="checkbox" id="pNewArrival" name="isNewArrival"> 🆕 New Arrival</label>
-            </div>
-            <div><label>Images</label><input type="file" id="pImage" name="image" accept="image/*" multiple><small>Choose several colours or angles.</small></div>
-            <div><label>Videos</label><input type="file" id="pVideo" name="video" accept="video/*" multiple><small>Choose one or more videos.</small></div>
-            <div class="full">
-              <label>Color Variants</label>
-              <div id="variantsContainer"></div>
-              <button type="button" class="btn-secondary" onclick="addVariantRow()">➕ Add Color Variant</button>
-            </div>
-          </div>
-          <button type="submit" class="btn-save" id="productSubmitBtn">➕ Add Product</button>
-          <button type="button" class="btn-secondary" onclick="cancelEditProduct()" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
-        </form>
-
-        <details style="margin-top:16px">
-          <summary><strong>Bulk add products</strong> (one product per line)</summary>
-          <p class="help-text">Paste CSV values: name, price, stock, description. All products in a batch share the product category you select below. Media can be added by editing a product afterward.</p>
-          <label style="display:block; margin:8px 0 4px; font-weight:600; font-size:0.85rem;">Product Category for this batch *</label>
-          <input type="search" id="bulkProductCategorySearch" placeholder="Search product categories..." autocomplete="off" oninput="filterProductCategoryOptions('bulk')">
-          <select id="bulkProductCategory" required style="margin-top:4px;">
-            <option value="">⏳ Loading categories...</option>
-          </select>
-          <textarea id="bulkProductsInput" rows="6" placeholder="Blue T-shirt,1200,8,Soft cotton" style="margin-top:8px;"></textarea>
-          <button type="button" class="btn-secondary" onclick="submitProductBatch()">Add product batch</button>
-        </details>
-
-        <div style="margin-top:20px; border-top:1px solid #e2e8f0; padding-top:16px;">
-          <h3>📋 Your Products</h3>
-          <div id="productList"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- SECTION: PRODUCT CATEGORIES (B.6) -->
-    <!-- ============================================================ -->
-    <div class="section" id="section-productcategories">
-      <div class="section-header">
-        <h2>🏷️ Product Categories</h2>
-        <button class="btn-save" onclick="loadProductCategories()"><i class="fas fa-sync-alt"></i> Refresh</button>
-      </div>
-
-      <div class="settings-section">
-        <h3 style="font-size:0.95rem; font-weight:700; margin-bottom:8px;">Categories available to you</h3>
-        <p class="help-text" style="margin-bottom:10px;">
-          These categories are defined by the platform and are shared by every business.
-          Only categories that match your business categories are shown here.
-        </p>
-        <div id="productCategoriesList"><p class="empty-msg">Loading product categories...</p></div>
-      </div>
-
-      <div class="settings-section" style="margin-top:16px;">
-        <h3 style="font-size:0.95rem; font-weight:700; margin-bottom:8px;">Request a new product category</h3>
-        <p class="help-text" style="margin-bottom:10px;">
-          If you sell a product that doesn't fit any of the categories above, you can request a new one.
-          The platform admin will review your request and, once approved, it will become available to every business.
-        </p>
-        <form id="requestProductCategoryForm" onsubmit="event.preventDefault(); submitProductCategoryRequest();">
-          <div class="form-row">
-            <div class="full">
-              <label>Category Name *</label>
-              <input type="text" id="requestCategoryName" name="name" placeholder="e.g., Reusable Shopping Bags" required>
-            </div>
-            <div class="full">
-              <label>Description (optional)</label>
-              <textarea id="requestCategoryDescription" rows="2" placeholder="Briefly describe the kind of products this category covers."></textarea>
-            </div>
-            <div class="full">
-              <label>Related Business Category (optional)</label>
-              <select id="requestCategoryBusinessCategory">
-                <option value="">Leave blank for a generic category</option>
-              </select>
-              <small>The platform admin can move it under a different business category if needed.</small>
-            </div>
-          </div>
-          <button type="submit" class="btn-save">📨 Submit Request</button>
-          <div id="requestCategoryStatus" style="margin-top:8px; font-size:0.9rem;"></div>
-        </form>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- SECTION: BUSINESS PROFILE -->
-    <!-- ============================================================ -->
-    <div class="section" id="section-profile">
-      <div class="section-header">
-        <h2>🏪 Business Profile</h2>
-      </div>
-
-      <div id="businessLocationWarning" style="display:none; margin:0 0 12px 0; padding:14px 18px; background:#fef2f2; border-radius:10px; border-left:4px solid #ef4444; color:#991b1b; font-size:0.85rem;">
-        <strong>⚠️ Your business cannot be found by nearby customers until you add a location.</strong>
-        <p style="margin:4px 0 0 0; color:#7f1d1d;">
-          Press <em>Activate Your Location</em> below, or fill in at least your town or county.
-        </p>
-      </div>
-
-      <div class="settings-section" id="locationActivationSection">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap;">
-          <div style="flex:1; min-width:220px;">
-            <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
-              📍 Make people find you by your location
-            </h3>
-            <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">
-              Activate your location so nearby customers can discover your business.
-              We use your device's GPS — you don't need to type latitude or longitude.
-              You can re-activate any time if you move.
-            </p>
-            <div id="locationStatusBadge" style="display:none; font-size:0.8rem; font-weight:600; color:#166534; background:#dcfce7; padding:4px 12px; border-radius:20px; display:inline-block;">
-              ✅ Location Activated
-            </div>
-            <div id="locationStatusBadgeInactive" style="font-size:0.8rem; font-weight:600; color:#92400e; background:#fef3c7; padding:4px 12px; border-radius:20px; display:inline-block;">
-              ⏳ Location Not Activated
-            </div>
-          </div>
-
-          <div style="display:flex; flex-direction:column; gap:6px; min-width:180px;">
-            <button type="button" class="btn-save" id="activateLocationBtn" onclick="activateBusinessLocation()" style="background:#16a34a; padding:10px 18px;">
-              <i class="fas fa-location-crosshairs"></i> Activate Your Location
-            </button>
-            <button type="button" class="btn-secondary" id="refreshLocationBtn" onclick="activateBusinessLocation()" style="display:none;">
-              <i class="fas fa-sync-alt"></i> Refresh Location
-            </button>
-            <small style="font-size:0.65rem; color:#94a3b8; text-align:center;">
-              Your browser will ask for permission
-            </small>
-          </div>
-        </div>
-
-        <div id="businessLocationMapWrapper" style="display:none; margin-top:14px;">
-          <div id="businessLocationMap" style="width:100%; height:260px; border-radius:10px; border:1px solid #e2e8f0;"></div>
-          <p style="font-size:0.75rem; color:#64748b; margin:6px 0 0 0;">
-            Drag the pin to adjust. Then press one of the buttons below.
-          </p>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-            <button type="button" class="btn-save" onclick="saveAdjustedBusinessPin()" style="background:#2563eb;">
-              <i class="fas fa-check"></i> Yes, this is correct
-            </button>
-            <button type="button" class="btn-secondary" onclick="document.getElementById('businessLocationMap').scrollIntoView({behavior:'smooth'})">
-              <i class="fas fa-map-pin"></i> Adjust the pin
-            </button>
-          </div>
-        </div>
-
-        <div id="locationActivationStatus" style="margin-top:8px; font-size:0.85rem;"></div>
-      </div>
-
-      <!-- ============================================================ -->
-      <!-- SECTION 7 — Search Tag (read-only)                            -->
-      <!--                                                              -->
-      <!--  The tag was auto-generated at registration. This block       -->
-      <!--  only displays it. business-admin.js fills                   -->
-      <!--  #searchTagCurrentValue from /api/auth/my-business            -->
-      <!--  (business.search_display).                                   -->
-      <!--                                                              -->
-      <!--  The change-tag UI is deferred to a follow-up round once      -->
-      <!--  Section 8 has merged the settings into a single My Shop      -->
-      <!--  page. The endpoint PUT /api/auth/my-business/search-tag      -->
-      <!--  already exists and is fully validated server-side.           -->
-      <!-- ============================================================ -->
-      <div class="settings-section" id="searchTagSection">
-        <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
-          🔖 Your Search Tag
-        </h3>
-        <p style="font-size:0.8rem; color:#64748b; margin:0 0 12px 0;">
-          Customers can type this tag into the marketplace search to jump straight to your shop.
-          The tag was generated for you automatically at registration.
-        </p>
-
-        <div id="searchTagCurrentBlock" style="padding:12px 14px; background:#f0fdf4; border-radius:10px; border-left:4px solid #16a34a; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-          <div style="flex:1; min-width:180px;">
-            <div style="font-size:0.7rem; color:#166534; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">
-              Your search tag
-            </div>
-            <div id="searchTagCurrentValue"
-                 style="font-family:monospace; font-weight:800; color:#14532d; font-size:1rem; letter-spacing:0.03em;">
-              —
-            </div>
-          </div>
-          <button type="button"
-                  id="copySearchTagBtn"
-                  onclick="copySearchTagFromAdmin()"
-                  title="Copy the search tag"
-                  style="display:inline-flex; align-items:center; gap:6px; padding:8px 14px; background:#16a34a; color:#ffffff; border:none; border-radius:8px; font-weight:700; font-size:0.8rem; cursor:pointer;">
-            <i class="fas fa-copy"></i> Copy
-          </button>
-        </div>
-
-        <p style="font-size:0.72rem; color:#94a3b8; margin:10px 0 0 0;">
-          Share this tag with customers so they can find your shop directly.
-        </p>
-      </div>
-
-      <div class="settings-section">
-        <form id="profileForm" enctype="multipart/form-data">
-          <div class="form-row">
-            <div class="full"><label>Business Name</label><input type="text" id="bName" name="business_name"></div>
-            <div class="full"><label>Business categories</label><input type="search" id="businessCategorySearch" placeholder="Filter categories" oninput="filterBusinessCategoryOptions()"><select id="businessCategories" multiple size="7" aria-label="Business categories"></select><small>Hold Ctrl/Cmd to select more than one category.</small></div>
-            <div class="full"><label>Location</label><input type="text" id="bLocation" name="location"></div>
-            <div class="full"><label>Address</label><input type="text" id="bAddress" name="address"></div>
-            <div class="full"><label>Description</label><textarea id="bDescription" name="description" rows="3"></textarea></div>
-            <div><label>Mission</label><textarea id="bMission" name="mission" rows="2"></textarea></div>
-            <div><label>Vision</label><textarea id="bVision" name="vision" rows="2"></textarea></div>
-
-            <div class="full">
-              <label style="font-weight:700; font-size:0.85rem; display:block; margin:6px 0 4px 0;">
-                🗺️ Where is your business? (helps customers find you by name)
-              </label>
-            </div>
-            <div><label>Continent</label><input type="text" id="bContinent" name="continent" placeholder="Africa"></div>
-            <div><label>Country</label><input type="text" id="bCountry" name="country" placeholder="Kenya"></div>
-            <div><label>County</label><input type="text" id="bCounty" name="county" placeholder="Nairobi"></div>
-            <div><label>Sub-County</label><input type="text" id="bSubCounty" name="sub_county" placeholder="Westlands"></div>
-            <div><label>Ward</label><input type="text" id="bWard" name="ward" placeholder="Parklands"></div>
-            <div><label>Town / City</label><input type="text" id="bTown" name="town" placeholder="Nairobi"></div>
-            <div><label>Specific Area</label><input type="text" id="bSpecificArea" name="specific_area" placeholder="Near Sarit Centre"></div>
-            <div><label>Postal Code</label><input type="text" id="bPostalCode" name="postal_code" placeholder="00100"></div>
-
-            <div class="full"><label>Logo</label><input type="file" id="bLogo" name="logo" accept="image/*"></div>
-            <div class="full"><label>Hero Image</label><input type="file" id="bHero" name="heroImage" accept="image/*"></div>
-            <div class="full"><label>WhatsApp</label><input type="text" id="bWhatsapp" name="whatsapp"></div>
-            <div><label>TikTok</label><input type="text" id="bTiktok" name="tiktok"></div>
-            <div><label>Instagram</label><input type="text" id="bInstagram" name="instagram"></div>
-            <div><label>Facebook</label><input type="text" id="bFacebook" name="facebook"></div>
-            <div><label>LinkedIn</label><input type="text" id="bLinkedin" name="linkedin"></div>
-            <div><label>Phone</label><input type="text" id="bPhone" name="phone"></div>
-            <div><label>Additional phones</label><input type="text" id="bPhoneNumbers" name="phone_numbers" placeholder="Comma-separated numbers"></div>
-            <div><label>Website</label><input type="text" id="bWebsite" name="website"></div>
-            <div><label>Email</label><input type="email" id="bEmail" name="email"></div>
-            <div><label>Additional emails</label><input type="text" id="bEmailAddresses" name="email_addresses" placeholder="Comma-separated emails"></div>
-          </div>
-          <button type="submit" class="btn-save">💾 Save Profile</button>
-          <div id="profileStatus" style="margin-top:8px; font-size:0.9rem;"></div>
-        </form>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- SECTION: PAYMENT SETTINGS -->
-    <!-- ============================================================ -->
-    <div class="section" id="section-payments">
-      <div class="section-header">
-        <h2>💳 Payment Settings</h2>
-      </div>
-      <div class="settings-section">
-        <form id="paymentSettingsForm">
-          <div class="form-row">
-
-            <!-- I.1 / I.2 / I.3 — M-PESA with type selector -->
-            <div class="full" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
-              <h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">M-Pesa</h3>
-
-              <div class="checkbox-group">
-                <label><input type="checkbox" id="pMpesaEnabled"> Enable M-Pesa</label>
-              </div>
-
-              <p style="font-size:0.75rem; color:#64748b; margin:8px 0 6px 0;">
-                Choose how customers pay you. Only the fields for the selected type are required.
-              </p>
-
-              <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px;">
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="mpesa_payment_type" value="paybill" onchange="updateMpesaFields()"> Paybill
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="mpesa_payment_type" value="till" onchange="updateMpesaFields()"> Till (Buy Goods)
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="mpesa_payment_type" value="pochi" onchange="updateMpesaFields()"> Pochi la Biashara
-                </label>
-              </div>
-
-              <div id="mpesaPaybillFields" style="display:none;">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                  <div>
-                    <label style="font-weight:600; font-size:0.8rem;">Paybill Number</label>
-                    <input type="text" id="pMpesaPaybillNumber" placeholder="123456" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                  </div>
-                  <div>
-                    <label style="font-weight:600; font-size:0.8rem;">Account Number</label>
-                    <input type="text" id="pMpesaPaybillAccount" placeholder="Your account or order ref" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                  </div>
-                </div>
-              </div>
-
-              <div id="mpesaTillFields" style="display:none;">
-                <label style="font-weight:600; font-size:0.8rem;">Till Number</label>
-                <input type="text" id="pMpesaTillNumber" placeholder="123456" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-              </div>
-
-              <div id="mpesaPochiFields" style="display:none;">
-                <label style="font-weight:600; font-size:0.8rem;">Pochi la Biashara Number</label>
-                <input type="text" id="pPochiNumber" placeholder="0712345678" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-              </div>
-
-              <p id="mpesaEnvironmentLabel" style="font-size:0.7rem; color:#64748b; margin:10px 0 0 0;">
-                Environment: <span style="font-weight:600;">Loading...</span>
-              </p>
-            </div>
-
-            <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">Airtel Money</h3>
-              <div class="checkbox-group">
-                <label><input type="checkbox" id="pAirtelEnabled"> Enable Airtel Money</label>
-              </div>
-              <label>Airtel Number</label>
-              <input type="text" id="pAirtelNumber" placeholder="0712345678">
-            </div>
-
-            <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">Bank Transfer</h3>
-              <div class="checkbox-group">
-                <label><input type="checkbox" id="pBankEnabled"> Enable Bank Transfer</label>
-              </div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                <div><label>Bank Name</label><input type="text" id="pBankName" placeholder="Equity Bank"></div>
-                <div><label>Account Number</label><input type="text" id="pBankAccount" placeholder="1234567890"></div>
-              </div>
-              <label>Account Holder Name</label>
-              <input type="text" id="pBankHolder" placeholder="Your Business Name">
-            </div>
-
-            <div class="full"><h3 style="font-size:0.95rem; font-weight:700; margin:0 0 8px 0;">PayPal</h3>
-              <div class="checkbox-group">
-                <label><input type="checkbox" id="pPaypalEnabled"> Enable PayPal</label>
-              </div>
-              <label>PayPal Email</label>
-              <input type="email" id="pPaypalEmail" placeholder="your@email.com">
-            </div>
-
-            <div class="full">
-              <button type="submit" class="btn-save">💾 Save Payment Settings</button>
-              <div id="paymentStatus" style="margin-top:8px; font-size:0.9rem;"></div>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- SECTION: ORDER SETTINGS -->
-    <!-- ============================================================ -->
-    <div class="section" id="section-ordersettings">
-      <div class="section-header">
-        <h2>📋 Order Settings</h2>
-        <div class="section-actions">
-          <button class="btn-save" onclick="loadOrderSettings()"><i class="fas fa-sync-alt"></i> Refresh</button>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <form id="orderSettingsForm" onsubmit="event.preventDefault(); saveOrderSettings();">
-
-          <div id="orderDeliveryWarning" style="display:none; margin-bottom:12px; padding:14px 18px; background:#fff7ed; border-radius:10px; border-left:4px solid #f59e0b; color:#7c2d12; font-size:0.85rem;">
-            <strong>⚠️ You are accepting online orders, but delivery is turned off.</strong>
-            <p style="margin:4px 0 0 0; color:#7c2d12;">
-              Customers will have to pick up their items. If that is not what you want,
-              open <em>Delivery / Shipping</em> and enable delivery, or pause online orders below.
-            </p>
-          </div>
-
-          <div class="form-group" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
-            <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
-              🛒 Allow Online Orders?
-            </label>
-            <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">
-              Enable this to allow customers to place orders online. If disabled, customers will see a message that you are not accepting orders.
-            </p>
-
-            <div style="display:flex; gap:20px; flex-wrap:wrap;">
-              <label style="font-size:0.95rem; cursor:pointer; padding:8px 16px; background:#f0fdf4; border-radius:8px; border:1px solid #22c55e;">
-                <input type="radio" name="order_online" value="yes" onchange="updateOrderSettingsUI()" id="orderOnlineEnabled" checked>
-                ✅ Yes, allow online orders
-              </label>
-              <label style="font-size:0.95rem; cursor:pointer; padding:8px 16px; background:#fef2f2; border-radius:8px; border:1px solid #ef4444;">
-                <input type="radio" name="order_online" value="no" onchange="updateOrderSettingsUI()">
-                ❌ No, pause online orders
-              </label>
-            </div>
-          </div>
-
-          <div class="form-group" style="margin-top:12px; background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
-            <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
-              👀 What customers see when orders are paused
-            </label>
-
-            <label style="display:block; margin:8px 0;">
-              <input type="checkbox" id="showCartWhenDisabled">
-              Keep the cart button visible (but disabled) instead of hiding it
-            </label>
-
-            <label style="font-weight:600; font-size:0.8rem; display:block; margin-top:8px;">
-              Custom message shown to customers
-            </label>
-            <textarea id="orderDisabledMessageText" rows="3"
-              placeholder="This business is not currently accepting online orders. Please contact us directly."
-              style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
-            <small style="font-size:0.65rem; color:#94a3b8;">
-              Leave blank to use the default message above.
-            </small>
-          </div>
-
-          <div class="form-group" style="margin-top:12px; background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
-            <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">Payment options</label>
-            <label style="display:block; margin:8px 0;"><input type="checkbox" id="onlinePaymentEnabled" checked> Accept online payment when an order is placed</label>
-            <label style="display:block; margin:8px 0;"><input type="checkbox" id="paymentOnDeliveryEnabled"> Accept payment on delivery</label>
-            <label style="display:block; margin:8px 0;"><input type="checkbox" id="requirePodAgreement" checked> Require the payment-on-delivery agreement</label>
-            <textarea id="podAgreementText" rows="3" placeholder="Payment on Delivery Agreement" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.85rem; resize:vertical;"></textarea>
-          </div>
-
-          <div id="orderDisabledMessage" style="display:none; margin-top:12px; padding:16px; background:#fef2f2; border-radius:10px; border:1px solid #ef4444;">
-            <p style="font-size:0.85rem; color:#991b1b; margin:0;">
-              <i class="fas fa-info-circle"></i>
-              Customers will see: "This business is not currently accepting online orders. Please contact the business directly."
-            </p>
-          </div>
-
-          <div id="orderSettingsContainer" style="display:none; margin-top:16px;">
-
-            <div class="form-group">
-              <label style="font-weight:600; font-size:0.85rem;">📍 Order Regions</label>
-              <input type="text" id="orderRegions" placeholder="e.g., Anywhere in Kenya, Nairobi only, Within 50km" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-              <small style="font-size:0.65rem; color:#94a3b8;">Where do you accept orders from? (e.g., "Anywhere in Kenya", "Nairobi only", "Within 50km")</small>
-            </div>
-
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-              <div class="form-group">
-                <label style="font-weight:600; font-size:0.85rem;">⏰ Cutoff Time</label>
-                <input type="time" id="orderCutoffTime" value="14:00" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.65rem; color:#94a3b8;">Orders before this time get same-day processing</small>
-              </div>
-
-              <div class="form-group">
-                <label style="font-weight:600; font-size:0.85rem;">⏳ Processing Time</label>
-                <input type="text" id="orderProcessingTime" placeholder="e.g., 1-2 hours, Same day" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.65rem; color:#94a3b8;">How long does it take to process orders?</small>
-              </div>
-            </div>
-
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:8px;">
-              <div class="form-group">
-                <label style="font-weight:600; font-size:0.85rem;">⏰ Auto-Cancel (Hours)</label>
-                <input type="number" id="orderAutoCancelHours" value="24" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.65rem; color:#94a3b8;">Auto-cancel unpaid orders after X hours</small>
-              </div>
-
-              <div class="form-group">
-                <label style="font-weight:600; font-size:0.85rem;">✅ Auto-Complete (Days)</label>
-                <input type="number" id="orderAutoCompleteDays" value="7" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.65rem; color:#94a3b8;">Auto-complete after X days of receipt</small>
-              </div>
-
-              <div class="form-group">
-                <label style="font-weight:600; font-size:0.85rem;">🔁 Replacement Window (Hours)</label>
-                <input type="number" id="orderReplacementHours" value="6" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.65rem; color:#94a3b8;">Time limit for customers to request replacement</small>
-              </div>
-            </div>
-
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
-              <div class="form-group">
-                <label style="font-weight:600; font-size:0.85rem;">📦 Return Window (Days)</label>
-                <input type="number" id="orderReturnWindow" value="14" min="1" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.65rem; color:#94a3b8;">Number of days customers have to return items</small>
-              </div>
-            </div>
-
-            <div style="margin-top:12px;">
-              <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:4px;">📋 Custom Status Messages</label>
-              <p style="font-size:0.7rem; color:#64748b; margin-bottom:6px;">These messages will be shown to customers when their order status changes.</p>
-
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Pending</label>
-                  <input type="text" id="orderStatusPending" placeholder="📋 Your order is being reviewed." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Awaiting Payment</label>
-                  <input type="text" id="orderStatusPendingPayment" placeholder="⏳ Awaiting payment confirmation." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Confirmed</label>
-                  <input type="text" id="orderStatusConfirmed" placeholder="✅ Your order is confirmed and being prepared." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Shipped</label>
-                  <input type="text" id="orderStatusShipped" placeholder="🚚 Your order is on the way!" style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Delivered</label>
-                  <input type="text" id="orderStatusDelivered" placeholder="📦 Your order is ready for pickup." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Received</label>
-                  <input type="text" id="orderStatusReceived" placeholder="✔️ You have confirmed receipt. Thank you!" style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Cancelled</label>
-                  <input type="text" id="orderStatusCancelled" placeholder="❌ This order has been cancelled." style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-                <div>
-                  <label style="font-size:0.7rem; font-weight:600; color:#475569;">Completed</label>
-                  <input type="text" id="orderStatusCompleted" placeholder="✅ Order completed. Thank you for shopping!" style="width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;">
-                </div>
-              </div>
-            </div>
-
-            <div style="margin-top:12px;">
-              <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:4px;">🔄 Return Policy</label>
-              <textarea id="orderReturnPolicy" rows="2" placeholder="Returns accepted within 14 days of delivery. Products must be in original condition." style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;"></textarea>
-            </div>
-
-          </div>
-
-          <div style="margin-top:16px; padding:16px; background:#eff6ff; border-radius:10px; border:2px dashed #2563eb;">
-            <h4 style="font-size:0.9rem; font-weight:700; margin:0 0 8px 0; color:#2563eb;">
-              👁️ Preview: What Customers Will See
-            </h4>
-            <div id="orderPreviewContent">
-              <p style="color:#94a3b8; font-size:0.85rem;">Loading preview...</p>
-            </div>
-          </div>
-
-          <div style="margin-top:16px;">
-            <button type="submit" class="btn-save" style="width:100%; padding:12px;">💾 Save Order Settings</button>
-            <div id="orderSettingsStatus" style="margin-top:8px; font-size:0.9rem;"></div>
-          </div>
-
-        </form>
-      </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- SECTION: DELIVERY / SHIPPING -->
-    <!-- ============================================================ -->
-    <div class="section" id="section-delivery">
-      <div class="section-header">
-        <h2>🚚 Delivery / Shipping</h2>
-        <button class="btn-save" onclick="loadDeliverySettings()"><i class="fas fa-sync-alt"></i> Refresh</button>
-      </div>
-
-      <div class="settings-section">
-        <form id="deliveryForm">
-
-          <div class="form-group" style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
-            <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
-              📦 Do you offer delivery?
-            </label>
-            <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">
-              Choose YES if you can deliver products to customers. Choose NO if customers must pick up from you.
-            </p>
-
-            <div style="display:flex; gap:20px; flex-wrap:wrap;">
-              <label style="font-size:0.95rem; cursor:pointer;">
-                <input type="radio" name="delivery_offered" value="yes" onchange="toggleDeliveryOffered('yes')">
-                ✅ Yes, I offer delivery
-              </label>
-              <label style="font-size:0.95rem; cursor:pointer;">
-                <input type="radio" name="delivery_offered" value="no" onchange="toggleDeliveryOffered('no')">
-                ❌ No, customers pick up
-              </label>
-            </div>
-          </div>
-
-          <div id="deliveryNoContainer" style="display:none; margin-top:12px; padding:16px; background:#fefce8; border-radius:10px; border:1px solid #f59e0b;">
-            <label style="font-weight:600; display:block; margin-bottom:4px;">
-              📝 Message for customers
-            </label>
-            <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;">
-              Write a clear message that customers will see on your profile and products.
-              They can chat with you to arrange delivery.
-            </p>
-
-            <div style="background:#fefce8; padding:10px 14px; border-radius:8px; border-left:4px solid #f59e0b; margin-bottom:10px;">
-              <p style="font-size:0.75rem; color:#92400e; margin:0;">
-                <strong>💡 Here are some examples:</strong><br>
-                • "Let's talk about delivery. Chat with me to arrange how you can get your products."<br>
-                • "Pickup only. Contact me on WhatsApp to arrange delivery."<br>
-                • "I don't offer delivery. Please come to my shop to pick up your items."<br>
-                • "Chat with me to arrange a meeting point or delivery."
-              </p>
-            </div>
-
-            <textarea id="deliveryNoMessage" rows="3" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="e.g., Let's talk about delivery. Chat with me to arrange how you can get your products."></textarea>
-            <p style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">
-              💡 Tip: Include your phone number so customers can call you
-            </p>
-          </div>
-
-          <div id="deliveryYesContainer" style="display:none; margin-top:16px;">
-
-            <div class="form-group" style="background:#f0fdf4; padding:16px; border-radius:10px; border:1px solid #22c55e;">
-              <label style="font-size:1rem; font-weight:700; display:block; margin-bottom:8px;">
-                🎁 Do you offer FREE delivery?
-              </label>
-              <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">
-                Choose YES if you deliver for free. Choose NO if you charge customers for delivery.
-              </p>
-
-              <div style="display:flex; gap:20px; flex-wrap:wrap;">
-                <label style="font-size:0.95rem; cursor:pointer;">
-                  <input type="radio" name="delivery_free" value="yes" onchange="toggleDeliveryFree('yes')">
-                  ✅ Yes, FREE delivery
-                </label>
-                <label style="font-size:0.95rem; cursor:pointer;">
-                  <input type="radio" name="delivery_free" value="no" onchange="toggleDeliveryFree('no')">
-                  ❌ No, I charge for delivery
-                </label>
-              </div>
-            </div>
-
-            <div id="deliveryFreeYesContainer" style="display:none; margin-top:12px; padding:16px; background:#f0fdf4; border-radius:10px; border:1px solid #22c55e;">
-              <label style="font-weight:600; display:block; margin-bottom:8px;">
-                📍 Where do you deliver for FREE?
-              </label>
-
-              <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:10px;">
-                <label style="font-size:0.9rem; cursor:pointer;">
-                  <input type="radio" name="delivery_free_where" value="everywhere" onchange="toggleFreeWhere('everywhere')">
-                  🌍 Everywhere in Kenya
-                </label>
-                <label style="font-size:0.9rem; cursor:pointer;">
-                  <input type="radio" name="delivery_free_where" value="specific" onchange="toggleFreeWhere('specific')">
-                  📍 Only in certain places
-                </label>
-              </div>
-
-              <div id="freeEverywhereContainer" style="display:none;">
-                <div style="background:#dcfce7; padding:12px 16px; border-radius:8px; border-left:4px solid #22c55e;">
-                  <p style="font-size:0.9rem; color:#166534; margin:0;">
-                    ✅ <strong>What customers will see:</strong>
-                    <br>
-                    "I deliver FREE everywhere in Kenya! 🎉"
-                  </p>
-                </div>
-              </div>
-
-              <div id="freeSpecificContainer" style="display:none;">
-                <p style="font-size:0.8rem; color:#64748b; margin-bottom:8px;">
-                  <i class="fas fa-info-circle" style="color:#2563eb;"></i>
-                  Be honest with your customers. Explain when you offer free delivery or when you charge.
-                </p>
-
-                <div style="margin-bottom:8px;">
-                  <label style="font-weight:600; font-size:0.8rem;">📝 Your delivery message</label>
-                  <textarea id="freeDeliveryMessage" rows="4" style="width:100%; padding:10px 14px; border:1.5px solid #d1d5db; border-radius:8px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="e.g., I deliver FREE within Nairobi CBD. Outside Nairobi, I charge Ksh 150 per km. Orders over Ksh 2,000 get FREE delivery!"></textarea>
-                  <small style="font-size:0.7rem; color:#94a3b8;">This message will be shown to customers on your profile</small>
-                </div>
-              </div>
-            </div>
-
-            <div id="deliveryFreeNoContainer" style="display:none; margin-top:12px; padding:16px; background:#fff7ed; border-radius:10px; border:1px solid #f59e0b;">
-              <label style="font-weight:600; display:block; margin-bottom:8px;">
-                📝 Tell customers about your delivery charges
-              </label>
-
-              <div style="margin-bottom:8px;">
-                <label style="font-weight:600; font-size:0.8rem;">📝 Your delivery message</label>
-                <textarea id="deliveryPaidMessage" rows="4" style="width:100%; padding:10px 14px; border:1.5px solid #d1d5db; border-radius:8px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="e.g., I charge Ksh 200 for delivery within Nairobi. Outside Nairobi, I charge Ksh 150 per km. Orders over Ksh 2,000 get FREE delivery!"></textarea>
-                <small style="font-size:0.7rem; color:#94a3b8;">This message will be shown to customers on your profile</small>
-              </div>
-            </div>
-
-            <div style="margin-top:16px; padding:16px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0;">
-              <label style="font-weight:600; display:block; margin-bottom:8px;">
-                💰 How do you charge for delivery?
-              </label>
-
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
-                <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_fee_type" value="fixed" onchange="updateDeliveryPreview()">
-                  Fixed fee
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_fee_type" value="per_km" onchange="updateDeliveryPreview()">
-                  Per km
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_fee_type" value="free" onchange="updateDeliveryPreview()">
-                  Free
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:8px 12px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_fee_type" value="distance_based" onchange="updateDeliveryPreview()">
-                  Distance based
-                </label>
-              </div>
-
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div>
-                  <label style="font-weight:600; font-size:0.8rem;">Fixed Fee (Ksh)</label>
-                  <input type="number" id="deliveryFeeFixed" value="0" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                </div>
-                <div>
-                  <label style="font-weight:600; font-size:0.8rem;">Fee Per Km (Ksh)</label>
-                  <input type="number" id="deliveryFeePerKm" value="0" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                </div>
-              </div>
-
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px;">
-                <div>
-                  <label style="font-weight:600; font-size:0.8rem;">Free Delivery Threshold (Ksh)</label>
-                  <input type="number" id="deliveryMinOrderFree" value="0" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                  <small style="font-size:0.6rem; color:#94a3b8;">Orders above this get free delivery</small>
-                </div>
-                <div>
-                  <label style="font-weight:600; font-size:0.8rem;">Max Distance (km)</label>
-                  <input type="number" id="deliveryMaxDistance" value="50" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                  <small style="font-size:0.6rem; color:#94a3b8;">Maximum distance you deliver</small>
-                </div>
-              </div>
-            </div>
-
-            <div id="deliveryCommonContainer" style="display:none; margin-top:16px; padding:16px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0;">
-              <label style="font-weight:600; display:block; margin-bottom:8px;">
-                📅 How fast do you deliver?
-              </label>
-
-              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:10px;">
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_days" value="same_day" onchange="updateDeliveryPreview()"> Same day
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_days" value="next_day" onchange="updateDeliveryPreview()"> Next day
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_days" value="within_2_days" onchange="updateDeliveryPreview()"> Within 2 days
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_days" value="within_3_days" onchange="updateDeliveryPreview()"> Within 3 days
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_days" value="within_5_days" onchange="updateDeliveryPreview()"> Within 5 days
-                </label>
-                <label style="font-size:0.85rem; cursor:pointer; padding:6px 10px; background:white; border-radius:6px; border:1px solid #e2e8f0;">
-                  <input type="radio" name="delivery_days" value="within_7_days" onchange="updateDeliveryPreview()"> Within 7 days
-                </label>
-              </div>
-            </div>
-
-            <div style="margin-top:12px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-              <div>
-                <label style="font-weight:600; font-size:0.8rem;">⏰ Estimated Time</label>
-                <input type="text" id="deliveryEstimatedTime" value="Same day" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.6rem; color:#94a3b8;">e.g., "Same day", "Next day", "Within 3 days"</small>
-              </div>
-              <div>
-                <label style="font-weight:600; font-size:0.8rem;">📋 Cutoff Time</label>
-                <input type="time" id="deliveryCutoffTime" value="14:00" style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;">
-                <small style="font-size:0.6rem; color:#94a3b8;">Orders before this time get same day delivery</small>
-              </div>
-            </div>
-
-            <div style="margin-top:12px;">
-              <label style="font-weight:600; font-size:0.8rem;">📋 Delivery Policy</label>
-              <textarea id="deliveryPolicy" rows="3" onchange="updateDeliveryPreview()" style="width:100%; padding:8px 12px; border:1.5px solid #d1d5db; border-radius:8px; font-family:inherit; font-size:0.9rem; resize:vertical;" placeholder="Explain your delivery policy to customers..."></textarea>
-            </div>
-
-            <div style="margin-top:12px;">
-              <label style="font-weight:600; font-size:0.8rem;">🕐 Available Time Slots</label>
-              <input type="text" id="deliveryTimeSlots" placeholder="Morning, Afternoon, Evening" style="width:100%; padding:8px 12px; border:1.5px solid #d1d5db; border-radius:6px;">
-              <small style="font-size:0.6rem; color:#94a3b8;">Comma separated: e.g., "Morning, Afternoon, Evening"</small>
-            </div>
-
-          </div>
-
-          <div id="deliveryPreviewContainer" style="display:none; margin-top:16px; padding:16px; background:#eff6ff; border-radius:10px; border:2px dashed #2563eb;">
-            <h4 style="font-size:0.9rem; font-weight:700; margin:0 0 8px 0; color:#2563eb;">
-              👁️ Preview: What Customers Will See
-            </h4>
-            <div id="deliveryPreviewContent" style="background:white; border-radius:8px; padding:16px; border:1px solid #e2e8f0;">
-              <p style="color:#94a3b8; font-size:0.85rem;">Loading preview...</p>
-            </div>
-            <p style="font-size:0.65rem; color:#94a3b8; margin-top:6px;">
-              This preview updates automatically as you make changes
-            </p>
-          </div>
-
-          <div style="margin-top:16px;">
-            <button type="submit" class="btn-save" style="width:100%; padding:12px;">💾 Save Delivery Settings</button>
-            <div id="deliveryStatus" style="margin-top:8px; font-size:0.9rem;"></div>
-          </div>
-
-        </form>
-      </div>
-
-      <div class="settings-section" style="margin-top:16px;">
-        <h3 style="font-size:0.9rem; font-weight:700; margin-bottom:8px;">📋 Orders with Delivery</h3>
-        <div id="deliveryOrdersContainer">
-          <p class="empty-msg">Loading delivery orders...</p>
-        </div>
-      </div>
-    </div>
-
   </div>
 </div>
 
@@ -1233,13 +1239,6 @@
 
 <!-- Section 7 — inline helper for the read-only search tag copy button. -->
 <script>
-  // copySearchTagFromAdmin() — copy the search tag shown in
-  // #searchTagCurrentValue to the clipboard.
-  //
-  // Kept inline in this file so Section 7 does not need a new
-  // JavaScript file. The tag itself is written into
-  // #searchTagCurrentValue by business-admin.js when the profile
-  // loads, sourced from /api/auth/my-business.
   function copySearchTagFromAdmin() {
     const valueEl = document.getElementById('searchTagCurrentValue');
     const tag = valueEl ? String(valueEl.textContent || '').trim() : '';

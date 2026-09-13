@@ -2,6 +2,11 @@
      BUSINESS PROFILE — Section H customer-facing additions
      Location: public/html/business-profile.html
 
+     Section 10 changes (this revision):
+      The "rating" line has been removed from the hero meta
+      block. The hero no longer displays an average rating for
+      the business. Product count and follower count remain.
+
      Section H changes:
       H.4 — banner shown when the business is not accepting orders
       H.5 — contact-only container shown in place of cart buttons
@@ -25,7 +30,7 @@
       from My Shop). A success panel below the submit button
       shows the generated search tag and username.
 
-     Reviews removal (this revision):
+     Reviews removal:
       The reviews section and its write-a-review block have been
       removed from the customer-facing page. A warm thank-you band
       takes their place. The business name is injected by
@@ -33,7 +38,7 @@
       tables and routes remain in the backend, untouched; only the
       customer-facing surface is gone.
 
-     Search tag chip (this revision):
+     Search tag chip:
       A small click-to-copy chip is rendered in the hero info
       panel so a customer who lands on a shop can copy its search
       tag and paste it back into the marketplace search bar
@@ -148,6 +153,8 @@
     <!--           text is long.                                       -->
     <!--                                                              -->
     <!--  Phones reorder to: logo → media → writings                   -->
+    <!--                                                              -->
+    <!--  Section 10 — the average rating line has been removed.       -->
     <!-- ============================================================ -->
     <div class="business-hero" id="heroSection">
 
@@ -177,7 +184,6 @@
 
         <div class="hero-meta" id="heroMeta">
           <span><i class="fas fa-box"></i> <span id="productCount">0</span> products</span>
-          <span><i class="fas fa-star"></i> <span id="avgRating">0.0</span> rating</span>
           <span><i class="fas fa-users"></i> <span id="followerCount">0</span> followers</span>
         </div>
 
@@ -458,13 +464,6 @@
 
       <!-- ============================================================ -->
       <!-- BUSINESS REGISTRATION — Section 7 simplified form            -->
-      <!--                                                              -->
-      <!-- Required: Business Name, Category, Email, Phone, City / Town,-->
-      <!--           Password, Confirm                                    -->
-      <!--                                                              -->
-      <!-- Auto-generated on the server: username, search prefix,        -->
-      <!-- search name. Can be added later from My Shop: additional     -->
-      <!-- categories, business description, full address, socials.     -->
       <!-- ============================================================ -->
       <div id="businessRegisterForm" style="display:none;">
 

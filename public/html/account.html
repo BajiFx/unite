@@ -21,7 +21,6 @@
        OVERRIDE ALL OLD STYLES - FORCE HORIZONTAL LAYOUT
        ============================================================ */
 
-    /* Force account layout */
     .account-layout {
       max-width: 1400px;
       margin: 0 auto;
@@ -31,7 +30,6 @@
       display: block !important;
     }
 
-    /* Hide ALL old sidebar elements */
     .sidebar,
     .sidebar-overlay,
     .hamburger,
@@ -47,26 +45,22 @@
       display: none !important;
     }
 
-    /* Hide old header */
     .header,
     .account-header,
     .index-header {
       display: none !important;
     }
 
-    /* Hide old bottom nav */
     .bottom-nav,
     .account-bottom-nav,
     .index-bottom-nav {
       display: none !important;
     }
 
-    /* Hide old sidebar toggle button */
     .embedded-sidebar-toggle {
       display: none !important;
     }
 
-    /* Remove any left margin/padding from old sidebar */
     .account-main-content,
     .admin-main-content,
     .main-content {
@@ -74,7 +68,6 @@
       padding-top: 0 !important;
     }
 
-    /* Ensure account content panel shows */
     .account-content-panel {
       display: none !important;
     }
@@ -83,32 +76,145 @@
       display: block !important;
     }
 
-    /* Ensure horizontal nav shows */
     .account-nav-horizontal {
       display: flex !important;
     }
 
-    /* Ensure top header shows */
     .account-top-header {
       display: flex !important;
     }
 
-    /* Marketplace section */
     .marketplace-section-account {
-      display: block !important;
+      display: none !important;
+    }
+
+    /* Section 9 — Profile sub-section shell */
+    .profile-subsection {
+      margin: 0 0 20px 0;
+      padding: 16px 18px;
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+    }
+
+    .profile-subsection:last-child {
+      margin-bottom: 0;
+    }
+
+    .profile-subsection-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0 0 12px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .profile-subsection-title i {
+      color: #2e7d32;
+    }
+
+    /* Section 9 — header logout button */
+    .header-logout-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: #ef4444;
+      color: #ffffff;
+      border: none;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.2s ease, transform 0.15s ease;
+    }
+
+    .header-logout-btn:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
+    }
+
+    /* Section 9 — floating cart button */
+    .account-floating-cart {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 900;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: none;
+      background: #2563eb;
+      color: #ffffff;
+      font-size: 1.3rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 8px 22px rgba(37, 99, 235, 0.35);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+    }
+
+    .account-floating-cart:hover {
+      background: #1d4ed8;
+      transform: translateY(-2px);
+      box-shadow: 0 10px 26px rgba(37, 99, 235, 0.45);
+    }
+
+    .account-floating-cart-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 5px;
+      border-radius: 10px;
+      background: #ef4444;
+      color: #ffffff;
+      font-size: 0.65rem;
+      font-weight: 800;
+      line-height: 20px;
+      text-align: center;
+      display: none;
+      box-shadow: 0 0 0 2px #ffffff;
+    }
+
+    .account-floating-cart-badge.show {
+      display: inline-block;
+    }
+
+    /* Hide the floating cart when the account is embedded in a workspace */
+    html.embedded .account-floating-cart {
+      display: none !important;
+    }
+
+    @media (max-width: 640px) {
+      .account-floating-cart {
+        right: 12px;
+        bottom: 12px;
+        width: 50px;
+        height: 50px;
+        font-size: 1.15rem;
+      }
     }
   </style>
 </head>
 <body>
 
 <!-- ============================================================ -->
-<!-- ACCOUNT LAYOUT - HORIZONTAL -->
+<!-- ACCOUNT LAYOUT - HORIZONTAL                                  -->
+<!-- Section 9 — 4 tabs: Home, Orders, Profile, Messages          -->
 <!-- ============================================================ -->
 
 <div class="account-layout" id="accountLayout">
 
   <!-- ============================================================ -->
-  <!-- TOP HEADER BAR -->
+  <!-- TOP HEADER BAR — Section 9: Logout moved here                -->
   <!-- ============================================================ -->
 
   <div class="account-top-header">
@@ -118,11 +224,14 @@
     <div class="user-info">
       <span class="user-name"><i class="fas fa-user-circle"></i> <span id="headerUserName">Customer</span></span>
       <span class="user-phone"><i class="fas fa-phone"></i> <span id="headerUserPhone">—</span></span>
+      <button type="button" class="header-logout-btn" onclick="logout()" aria-label="Logout">
+        <i class="fas fa-sign-out-alt"></i> Logout
+      </button>
     </div>
   </div>
 
   <!-- ============================================================ -->
-  <!-- HORIZONTAL NAVIGATION BAR -->
+  <!-- HORIZONTAL NAVIGATION BAR — Section 9 (4 tabs)               -->
   <!-- ============================================================ -->
 
   <nav class="account-nav-horizontal" id="accountNav">
@@ -130,50 +239,33 @@
       <i class="fas fa-bars"></i>
     </button>
 
-    <button class="nav-item active" data-section="dashboard" onclick="navigateToAccount('dashboard')">
-      <i class="fas fa-chart-pie"></i> Dashboard
-    </button>
-
-    <button class="nav-item" data-section="profile" onclick="navigateToAccount('profile')">
-      <i class="fas fa-user"></i> My Profile
+    <button class="nav-item active" data-section="home" onclick="navigateToAccount('home')">
+      <i class="fas fa-home"></i> Home
     </button>
 
     <button class="nav-item" data-section="orders" onclick="navigateToAccount('orders')">
-      <i class="fas fa-box"></i> My Orders
+      <i class="fas fa-box"></i> Orders
       <span class="badge" id="orderBadgeNav">0</span>
     </button>
 
-    <button class="nav-item" data-section="addresses" onclick="navigateToAccount('addresses')">
-      <i class="fas fa-map-marker-alt"></i> Addresses
-    </button>
-
-    <button class="nav-item" data-section="payments" onclick="navigateToAccount('payments')">
-      <i class="fas fa-credit-card"></i> Payments
-    </button>
-
-    <button class="nav-item cart" data-section="cart" onclick="navigateToAccount('cart')">
-      <i class="fas fa-shopping-cart"></i> Cart
-      <span class="badge green" id="cartBadgeNav">0</span>
+    <button class="nav-item" data-section="profile" onclick="navigateToAccount('profile')">
+      <i class="fas fa-user"></i> Profile
     </button>
 
     <button class="nav-item messages" data-section="messages" onclick="navigateToAccount('messages')">
       <i class="fas fa-envelope"></i> Messages
       <span class="badge orange" id="messageBadgeNav">0</span>
     </button>
-
-    <button class="nav-item logout" onclick="logout()">
-      <i class="fas fa-sign-out-alt"></i> Logout
-    </button>
   </nav>
 
   <!-- ============================================================ -->
-  <!-- CONTENT PANEL - SOFT GREEN BACKGROUND -->
+  <!-- CONTENT PANEL - SOFT GREEN BACKGROUND                        -->
   <!-- ============================================================ -->
 
-  <!-- ===== DASHBOARD PANEL ===== -->
-  <div class="account-content-panel active" id="panel-dashboard">
+  <!-- ===== HOME PANEL (was Dashboard) ===== -->
+  <div class="account-content-panel active" id="panel-home">
     <div class="panel-title">
-      <i class="fas fa-chart-pie"></i> Dashboard
+      <i class="fas fa-home"></i> Home
       <span class="subtitle">Welcome back!</span>
     </div>
 
@@ -192,169 +284,197 @@
         Loading orders...
       </div>
     </div>
-
   </div>
 
-  <!-- ===== PROFILE PANEL ===== -->
-  <!-- D.1 — Customer location activation lives here.
-       The block is visible to any signed-in customer and lets them
-       activate, see status, refresh, or turn off their location. -->
+  <!-- ============================================================ -->
+  <!-- PROFILE PANEL — Section 9 merged:                            -->
+  <!--   Personal info · Location · Preferred area ·                -->
+  <!--   Addresses · Payment history                                -->
+  <!-- ============================================================ -->
   <div class="account-content-panel" id="panel-profile">
     <div class="panel-title">
       <i class="fas fa-user"></i> My Profile
-      <span class="subtitle">Update your personal information</span>
+      <span class="subtitle">Your details, addresses, and payment history</span>
     </div>
 
-    <div class="profile-form-panel">
-      <div class="form-group">
-        <label>Full Name</label>
-        <input type="text" id="profileName" placeholder="Your full name">
-      </div>
-      <div class="form-group">
-        <label>Email Address <span style="font-weight:400; color:#64748b; font-size:0.75rem;">(optional — add it to enable password reset)</span></label>
-        <input type="email" id="profileEmail" placeholder="your@email.com">
-      </div>
-      <div class="form-group">
-        <label>Phone Number</label>
-        <input type="tel" id="profilePhone" placeholder="+254 700 000 000">
-      </div>
-
-      <!-- ============================================================ -->
-      <!-- Section 6 — Auto-generated username                          -->
-      <!--                                                              -->
-      <!-- Read-only. Populated by renderProfileUsername() in           -->
-      <!-- account.js from the current user object returned by the       -->
-      <!-- server. Tells the customer what to type if they ever log     -->
-      <!-- in by username. The server also accepts the phone number     -->
-      <!-- as a login handle, so the username is informational.         -->
-      <!-- ============================================================ -->
-      <div class="form-group">
-        <label>
-          Your Username
-          <span style="font-weight:400; color:#64748b; font-size:0.75rem;">
-            (assigned automatically — use it or your phone to log in)
-          </span>
-        </label>
-        <div id="profileUsername"
-             style="padding:8px 12px; background:#f1f5f9; border-radius:8px; font-size:0.9rem; color:#94a3b8; border:1px solid #e2e8f0;">
-          (will be assigned automatically)
-        </div>
-      </div>
-
-      <button class="btn-quick primary" onclick="updateProfile()" style="padding:10px 24px;">
-        <i class="fas fa-save"></i> Update Profile
-      </button>
-      <div id="profileStatus" style="margin-top:8px; font-size:0.9rem;"></div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- D.1 / D.2 / D.10 / D.12 — Customer location activation       -->
-    <!--                                                              -->
-    <!--  - Activate Your Location       → requests GPS once and saves -->
-    <!--  - Refresh Location             → same action, shown after     -->
-    <!--                                    activation in case the      -->
-    <!--                                    customer has moved          -->
-    <!--  - Turn off location sharing    → clears coordinates          -->
-    <!--  - Status badge                 → activated / not activated   -->
-    <!-- ============================================================ -->
-    <div class="customer-location-card" id="customerLocationSection" style="margin-top:16px; padding:16px; background:#f0f7f0; border:1px solid #c8e6c8; border-radius:12px;">
-      <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
-        📍 Activate your location to find businesses near you
+    <!-- ======================= -->
+    <!-- SECTION: Personal info  -->
+    <!-- ======================= -->
+    <section class="profile-subsection" id="profileSectionPersonal">
+      <h3 class="profile-subsection-title">
+        <i class="fas fa-user-circle"></i> Personal information
       </h3>
-      <p style="font-size:0.8rem; color:#475569; margin:0 0 10px 0;">
-        When you activate your location, we use it only to sort nearby businesses nearest-first.
-        Your coordinates are never shared with any business.
-      </p>
 
-      <!-- Status badge -->
-      <div id="customerLocationStatusBadge"
-           style="display:none; font-size:0.8rem; font-weight:600; color:#166534; background:#dcfce7; padding:4px 12px; border-radius:20px; display:inline-block;">
-        ✅ Location active
-      </div>
-      <div id="customerLocationStatusBadgeInactive"
-           style="font-size:0.8rem; font-weight:600; color:#92400e; background:#fef3c7; padding:4px 12px; border-radius:20px; display:inline-block;">
-        ⏳ Location not activated
-      </div>
+      <div class="profile-form-panel">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="profileName" placeholder="Your full name">
+        </div>
+        <div class="form-group">
+          <label>Email Address <span style="font-weight:400; color:#64748b; font-size:0.75rem;">(optional — add it to enable password reset)</span></label>
+          <input type="email" id="profileEmail" placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" id="profilePhone" placeholder="+254 700 000 000">
+        </div>
 
-      <!-- Actions -->
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-        <button type="button" class="btn-quick primary" id="customerActivateLocationBtn" onclick="activateCustomerLocation()" style="padding:10px 18px;">
-          <i class="fas fa-location-crosshairs"></i> Activate Your Location
+        <!-- Section 6 — Auto-generated username (read-only) -->
+        <div class="form-group">
+          <label>
+            Your Username
+            <span style="font-weight:400; color:#64748b; font-size:0.75rem;">
+              (assigned automatically — use it or your phone to log in)
+            </span>
+          </label>
+          <div id="profileUsername"
+               style="padding:8px 12px; background:#f1f5f9; border-radius:8px; font-size:0.9rem; color:#94a3b8; border:1px solid #e2e8f0;">
+            (will be assigned automatically)
+          </div>
+        </div>
+
+        <button class="btn-quick primary" onclick="updateProfile()" style="padding:10px 24px;">
+          <i class="fas fa-save"></i> Update Profile
         </button>
-        <button type="button" class="btn-quick" id="customerRefreshLocationBtn" onclick="activateCustomerLocation()" style="display:none; padding:10px 18px; background:#e2e8f0; color:#1e293b;">
-          <i class="fas fa-sync-alt"></i> Refresh Location
-        </button>
-        <button type="button" class="btn-quick" id="customerDeactivateLocationBtn" onclick="deactivateCustomerLocation()" style="display:none; padding:10px 18px; background:#fee2e2; color:#991b1b;">
-          <i class="fas fa-location-arrow"></i> Turn off location sharing
-        </button>
+        <div id="profileStatus" style="margin-top:8px; font-size:0.9rem;"></div>
       </div>
+    </section>
 
-      <div id="customerLocationStatus" style="margin-top:8px; font-size:0.85rem;"></div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- E.2 / G.3 — Preferred area (optional)                        -->
-    <!--                                                              -->
-    <!--  A customer who chooses not to share GPS can still tell the  -->
-    <!--  marketplace which area they want to shop in. The search     -->
-    <!--  handler (E.4) uses these names as a soft anchor when the    -->
-    <!--  customer has no coordinates.                                -->
-    <!--                                                              -->
-    <!--  All six fields are optional. Save replaces the stored       -->
-    <!--  preferred area; Clear removes it.                           -->
-    <!-- ============================================================ -->
-    <div class="customer-preferred-area-card" id="customerPreferredAreaSection" style="margin-top:16px; padding:16px; background:#f0f7ff; border:1px solid #c7d9f0; border-radius:12px;">
-      <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
-        🗺️ Preferred area (optional)
+    <!-- ======================= -->
+    <!-- SECTION: Location       -->
+    <!-- ======================= -->
+    <section class="profile-subsection" id="profileSectionLocation">
+      <h3 class="profile-subsection-title">
+        <i class="fas fa-location-crosshairs"></i> Location
       </h3>
-      <p style="font-size:0.8rem; color:#475569; margin:0 0 10px 0;">
-        If you prefer not to share your GPS location, you can set a preferred area instead.
-        We use it only to rank nearby results towards the area you choose. It is never shared with any business.
-      </p>
 
-      <div id="customerPreferredAreaBadge"
-           style="display:none; font-size:0.8rem; font-weight:600; color:#1e40af; background:#dbeafe; padding:4px 12px; border-radius:20px; display:inline-block; margin-bottom:8px;">
-        ✅ Preferred area set
+      <div class="customer-location-card" id="customerLocationSection">
+        <h3 style="font-size:1rem; font-weight:800; margin:0 0 4px 0;">
+          📍 Activate your location to find businesses near you
+        </h3>
+        <p style="font-size:0.8rem; color:#475569; margin:0 0 10px 0;">
+          When you activate your location, we use it only to sort nearby businesses nearest-first.
+          Your coordinates are never shared with any business.
+        </p>
+
+        <div id="customerLocationStatusBadge"
+             style="display:none; font-size:0.8rem; font-weight:600; color:#166534; background:#dcfce7; padding:4px 12px; border-radius:20px;">
+          ✅ Location active
+        </div>
+        <div id="customerLocationStatusBadgeInactive"
+             style="font-size:0.8rem; font-weight:600; color:#92400e; background:#fef3c7; padding:4px 12px; border-radius:20px;">
+          ⏳ Location not activated
+        </div>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+          <button type="button" class="btn-quick primary" id="customerActivateLocationBtn" onclick="activateCustomerLocation()" style="padding:10px 18px;">
+            <i class="fas fa-location-crosshairs"></i> Activate Your Location
+          </button>
+          <button type="button" class="btn-quick" id="customerRefreshLocationBtn" onclick="activateCustomerLocation()" style="display:none; padding:10px 18px; background:#e2e8f0; color:#1e293b;">
+            <i class="fas fa-sync-alt"></i> Refresh Location
+          </button>
+          <button type="button" class="btn-quick" id="customerDeactivateLocationBtn" onclick="deactivateCustomerLocation()" style="display:none; padding:10px 18px; background:#fee2e2; color:#991b1b;">
+            <i class="fas fa-location-arrow"></i> Turn off location sharing
+          </button>
+        </div>
+
+        <div id="customerLocationStatus" style="margin-top:8px; font-size:0.85rem;"></div>
       </div>
+    </section>
 
-      <div class="preferred-area-fields" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-        <div class="form-group">
-          <label style="font-size:0.75rem;">Continent</label>
-          <input type="text" id="preferredContinent" placeholder="e.g., Africa">
+    <!-- ======================= -->
+    <!-- SECTION: Preferred area -->
+    <!-- ======================= -->
+    <section class="profile-subsection" id="profileSectionPreferred">
+      <h3 class="profile-subsection-title">
+        <i class="fas fa-map"></i> Preferred area (optional)
+      </h3>
+
+      <div class="customer-preferred-area-card" id="customerPreferredAreaSection">
+        <p style="font-size:0.8rem; color:#475569; margin:0 0 10px 0;">
+          If you prefer not to share your GPS location, you can set a preferred area instead.
+          We use it only to rank nearby results towards the area you choose. It is never shared with any business.
+        </p>
+
+        <div id="customerPreferredAreaBadge"
+             style="display:none; font-size:0.8rem; font-weight:600; color:#1e40af; background:#dbeafe; padding:4px 12px; border-radius:20px; margin-bottom:8px;">
+          ✅ Preferred area set
         </div>
-        <div class="form-group">
-          <label style="font-size:0.75rem;">Country</label>
-          <input type="text" id="preferredCountry" placeholder="e.g., Kenya">
+
+        <div class="preferred-area-fields" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div class="form-group">
+            <label style="font-size:0.75rem;">Continent</label>
+            <input type="text" id="preferredContinent" placeholder="e.g., Africa">
+          </div>
+          <div class="form-group">
+            <label style="font-size:0.75rem;">Country</label>
+            <input type="text" id="preferredCountry" placeholder="e.g., Kenya">
+          </div>
+          <div class="form-group">
+            <label style="font-size:0.75rem;">County</label>
+            <input type="text" id="preferredCounty" placeholder="e.g., Nairobi">
+          </div>
+          <div class="form-group">
+            <label style="font-size:0.75rem;">Sub-County</label>
+            <input type="text" id="preferredSubCounty" placeholder="e.g., Westlands">
+          </div>
+          <div class="form-group">
+            <label style="font-size:0.75rem;">Ward</label>
+            <input type="text" id="preferredWard" placeholder="e.g., Parklands">
+          </div>
+          <div class="form-group">
+            <label style="font-size:0.75rem;">Town / City</label>
+            <input type="text" id="preferredTown" placeholder="e.g., Nairobi">
+          </div>
         </div>
-        <div class="form-group">
-          <label style="font-size:0.75rem;">County</label>
-          <input type="text" id="preferredCounty" placeholder="e.g., Nairobi">
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+          <button type="button" class="btn-quick primary" id="savePreferredAreaBtn" onclick="saveCustomerPreferredArea()" style="padding:10px 18px;">
+            <i class="fas fa-save"></i> Save preferred area
+          </button>
+          <button type="button" class="btn-quick" id="clearPreferredAreaBtn" onclick="clearCustomerPreferredArea()" style="padding:10px 18px; background:#fee2e2; color:#991b1b;">
+            <i class="fas fa-times"></i> Clear preferred area
+          </button>
         </div>
-        <div class="form-group">
-          <label style="font-size:0.75rem;">Sub-County</label>
-          <input type="text" id="preferredSubCounty" placeholder="e.g., Westlands">
-        </div>
-        <div class="form-group">
-          <label style="font-size:0.75rem;">Ward</label>
-          <input type="text" id="preferredWard" placeholder="e.g., Parklands">
-        </div>
-        <div class="form-group">
-          <label style="font-size:0.75rem;">Town / City</label>
-          <input type="text" id="preferredTown" placeholder="e.g., Nairobi">
-        </div>
+
+        <div id="customerPreferredAreaStatus" style="margin-top:8px; font-size:0.85rem;"></div>
       </div>
+    </section>
 
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-        <button type="button" class="btn-quick primary" id="savePreferredAreaBtn" onclick="saveCustomerPreferredArea()" style="padding:10px 18px;">
-          <i class="fas fa-save"></i> Save preferred area
+    <!-- ======================= -->
+    <!-- SECTION: Addresses      -->
+    <!-- ======================= -->
+    <section class="profile-subsection" id="profileSectionAddresses">
+      <h3 class="profile-subsection-title">
+        <i class="fas fa-map-marker-alt"></i> My Addresses
+        <button class="btn-quick primary" onclick="showAddAddress()" style="padding:6px 16px; font-size:0.75rem; margin-left:auto;">
+          <i class="fas fa-plus"></i> Add Address
         </button>
-        <button type="button" class="btn-quick" id="clearPreferredAreaBtn" onclick="clearCustomerPreferredArea()" style="padding:10px 18px; background:#fee2e2; color:#991b1b;">
-          <i class="fas fa-times"></i> Clear preferred area
-        </button>
-      </div>
+      </h3>
 
-      <div id="customerPreferredAreaStatus" style="margin-top:8px; font-size:0.85rem;"></div>
-    </div>
+      <div id="addressesPanelContent">
+        <div class="loading-spinner">
+          <i class="fas fa-spinner fa-spin"></i>
+          Loading addresses...
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= -->
+    <!-- SECTION: Payment history-->
+    <!-- ======================= -->
+    <section class="profile-subsection" id="profileSectionPayments">
+      <h3 class="profile-subsection-title">
+        <i class="fas fa-credit-card"></i> Payment history
+      </h3>
+
+      <div id="paymentsPanelContent">
+        <div class="loading-spinner">
+          <i class="fas fa-spinner fa-spin"></i>
+          Loading payments...
+        </div>
+      </div>
+    </section>
 
   </div>
 
@@ -369,53 +489,6 @@
       <div class="loading-spinner">
         <i class="fas fa-spinner fa-spin"></i>
         Loading orders...
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== ADDRESSES PANEL ===== -->
-  <div class="account-content-panel" id="panel-addresses">
-    <div class="panel-title">
-      <i class="fas fa-map-marker-alt"></i> My Addresses
-      <button class="btn-quick primary" onclick="showAddAddress()" style="padding:6px 16px; font-size:0.75rem; margin-left:auto;">
-        <i class="fas fa-plus"></i> Add Address
-      </button>
-    </div>
-
-    <div id="addressesPanelContent">
-      <div class="loading-spinner">
-        <i class="fas fa-spinner fa-spin"></i>
-        Loading addresses...
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== PAYMENTS PANEL ===== -->
-  <div class="account-content-panel" id="panel-payments">
-    <div class="panel-title">
-      <i class="fas fa-credit-card"></i> Payment History
-      <span class="subtitle">All your transactions</span>
-    </div>
-
-    <div id="paymentsPanelContent">
-      <div class="loading-spinner">
-        <i class="fas fa-spinner fa-spin"></i>
-        Loading payments...
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== CART PANEL ===== -->
-  <div class="account-content-panel" id="panel-cart">
-    <div class="panel-title">
-      <i class="fas fa-shopping-cart"></i> Shopping Cart
-      <span class="subtitle" id="cartCountLabel">(0 items)</span>
-    </div>
-
-    <div id="cartPanelContent">
-      <div class="loading-spinner">
-        <i class="fas fa-spinner fa-spin"></i>
-        Loading cart...
       </div>
     </div>
   </div>
@@ -436,22 +509,18 @@
   </div>
 
   <!-- ============================================================ -->
-  <!-- MARKETPLACE SECTION - ALWAYS VISIBLE BELOW -->
-  <!--                                                              -->
-  <!-- Section J.4 — Featured Businesses grid is no longer rendered  -->
-  <!-- by the account page. The block remains as a hidden          -->
-  <!-- placeholder so external callers do not break, and the ad    -->
-  <!-- slider lives only on the marketplace home page.             -->
+  <!-- MARKETPLACE SECTION — Section 9: hidden.                     -->
+  <!-- Kept as a hidden placeholder so any lingering reference in   -->
+  <!-- account.js does not throw.                                   -->
   <!-- ============================================================ -->
 
-  <div class="marketplace-section-account">
+  <div class="marketplace-section-account" hidden>
 
     <div class="marketplace-header">
       <h2><i class="fas fa-store"></i> Marketplace</h2>
       <a href="/">View All Businesses <i class="fas fa-arrow-right"></i></a>
     </div>
 
-    <!-- Search & Filter -->
     <div class="search-filter-bar-account">
       <div class="search-wrapper">
         <input type="search" id="businessSearchAccount" name="account-business-search" placeholder="Search businesses..." autocomplete="off" data-lpignore="true">
@@ -467,12 +536,8 @@
       </select>
     </div>
 
-    <!-- Featured Businesses — hidden placeholder.
-         Section J.4 removed the feature. Kept here so any code
-         still referencing #featuredGridAccount does not throw. -->
     <div id="featuredGridAccount" hidden></div>
 
-    <!-- All Businesses -->
     <h3 style="font-size:0.9rem; font-weight:700; color:#0f172a; margin:16px 0 10px;">
       📋 All Businesses
     </h3>
@@ -490,7 +555,21 @@
 </div>
 
 <!-- ============================================================ -->
-<!-- ADDRESS MODAL -->
+<!-- FLOATING CART BUTTON — Section 9                             -->
+<!-- ============================================================ -->
+
+<button
+  type="button"
+  class="account-floating-cart"
+  id="accountFloatingCart"
+  aria-label="Open cart"
+  onclick="openAccountCart()">
+  <i class="fas fa-shopping-cart"></i>
+  <span class="account-floating-cart-badge" id="accountFloatingCartBadge">0</span>
+</button>
+
+<!-- ============================================================ -->
+<!-- ADDRESS MODAL                                                -->
 <!-- ============================================================ -->
 
 <div class="modal-overlay" id="addressModal">
@@ -528,7 +607,7 @@
 </div>
 
 <!-- ============================================================ -->
-<!-- SCRIPTS - ONLY ACCOUNT.JS (NO INDEX.JS) -->
+<!-- SCRIPTS - ONLY ACCOUNT.JS (NO INDEX.JS)                      -->
 <!-- ============================================================ -->
 
 <script src="/js/cart-store.js"></script>
