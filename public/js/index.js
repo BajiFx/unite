@@ -3,7 +3,7 @@
 //  Location: public/js/index.js
 //
 //  Section J — Marketplace ad slider (strict round-robin,
-//  per-type durations, no double-shows):
+//  per-type durations, no double-shows, video audio):
 //
 //   J.5a — Image ads sit for 4 seconds.
 //   J.5b — Video ads sit for 20 seconds.
@@ -20,17 +20,15 @@
 //          clock formula. Each slide arms one setTimeout for its
 //          own duration. This is the only way to give each media
 //          type its own on-screen time AND keep a strict
-//          round-robin. A wall-clock index would require a
-//          uniform slot and therefore force the same duration
-//          on every ad.
+//          round-robin.
 //
-//   J.5e — The trade-off (accepted deliberately): two browsers
-//          opened at different moments will be on different
-//          slides, because the current slide depends on the
-//          whole history of the cycle, not just Date.now().
-//          Two browsers opened at the same moment stay in sync
-//          because they both walk the same chain with the same
-//          durations.
+//   J.5e — Video audio: when a video ad becomes the active
+//          slide, the client tries to play it WITH SOUND first.
+//          If the browser blocks autoplay-with-audio (no user
+//          gesture yet), we fall back to muted playback for that
+//          one slide only. The next slide transition tries with
+//          sound again, and once the visitor has interacted with
+//          the page every subsequent video plays with sound.
 //
 //   J.5f — Hover or focus pauses rotation; leaving resumes.
 //
@@ -106,9 +104,7 @@ let lastSearchMode = null;
 //                      →  on fire, calls showAdAtIndex(k + 1)
 //
 //  This is the only way to give each media type its own on-screen
-//  time AND keep a strict round-robin. A wall-clock index would
-//  require a uniform slot and force the same duration on every
-//  ad.
+//  time AND keep a strict round-robin.
 // ------------------------------------------------------------
 
 // Section 2D — per-type durations. These are the on-screen times.
@@ -783,30 +779,8 @@ async function loadCategories() {
 // ============================================================
 //  SECTION J — MARKETPLACE AD SLIDER
 //
-//  STRICT ROUND-ROBIN, PER-TYPE DURATIONS, NO DOUBLE-SHOWS.
-//
-//  The rotation is a TIMER CHAIN, not a wall-clock index.
-//
-//  showAdAtIndex(k) displays slide k and then arms a single
-//  setTimeout for durationOf(adsList[k]). When that fires, we
-//  call showAdAtIndex(k + 1). That is a strict round-robin by
-//  construction:
-//
-//    A1 → B1 → C1 → A2 → B2 → C2 → A3 → B3 → C3 → A1 → …
-//
-//  No slide is ever skipped, no slide is ever shown twice in a
-//  row, and each slide occupies exactly its own duration on the
-//  wall clock.
-//
-//  Why not a wall-clock formula? A wall-clock index requires a
-//  uniform slot, which would force the same duration on every
-//  ad. With mixed 4 s and 20 s slots there is no formula of the
-//  form floor((now - epoch) / slot) % N that reproduces the
-//  chain. So we use the chain directly.
-//
-//  Cost: two browsers opened at different moments will be on
-//  different slides. Two browsers opened at the same moment stay
-//  in sync. That trade-off is deliberate and accepted.
+//  STRICT ROUND-ROBIN, PER-TYPE DURATIONS, NO DOUBLE-SHOWS,
+//  VIDEO WITH SOUND.
 // ============================================================
 
 /**
@@ -1044,8 +1018,12 @@ function renderAdSlide(ad, index) {
   const mediaAlt = escapeAdsAttr(ad.title || ad.business_name || 'Sponsored');
   const [bgA, bgB] = pickAdBackdrop(ad);
 
+  // Video: no `muted` attribute. Audio will play when the browser
+  // allows it (see updateAdsActiveSlide for the fallback logic).
+  // preload="auto" buffers the whole file so sound starts as soon
+  // as the slide becomes active.
   const media = isVideo
-    ? `<video class="ads-media" src="${mediaSrc}" muted playsinline preload="metadata"></video>`
+    ? `<video class="ads-media" src="${mediaSrc}" playsinline preload="auto"></video>`
     : `
         <div class="ads-media-bg" aria-hidden="true" style="--ad-bg-a:${bgA}; --ad-bg-b:${bgB};"></div>
         <img class="ads-media" src="${mediaSrc}" alt="${mediaAlt}" loading="lazy">
@@ -1139,10 +1117,41 @@ function updateAdsActiveSlide() {
       const idx = parseInt(slide.dataset.adIndex, 10);
       const video = slide.querySelector('video');
       if (!video) return;
+
       if (idx === adsCurrentIndex) {
-        try { video.currentTime = 0; video.play().catch(() => {}); } catch (e) {}
+        // This is the active video.
+        try { video.currentTime = 0; } catch (e) {}
+
+        // Try to play WITH SOUND first. If the browser blocks
+        // autoplay-with-audio (no user gesture yet, or a strict
+        // autoplay policy), fall back to muted playback so the
+        // video is at least visibly running. We do NOT set the
+        // muted attribute permanently — only the .muted property
+        // for this one attempt — so the next slide transition
+        // will try with sound again.
+        video.muted = false;
+        video.volume = 1;
+
+        const playAttempt = video.play();
+        if (playAttempt && typeof playAttempt.catch === 'function') {
+          playAttempt.catch(() => {
+            // Browser blocked sound. Retry once, muted, so the
+            // frame is not frozen. Sound stays off for THIS slide
+            // only; the next transition tries with sound again.
+            try {
+              video.muted = true;
+              video.play().catch(() => {});
+            } catch (e) {
+              // Give up silently — the poster / first frame is fine.
+            }
+          });
+        }
       } else {
+        // Not the active slide. Pause and mute so a background
+        // video does not emit sound if it was somehow still
+        // playing.
         try { video.pause(); } catch (e) {}
+        try { video.muted = true; } catch (e) {}
       }
     });
   }
@@ -3255,4 +3264,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (strict round-robin, 4s images / 20s videos, no double-shows)');
+console.log('✅ Index.js loaded successfully (strict round-robin, 4s images / 20s videos, video with sound)');
