@@ -25,9 +25,18 @@
             unchanged. The standalone page can still be kept,
             but this is now the primary surface.
 
+     Section 2 changes:
+      2D.A — Ad duration input caps at 20 (was 600).
+      2D.B — Placeholder and hint text now state the new
+             defaults: 4 seconds for images, 20 for videos.
+      2D.C — Info banner above the form no longer promises
+             "6 seconds / 1 minute"; it now matches the caps
+             enforced by the server.
+
      Only these sections were rewritten:
       - sidebar "Main" group (one new menu item)
       - main content (one new section: section-ads)
+      - the #section-ads duration input + info banner
 
      Everything else in this file is preserved byte-for-byte.
      ============================================================ -->
@@ -274,12 +283,12 @@
         <button class="btn-save" onclick="loadAds()"><i class="fas fa-sync-alt"></i> Refresh</button>
       </div>
 
-      <!-- Info banner -->
+      <!-- Info banner — Section 2D.C: wording now matches the caps. -->
       <div class="ad-info-banner">
         <i class="fas fa-info-circle"></i>
         <div>
           <strong>Your ads appear on the marketplace hero slider.</strong>
-          <p>Upload an image (displayed for 6 seconds) or a video (up to 1 minute). Choose what happens when a customer clicks: open your business profile, or open a specific product.</p>
+          <p>Upload an image (shown for up to 4 seconds) or a video (shown for up to 20 seconds). Choose what happens when a customer clicks: open your business profile, or open a specific product.</p>
         </div>
       </div>
 
@@ -314,11 +323,11 @@
               <input type="text" id="adTitle" name="title" maxlength="200" placeholder="e.g., New Arrivals — 30% Off">
             </div>
 
-            <!-- Duration -->
+            <!-- Duration — Section 2D.A / 2D.B: max is 20, placeholder names the new caps. -->
             <div>
               <label>Display Duration (seconds)</label>
-              <input type="number" id="adDuration" name="display_duration" min="1" max="600" placeholder="Default: 6s images, 60s videos">
-              <small class="hint">Leave blank to use defaults.</small>
+              <input type="number" id="adDuration" name="display_duration" min="1" max="20" placeholder="Max 4s images, 20s videos">
+              <small class="hint">Leave blank for the defaults (4s images, 20s videos).</small>
             </div>
 
             <!-- Description -->

@@ -179,6 +179,26 @@ function validateSearchPrefix(prefix) {
             error: 'Search number must be 3 or 4 digits (e.g. 363 or 3734).'
         };
     }
+
+    // ----------------------------------------------------------
+    //  SECTION 2B FIX — reserved namespace.
+    //
+    //  The 004_business_search_tag.sql migration uses "000" as
+    //  the prefix for auto-generated placeholder tags assigned
+    //  to legacy businesses. If a new owner were allowed to pick
+    //  "000" or "0000", their tag would collide with those
+    //  placeholders. Block both exact strings here.
+    //
+    //  Only the exact strings "000" and "0000" are blocked.
+    //  "001", "0001", "100", "1000", etc. remain valid.
+    // ----------------------------------------------------------
+    if (str === '000' || str === '0000') {
+        return {
+            ok: false,
+            error: '000 and 0000 are reserved. Please pick another number.'
+        };
+    }
+
     return { ok: true, value: str };
 }
 

@@ -27,6 +27,14 @@
 //        free" hint are driven by the server's `slot_usage`
 //        object. No `created_at` ordering anywhere.
 //
+//  Section 2D — Ad duration caps:
+//   AD_DEFAULT_IMAGE_DURATION = 4   (image cap / default)
+//   AD_DEFAULT_VIDEO_DURATION = 20  (video cap / default)
+//   The clamp is applied again in onFormSubmit() so a
+//   misbehaving client cannot submit a duration above the cap.
+//   The server is the final source of truth and clamps once
+//   more on POST /ads and PUT /ads/:id.
+//
 //  Section J.2 — in-page integration notes:
 //
 //   Ad Management now lives inside business-admin.html as the
@@ -62,10 +70,16 @@
   // when the server does not return `slot_usage` (older backend).
   if (typeof window.AD_MAX_SLOTS_PER_BUSINESS === 'undefined') window.AD_MAX_SLOTS_PER_BUSINESS = 3;
 
-  // Per-ad display defaults (Section J.5) — exposed so business-admin.js
-  // can reuse them when it renders the placeholder values in the form.
-  if (typeof window.AD_DEFAULT_IMAGE_DURATION === 'undefined') window.AD_DEFAULT_IMAGE_DURATION = 6;
-  if (typeof window.AD_DEFAULT_VIDEO_DURATION === 'undefined') window.AD_DEFAULT_VIDEO_DURATION = 60;
+  // Section 2D — per-ad duration defaults AND caps.
+  //
+  // These two values serve two purposes:
+  //   1. The default shown when an ad has no stored duration.
+  //   2. The client-side cap applied before the FormData is built.
+  //
+  // The server clamps again in business-admin.js, so the value
+  // that reaches the database is always within range.
+  if (typeof window.AD_DEFAULT_IMAGE_DURATION === 'undefined') window.AD_DEFAULT_IMAGE_DURATION = 4;
+  if (typeof window.AD_DEFAULT_VIDEO_DURATION === 'undefined') window.AD_DEFAULT_VIDEO_DURATION = 20;
 
   var DEFAULT_IMAGE_DURATION = window.AD_DEFAULT_IMAGE_DURATION;
   var DEFAULT_VIDEO_DURATION = window.AD_DEFAULT_VIDEO_DURATION;
@@ -95,6 +109,22 @@
   function byId(id) {
     var root = sectionRoot();
     return root.querySelector('#' + id) || document.getElementById(id);
+  }
+
+  // ============================================================
+  //  SECTION 2D — Duration clamp
+  //  Kept next to the constants so the logic and the numbers live
+  //  together. Returns null when the caller did not supply a
+  //  value, so the "leave blank for defaults" behaviour is kept.
+  // ============================================================
+
+  function clampDurationForMedia(mediaType, rawValue) {
+    var str = (rawValue === undefined || rawValue === null) ? '' : String(rawValue).trim();
+    if (!str) return null;
+    var parsed = parseInt(str, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return null;
+    var cap = mediaType === 'video' ? DEFAULT_VIDEO_DURATION : DEFAULT_IMAGE_DURATION;
+    return Math.min(parsed, cap);
   }
 
   // ============================================================
@@ -550,6 +580,24 @@
       return;
     }
 
+    // Section 2D — determine the effective media type for the clamp.
+    //   - On create: the type of the file the admin just selected.
+    //   - On edit without a new file: fall back to the stored ad
+    //     type so the clamp uses the right cap. We don't have the
+    //     ad object in scope here, so we read the media badge in
+    //     the preview if one is present, and otherwise let the
+    //     server-side clamp do the final enforcement.
+    //     If the admin uploaded a new file, selectedMediaType is set.
+    var effectiveMediaType = window.selectedMediaType || null;
+    if (!effectiveMediaType && isEdit) {
+      // Look at the preview to see whether the existing media is a
+      // video (the preview element type is "VIDEO") or an image.
+      var previewEl = byId('mediaPreview');
+      var videoInPreview = previewEl ? previewEl.querySelector('video') : null;
+      effectiveMediaType = videoInPreview ? 'video' : 'image';
+    }
+    if (!effectiveMediaType) effectiveMediaType = 'image';
+
     // Build payload
     var formData = new FormData();
     if (window.selectedMediaFile) formData.append('media', window.selectedMediaFile);
@@ -557,7 +605,13 @@
     if (description) formData.append('description', description);
     formData.append('link_type', linkType);
     if (linkType === 'product') formData.append('link_target_id', linkTargetId);
-    if (displayDuration) formData.append('display_duration', displayDuration);
+
+    // Section 2D — clamp the duration before sending. The server
+    // clamps again, so this is purely a UX improvement: the admin
+    // sees the correct value saved, not a silently rewritten one.
+    var clamped = clampDurationForMedia(effectiveMediaType, displayDuration);
+    if (clamped !== null) formData.append('display_duration', String(clamped));
+
     formData.append('is_active', isActive ? 'true' : 'false');
 
     var submitBtn = byId('adSubmitBtn');
@@ -748,7 +802,7 @@
       targetLabel = '<span class="target-label"><i class="fas fa-tag"></i> ' + escapeHtml(productName) + '</span>';
     }
 
-    // Duration label
+    // Duration label — Section 2D uses the new 4s / 20s defaults.
     var durationLabel;
     if (ad.display_duration) {
       durationLabel = '<span class="duration-label"><i class="fas fa-clock"></i> ' + ad.display_duration + 's</span>';
@@ -1089,5 +1143,5 @@
     window.location.href = '/';
   };
 
-  console.log('✅ Ad Management JS loaded (Section J.2 / N — slot-based rotation)');
+  console.log('✅ Ad Management JS loaded (Section J.2 / N / 2D — slot-based rotation, capped durations)');
 })();

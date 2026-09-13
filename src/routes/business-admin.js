@@ -36,7 +36,7 @@
 //        so a product ad can never point at another business's
 //        product.
 //
-//  Section N — Fixed ad slots (this revision)
+//  Section N — Fixed ad slots
 //  N.1 — Each business has exactly three ad slots: 1, 2, 3.
 //  N.2 — A new ad is assigned the smallest free slot
 //        (1 → 2 → 3). No "newest first" behaviour anywhere.
@@ -57,6 +57,18 @@
 //        GET /payment-settings so the business admin panel can
 //        render the read-only environment badge (production vs
 //        sandbox) without a second request.
+//
+//  Section 2D — Ad duration caps
+//   2D.A — AD_MAX_IMAGE_DURATION_SECONDS = 4
+//   2D.B — AD_MAX_VIDEO_DURATION_SECONDS = 20
+//   2D.C — clampAdDuration(mediaType, rawValue) is the single
+//          entry point for enforcing the cap. It is applied on
+//          POST /ads and on PUT /ads/:id, using the effective
+//          media type in each case (the new one for a
+//          replacement upload, the stored one otherwise).
+//   2D.D — A one-time backfill migration
+//          (20260921-ad-duration-clamp.sql) brings existing rows
+//          into line.
 // ============================================================
 
 const express = require('express');
@@ -79,6 +91,21 @@ const LOCATION_FIELDS = ['continent', 'country', 'county', 'sub_county', 'ward',
 
 const MAX_ADS_PER_BUSINESS = 3;
 const AD_SLOT_RANGE = Array.from({ length: MAX_ADS_PER_BUSINESS }, (_, i) => i + 1);
+
+// ============================================================
+//  Section 2D — Ad duration caps
+//
+//  The marketplace hero slider rotates on a wall-clock cycle.
+//  Enforcing a per-media-type cap keeps the cycle uniform and
+//  stops a single ad from dominating the rotation.
+//
+//  These two constants are the server-side source of truth for
+//  the caps. The client mirrors them, and the backfill migration
+//  20260921-ad-duration-clamp.sql uses the same numbers.
+// ============================================================
+
+const AD_MAX_IMAGE_DURATION_SECONDS = 4;
+const AD_MAX_VIDEO_DURATION_SECONDS = 20;
 
 // Sections C.3 – C.6 — helpers -------------------------------------------------
 
@@ -805,21 +832,37 @@ router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 //  is handled elsewhere in this file:
 //    images → default resource type
 //    videos → resource_type: 'video'
+//
+//  Section 2D — Ad duration caps.
+//   Every duration that reaches the database is passed through
+//   clampAdDuration() below. The helper picks the correct cap
+//   from the effective media type:
+//     image  →  AD_MAX_IMAGE_DURATION_SECONDS (4 s)
+//     video  →  AD_MAX_VIDEO_DURATION_SECONDS (20 s)
 // ============================================================
 
 /**
- * Normalise an ad's display duration.
- * Accepts a number or numeric string.
- * Returns the value in seconds, or null when the caller did
- * not supply one (the slider then falls back to the defaults
- * from Section J.5: 6s for images, 60s for videos).
+ * Section 2D — Clamp an ad's display duration against its
+ * media-type cap.
+ *
+ * Accepts a number or numeric string. Returns:
+ *   - null when the caller did not supply a value, so the
+ *     slider can fall back to its own defaults.
+ *   - the parsed value clamped to [1, cap] otherwise.
+ *
+ * `mediaType` is the *effective* type: for a new ad it is the
+ * type derived from the uploaded file; for an edit it is the
+ * type that will be stored after the edit (the new one if a
+ * replacement file was uploaded, the stored one otherwise).
  */
-function parseDisplayDuration(value) {
-    if (value === undefined || value === null || value === '') return null;
-    const num = Number.parseInt(value, 10);
-    if (!Number.isFinite(num) || num < 1) return null;
-    // Clamp to a sane range so a bad value can never hang the slider.
-    return Math.min(Math.max(num, 1), 600);
+function clampAdDuration(mediaType, rawValue) {
+    if (rawValue === undefined || rawValue === null || rawValue === '') return null;
+    const parsed = Number.parseInt(rawValue, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return null;
+    const cap = mediaType === 'video'
+        ? AD_MAX_VIDEO_DURATION_SECONDS
+        : AD_MAX_IMAGE_DURATION_SECONDS;
+    return Math.min(parsed, cap);
 }
 
 /**
@@ -963,6 +1006,10 @@ router.get('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, as
 //  N.2 — Assigns the smallest free slot for this business.
 //  N.5 — Rejects with 409 when all three slots are taken.
 //
+//  Section 2D — display_duration is passed through
+//  clampAdDuration(mediaType, ...) before the INSERT, so the
+//  cap is enforced server-side no matter what the client sends.
+//
 //  Multipart form:
 //    media           (required, single file: image or video)
 //    media_type      ('image' | 'video')
@@ -970,7 +1017,7 @@ router.get('/ads', authMiddleware, businessAdminOnly, getBusinessIdFromToken, as
 //    description     (optional)
 //    link_type       ('profile' | 'product')
 //    link_target_id  (required when link_type = 'product')
-//    display_duration(optional, seconds)
+//    display_duration(optional, seconds — clamped to 4 / 20)
 //    is_active       ('true' | 'false', defaults to 'true')
 // ============================================================
 
@@ -1026,7 +1073,11 @@ router.post(
                 return res.status(500).json({ error: 'Unable to upload ad media. Please try again.' });
             }
 
-            const duration = parseDisplayDuration(display_duration);
+            // Section 2D — clamp the duration against the correct cap
+            // for this media type. The helper returns null when the
+            // caller did not supply a value, so the marketplace can
+            // fall back to its own defaults.
+            const duration = clampAdDuration(mediaType, display_duration);
             const active = !(is_active === 'false' || is_active === false);
 
             // N.2 — find the smallest free slot at insert time. If
@@ -1107,6 +1158,10 @@ router.post(
 //  N.3 — Editing an ad NEVER changes its slot. Only the fields
 //        the admin actually sent are written. Media is optional;
 //        when omitted, the existing media is kept.
+//
+//  Section 2D — display_duration is clamped against the
+//  *effective* media type: the new one when a replacement file
+//  was uploaded, otherwise the one already stored on the row.
 // ============================================================
 
 router.put(
@@ -1190,8 +1245,12 @@ router.put(
             }
 
             if (req.body.display_duration !== undefined) {
+                // Section 2D — clamp against the effective media type.
+                // If the caller sent a new media file, nextMediaType
+                // is the new type; otherwise it is the type already
+                // stored on the row.
                 updates.push(`display_duration = $${paramIndex}`);
-                values.push(parseDisplayDuration(req.body.display_duration));
+                values.push(clampAdDuration(nextMediaType, req.body.display_duration));
                 paramIndex++;
             }
 

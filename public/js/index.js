@@ -10,8 +10,8 @@
 //   uniform slot duration is now selected per media type
 //   instead of being a single global 30 s.
 //
-//   J.5a — Images sit for 5 seconds on the clock.
-//   J.5b — Videos sit for 30 seconds on the clock.
+//   J.5a — Images sit for 4 seconds on the clock.
+//   J.5b — Videos sit for 20 seconds on the clock.
 //   J.5c — The index is still derived from the wall clock:
 //            slot  = floor((Date.now() - epoch) / slotDuration)
 //            index = (slot + offset) mod ads.length
@@ -92,15 +92,21 @@ let lastSearchMode = null;
 //
 //  The ONLY difference is that slotDuration is picked from the
 //  media type of the slide the clock is currently pointing at:
-//    image  → AD_IMAGE_SLOT_MS   (5 s)
-//    video  → AD_VIDEO_SLOT_MS   (30 s)
+//    image  → AD_IMAGE_SLOT_MS   (4 s)
+//    video  → AD_VIDEO_SLOT_MS   (20 s)
 //
 //  Every browser still derives the same index at the same
 //  wall-clock moment, so two visitors see the same ad.
 // ------------------------------------------------------------
 
-const AD_IMAGE_SLOT_MS = 5 * 1000;    // 5 seconds
-const AD_VIDEO_SLOT_MS = 30 * 1000;   // 30 seconds
+// Section 2D — uniform clock, two durations.
+// Images sit for 4 s and videos for 20 s. These two constants
+// are the client-side source of truth for the marketplace
+// rotation and must match the server-side caps
+// (AD_MAX_IMAGE_DURATION_SECONDS = 4, AD_MAX_VIDEO_DURATION_SECONDS = 20)
+// and the backfill migration 20260921-ad-duration-clamp.sql.
+const AD_IMAGE_SLOT_MS = 4 * 1000;    // 4 seconds
+const AD_VIDEO_SLOT_MS = 20 * 1000;   // 20 seconds
 
 const AD_BACKDROP_PALETTE = [
   ['#16a34a', '#facc15'],  // green → gold
@@ -765,7 +771,7 @@ async function loadCategories() {
 
 // ============================================================
 //  SECTION J — MARKETPLACE AD SLIDER
-//  OPTION C: uniform clock, two durations (5 s image / 30 s video)
+//  OPTION C: uniform clock, two durations (4 s image / 20 s video)
 // ============================================================
 
 /**
@@ -3239,4 +3245,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (Option C — uniform clock with 5s image / 30s video)');
+console.log('✅ Index.js loaded successfully (Option C — uniform clock with 4s image / 20s video)');

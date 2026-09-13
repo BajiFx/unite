@@ -168,6 +168,25 @@ app.use(helmet({
         "https://*.openstreetmap.org",
         "https://unpkg.com"
       ],
+      // ------------------------------------------------------------
+      //  SECTION 2 FIX — allow video playback and blob previews.
+      //
+      //  Without this directive, <video> and <audio> fall back to
+      //  defaultSrc (’self’), which blocks two cases:
+      //    • the ad-form preview, which uses a blob: URL
+      //    • the marketplace hero slider, which uses
+      //      https://res.cloudinary.com
+      //
+      //  Adding mediaSrc with ’self’, blob:, data: and Cloudinary
+      //  lets both cases load. Images already worked because imgSrc
+      //  already listed data: and Cloudinary.
+      // ------------------------------------------------------------
+      mediaSrc: [
+        "'self'",
+        "blob:",
+        "data:",
+        "https://res.cloudinary.com"
+      ],
       connectSrc: [
         "'self'",
         "ws://localhost:3000",
