@@ -2,27 +2,36 @@
 //  INDEX.JS - COMPLETE FIXED VERSION
 //  Location: public/js/index.js
 //
-//  Section J — Marketplace ad slider (uniform clock, two
-//  durations):
+//  Section J — Marketplace ad slider (strict round-robin,
+//  per-type durations, no double-shows):
 //
-//   The clock mechanism is preserved exactly as designed.
-//   The only change from the previous revision is that the
-//   uniform slot duration is now selected per media type
-//   instead of being a single global 30 s.
+//   J.5a — Image ads sit for 4 seconds.
+//   J.5b — Video ads sit for 20 seconds.
+//   J.5c — Rotation is a STRICT round-robin:
 //
-//   J.5a — Images sit for 4 seconds on the clock.
-//   J.5b — Videos sit for 20 seconds on the clock.
-//   J.5c — The index is still derived from the wall clock:
-//            slot  = floor((Date.now() - epoch) / slotDuration)
-//            index = (slot + offset) mod ads.length
-//          where slotDuration is chosen from the CURRENT slide's
-//          media type. This keeps every browser showing the same
-//          slide at the same wall-clock moment.
-//   J.5d — Prev/next and dots still jump the clock forward or
-//          backward by computing a matching index; nothing about
-//          navigation changes.
-//   J.5e — The progress bar reflects the current slide's
-//          remaining time on the clock.
+//             A1 → B1 → C1 → A2 → B2 → C2 → A3 → B3 → C3 →
+//             A1 → B1 → C1 → A2 → B2 → C2 → A3 → B3 → C3 → …
+//
+//          Every active ad appears exactly once per cycle, in the
+//          order the server returned. No ad ever appears twice
+//          before another has appeared once.
+//
+//   J.5d — The rotation is driven by a TIMER CHAIN, not a wall-
+//          clock formula. Each slide arms one setTimeout for its
+//          own duration. This is the only way to give each media
+//          type its own on-screen time AND keep a strict
+//          round-robin. A wall-clock index would require a
+//          uniform slot and therefore force the same duration
+//          on every ad.
+//
+//   J.5e — The trade-off (accepted deliberately): two browsers
+//          opened at different moments will be on different
+//          slides, because the current slide depends on the
+//          whole history of the cycle, not just Date.now().
+//          Two browsers opened at the same moment stay in sync
+//          because they both walk the same chain with the same
+//          durations.
+//
 //   J.5f — Hover or focus pauses rotation; leaving resumes.
 //
 //  Everything else in this file (search, product matches,
@@ -84,27 +93,25 @@ let lastSearchMode = null;
 // ------------------------------------------------------------
 // Section J — Marketplace ad slider state.
 //
-//  OPTION C — Uniform clock, two durations.
+//  STRICT ROUND-ROBIN, PER-TYPE DURATIONS.
 //
-//  The clock is still the same shape as before:
-//    slot  = floor((now - epoch) / slotDuration)
-//    index = (slot + offset) mod ads.length
+//  Each slide occupies its own amount of time on the wall clock:
+//    image → AD_IMAGE_SLOT_MS   (4 s)
+//    video → AD_VIDEO_SLOT_MS   (20 s)
 //
-//  The ONLY difference is that slotDuration is picked from the
-//  media type of the slide the clock is currently pointing at:
-//    image  → AD_IMAGE_SLOT_MS   (4 s)
-//    video  → AD_VIDEO_SLOT_MS   (20 s)
+//  The next slide is scheduled by a single setTimeout armed at
+//  the moment the current slide becomes active. The chain is:
 //
-//  Every browser still derives the same index at the same
-//  wall-clock moment, so two visitors see the same ad.
+//    showAdAtIndex(k)  →  arms a timer for durationOf(adsList[k])
+//                      →  on fire, calls showAdAtIndex(k + 1)
+//
+//  This is the only way to give each media type its own on-screen
+//  time AND keep a strict round-robin. A wall-clock index would
+//  require a uniform slot and force the same duration on every
+//  ad.
 // ------------------------------------------------------------
 
-// Section 2D — uniform clock, two durations.
-// Images sit for 4 s and videos for 20 s. These two constants
-// are the client-side source of truth for the marketplace
-// rotation and must match the server-side caps
-// (AD_MAX_IMAGE_DURATION_SECONDS = 4, AD_MAX_VIDEO_DURATION_SECONDS = 20)
-// and the backfill migration 20260921-ad-duration-clamp.sql.
+// Section 2D — per-type durations. These are the on-screen times.
 const AD_IMAGE_SLOT_MS = 4 * 1000;    // 4 seconds
 const AD_VIDEO_SLOT_MS = 20 * 1000;   // 20 seconds
 
@@ -121,14 +128,18 @@ const AD_BACKDROP_PALETTE = [
 let adsList = [];
 let adsCurrentIndex = 0;
 
-// The clock origin. The server publishes rotation_epoch_ms and
-// rotation_offset; we still consume them.
-let adsRotationMeta = {
-  epochMs: 0,
-  offset: 0
-};
+// The single timer that drives the whole rotation.
+let adsTransitionTimer = null;
 
-let adsClockTimer = null;
+// The wall-clock moment the current slide became active. Used
+// only to drive the progress bar, not the rotation itself.
+let adsSlideStartedAt = 0;
+
+// The duration of the current slide, captured when it became
+// active so the progress bar keeps ticking even if the list
+// changes underneath it.
+let adsSlideDuration = AD_IMAGE_SLOT_MS;
+
 let adsSliderBound = false;
 let adsIsPaused = false;
 
@@ -771,27 +782,48 @@ async function loadCategories() {
 
 // ============================================================
 //  SECTION J — MARKETPLACE AD SLIDER
-//  OPTION C: uniform clock, two durations (4 s image / 20 s video)
+//
+//  STRICT ROUND-ROBIN, PER-TYPE DURATIONS, NO DOUBLE-SHOWS.
+//
+//  The rotation is a TIMER CHAIN, not a wall-clock index.
+//
+//  showAdAtIndex(k) displays slide k and then arms a single
+//  setTimeout for durationOf(adsList[k]). When that fires, we
+//  call showAdAtIndex(k + 1). That is a strict round-robin by
+//  construction:
+//
+//    A1 → B1 → C1 → A2 → B2 → C2 → A3 → B3 → C3 → A1 → …
+//
+//  No slide is ever skipped, no slide is ever shown twice in a
+//  row, and each slide occupies exactly its own duration on the
+//  wall clock.
+//
+//  Why not a wall-clock formula? A wall-clock index requires a
+//  uniform slot, which would force the same duration on every
+//  ad. With mixed 4 s and 20 s slots there is no formula of the
+//  form floor((now - epoch) / slot) % N that reproduces the
+//  chain. So we use the chain directly.
+//
+//  Cost: two browsers opened at different moments will be on
+//  different slides. Two browsers opened at the same moment stay
+//  in sync. That trade-off is deliberate and accepted.
 // ============================================================
 
 /**
  * Read the rotation metadata the server publishes. The server
- * still sends rotation_epoch_ms and rotation_offset; we ignore
- * rotation_slot_duration_ms because we now pick the duration
- * from the media type of the current slide.
+ * still sends rotation_epoch_ms and rotation_offset for
+ * compatibility, but the client no longer uses them to drive
+ * the rotation. They are kept in the response so older clients
+ * do not break.
  */
-function updateAdRotationMetaFromResponse(data) {
-  if (!data || typeof data !== 'object') return;
-  const epoch = Number(data.rotation_epoch_ms);
-  const off = Number(data.rotation_offset);
-
-  if (Number.isFinite(epoch)) adsRotationMeta.epochMs = epoch;
-  if (Number.isFinite(off)) adsRotationMeta.offset = off;
+function updateAdRotationMetaFromResponse(_data) {
+  // Intentionally a no-op on the client. The rotation is driven
+  // by the timer chain, not the wall clock.
 }
 
 /**
- * Pick the uniform slot duration for a given slide from its
- * media type. This is the ONLY place the two durations live.
+ * Pick the on-screen duration for a given slide from its media
+ * type. This is the ONLY place the two durations live.
  */
 function getAdSlotDurationMsForAd(ad) {
   if (ad && ad.media_type === 'video') return AD_VIDEO_SLOT_MS;
@@ -799,98 +831,112 @@ function getAdSlotDurationMsForAd(ad) {
 }
 
 /**
- * Return the current slide's duration in milliseconds. When no
- * slide is loaded (empty list), fall back to the image default.
+ * Display the slide at `index` and arm the next transition.
+ *
+ * This is the single entry point for the rotation. Every path
+ * that changes the current slide — the natural timer, the
+ * prev/next buttons, the dots, and the initial render — calls
+ * this function. That guarantees the timer chain is never left
+ * with two pending timers, and the round-robin order is always
+ * respected.
  */
-function getCurrentAdSlotDurationMs() {
-  if (!Array.isArray(adsList) || adsList.length === 0) return AD_IMAGE_SLOT_MS;
-  const ad = adsList[adsCurrentIndex];
-  return getAdSlotDurationMsForAd(ad);
+function showAdAtIndex(index) {
+  if (!Array.isArray(adsList) || adsList.length === 0) return;
+
+  const total = adsList.length;
+  const next = ((index % total) + total) % total;
+
+  // Cancel any pending transition before scheduling the next one.
+  if (adsTransitionTimer) {
+    clearTimeout(adsTransitionTimer);
+    adsTransitionTimer = null;
+  }
+
+  adsCurrentIndex = next;
+  adsSlideStartedAt = Date.now();
+  adsSlideDuration = getAdSlotDurationMsForAd(adsList[next]);
+
+  adsImpressionFiredFor.add(next);
+  updateAdsActiveSlide();
+  fireAdImpression(next);
+  restartAdsProgressLoop();
+
+  // Arm the next transition. If the slider is paused, the timer
+  // is not armed; unpausing calls `resumeAdChain()` which arms
+  // it again from the current slide.
+  if (!adsIsPaused) {
+    adsTransitionTimer = setTimeout(() => {
+      adsTransitionTimer = null;
+      showAdAtIndex(adsCurrentIndex + 1);
+    }, adsSlideDuration);
+  }
 }
 
 /**
- * Derive the index from the wall clock using the CURRENT slide's
- * duration. Because every browser uses the same epoch, the same
- * offset, and the same list, they all land on the same index at
- * the same wall-clock moment.
- *
- * The subtlety: the "slot" number must be computed against the
- * duration of the slide the clock is currently pointing at. To
- * avoid a chicken-and-egg problem we solve it with a small
- * fixed-point loop:
- *
- *   1. Assume the current slide keeps its duration.
- *   2. Compute the slot and index.
- *   3. If the slide at that index has a different duration,
- *      recompute once.
- *
- * Two iterations are always enough because there are only two
- * durations in play.
+ * Advance one slide. Used by the prev/next buttons and the dots.
+ * Kept under the old name so existing inline handlers keep
+ * working.
  */
-function computeCurrentAdIndex() {
-  if (!Array.isArray(adsList) || adsList.length === 0) return 0;
-
-  const total = adsList.length;
-  const now = Date.now();
-  const offset = adsRotationMeta.offset;
-  const epoch = adsRotationMeta.epochMs;
-
-  // Start from the current slide's duration.
-  let duration = getCurrentAdSlotDurationMs();
-  let index = 0;
-
-  for (let pass = 0; pass < 2; pass++) {
-    const slot = Math.floor((now - epoch) / duration);
-    index = ((slot + offset) % total + total) % total;
-
-    const nextDuration = getAdSlotDurationMsForAd(adsList[index]);
-    if (nextDuration === duration) break;
-    duration = nextDuration;
-  }
-
-  return index;
+function jumpAdClockToIndex(index) {
+  if (!Array.isArray(adsList) || adsList.length === 0) return;
+  showAdAtIndex(index);
 }
 
-function startAdClock() {
-  stopAdClock();
-  if (!Array.isArray(adsList) || adsList.length <= 1) return;
+/**
+ * Called when the user stops hovering / focusing the slider.
+ * Re-arms the timer for the remainder of the current slide so
+ * the rotation does not jump or stall.
+ */
+function resumeAdChain() {
+  if (!Array.isArray(adsList) || adsList.length === 0) return;
+  if (adsIsPaused) return;
 
-  const initial = computeCurrentAdIndex();
-  if (initial !== adsCurrentIndex) {
-    adsCurrentIndex = initial;
-    adsImpressionFiredFor.add(initial);
-    updateAdsActiveSlide();
-    fireAdImpression(initial);
+  if (adsTransitionTimer) {
+    clearTimeout(adsTransitionTimer);
+    adsTransitionTimer = null;
   }
 
-  adsClockTimer = setInterval(() => {
-    if (adsIsPaused) return;
-    const next = computeCurrentAdIndex();
-    if (next !== adsCurrentIndex) {
-      adsCurrentIndex = next;
-      adsImpressionFiredFor.add(next);
-      updateAdsActiveSlide();
-      fireAdImpression(next);
-    }
-  }, 500);
+  const elapsed = Date.now() - adsSlideStartedAt;
+  const remaining = Math.max(0, adsSlideDuration - elapsed);
 
-  startAdsProgressLoop();
+  adsTransitionTimer = setTimeout(() => {
+    adsTransitionTimer = null;
+    showAdAtIndex(adsCurrentIndex + 1);
+  }, remaining);
 }
 
+/**
+ * Stop the rotation entirely. Safe to call multiple times.
+ */
 function stopAdClock() {
-  if (adsClockTimer) { clearInterval(adsClockTimer); adsClockTimer = null; }
+  if (adsTransitionTimer) { clearTimeout(adsTransitionTimer); adsTransitionTimer = null; }
   if (adsProgressTimer) { clearInterval(adsProgressTimer); adsProgressTimer = null; }
 }
 
-function startAdsProgressLoop() {
+/**
+ * Kept for backward compatibility with the old name. The
+ * rotation now starts as soon as `showAdAtIndex(0)` is called
+ * from `renderAdsSlider`, so this function is a no-op unless the
+ * caller explicitly wants to restart the chain from index 0.
+ */
+function startAdClock() {
+  if (!Array.isArray(adsList) || adsList.length <= 1) return;
+  showAdAtIndex(0);
+}
+
+/**
+ * Restart the progress bar for the current slide. The bar runs
+ * off `adsSlideStartedAt` and `adsSlideDuration`, not off the
+ * wall clock, so it always matches what the user sees.
+ */
+function restartAdsProgressLoop() {
   if (adsProgressTimer) clearInterval(adsProgressTimer);
 
   const tick = () => {
-    const duration = getCurrentAdSlotDurationMs();
+    const duration = adsSlideDuration;
     if (!Number.isFinite(duration) || duration <= 0) return;
-    const now = Date.now();
-    const inSlot = ((now - adsRotationMeta.epochMs) % duration + duration) % duration;
-    const ratio = inSlot / duration;
+    const elapsed = Date.now() - adsSlideStartedAt;
+    const ratio = Math.max(0, Math.min(1, elapsed / duration));
     updateAdsProgressBar(ratio);
   };
 
@@ -904,57 +950,6 @@ function updateAdsProgressBar(ratio) {
   const pct = Math.max(0, Math.min(1, ratio)) * 100;
   bar.style.setProperty('--ads-progress', `${pct}%`);
   bar.style.width = `${pct}%`;
-}
-
-/**
- * Jump the clock so that the given index is the current slide.
- *
- * With two different durations in play, we shift the epoch by an
- * amount that puts the target index on the clock right now.
- * The math:
- *
- *   - currentSlot = floor((now - epoch) / currentDuration)
- *   - we want floor((now - epoch') / targetDuration) ≡ target - offset (mod N)
- *
- * The simplest robust approach is to shift the epoch by one
- * targetDuration, walk forward until the index matches, then stop.
- * This keeps the animation smooth for the user and is O(N) at
- * worst, but N is tiny (a handful of ads).
- */
-function jumpAdClockToIndex(index) {
-  if (!Array.isArray(adsList) || adsList.length === 0) return;
-  const total = adsList.length;
-  const target = ((index % total) + total) % total;
-
-  // If we are already on the target, just restart the progress bar.
-  if (target === adsCurrentIndex) {
-    startAdsProgressLoop();
-    return;
-  }
-
-  // Compute how many slides forward to advance, then shift the
-  // epoch by the sum of the durations of the slides in between.
-  let distance = (target - adsCurrentIndex + total) % total;
-  if (distance === 0) distance = total;
-
-  let shiftMs = 0;
-  for (let i = 0; i < distance; i++) {
-    const idx = (adsCurrentIndex + i) % total;
-    shiftMs += getAdSlotDurationMsForAd(adsList[idx]);
-  }
-
-  // Shifting the epoch forward moves the clock to the target.
-  // (An earlier epoch means more time has passed since "start".)
-  adsRotationMeta.epochMs -= shiftMs;
-
-  const next = computeCurrentAdIndex();
-  if (next !== adsCurrentIndex) {
-    adsCurrentIndex = next;
-    adsImpressionFiredFor.add(next);
-    updateAdsActiveSlide();
-    fireAdImpression(next);
-  }
-  startAdsProgressLoop();
 }
 
 async function loadAds() {
@@ -977,16 +972,19 @@ async function loadAds() {
 
     if (adsList.length === 0) {
       section.hidden = true;
+      stopAdClock();
       return;
     }
 
     renderAdsSlider();
     section.hidden = false;
     bindAdsSliderOnce();
-    startAdClock();
+    // Kick off the rotation from index 0.
+    showAdAtIndex(0);
   } catch (err) {
     console.warn('Ads slider skipped:', err.message);
     section.hidden = true;
+    stopAdClock();
   }
 }
 
@@ -1017,10 +1015,10 @@ function renderAdsSlider() {
   }).join('');
 
   adsImpressionFiredFor = new Set();
-  adsCurrentIndex = computeCurrentAdIndex();
-  adsImpressionFiredFor.add(adsCurrentIndex);
+  adsCurrentIndex = 0;
+  adsImpressionFiredFor.add(0);
   updateAdsActiveSlide();
-  fireAdImpression(adsCurrentIndex);
+  fireAdImpression(0);
 
   dots.querySelectorAll('.ads-dot').forEach(dot => {
     dot.addEventListener('click', () => {
@@ -1092,10 +1090,22 @@ function bindAdsSliderOnce() {
   }
 
   if (slider) {
-    slider.addEventListener('mouseenter', () => { adsIsPaused = true; });
-    slider.addEventListener('mouseleave', () => { adsIsPaused = false; });
-    slider.addEventListener('focusin', () => { adsIsPaused = true; });
-    slider.addEventListener('focusout', () => { adsIsPaused = false; });
+    slider.addEventListener('mouseenter', () => {
+      adsIsPaused = true;
+      if (adsTransitionTimer) { clearTimeout(adsTransitionTimer); adsTransitionTimer = null; }
+    });
+    slider.addEventListener('mouseleave', () => {
+      adsIsPaused = false;
+      resumeAdChain();
+    });
+    slider.addEventListener('focusin', () => {
+      adsIsPaused = true;
+      if (adsTransitionTimer) { clearTimeout(adsTransitionTimer); adsTransitionTimer = null; }
+    });
+    slider.addEventListener('focusout', () => {
+      adsIsPaused = false;
+      resumeAdChain();
+    });
 
     slider.addEventListener('click', (event) => {
       if (event.target.closest('.ads-nav')) return;
@@ -3245,4 +3255,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (Option C — uniform clock with 4s image / 20s video)');
+console.log('✅ Index.js loaded successfully (strict round-robin, 4s images / 20s videos, no double-shows)');
