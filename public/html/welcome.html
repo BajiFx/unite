@@ -6,6 +6,15 @@
   <title>Welcome to BidhaaLink</title>
   <meta name="description" content="Welcome to BidhaaLink — Kenya's multi-vendor marketplace.">
 
+  <!-- Last-resort fallback: if JavaScript is disabled, blocked, or
+       fails to load, the visitor is moved forward after 5 seconds.
+       Browsers ignore meta-refresh inside <noscript> whenever
+       JavaScript IS enabled, so this never interferes with the
+       normal flow. -->
+  <noscript>
+    <meta http-equiv="refresh" content="5;url=/marketplace">
+  </noscript>
+
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="/css/welcome.css">

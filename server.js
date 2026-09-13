@@ -96,7 +96,15 @@ if (!JWT_SECRET) {
 
 // ============================================================
 //  WELCOME SPLASH — CONFIG
+//
+//  The splash is shown once per browser. A returning visitor is
+//  recognised by the `welcome_seen` cookie set by /api/welcome/ack.
+//  If the cookie is present, the request to '/' is redirected to
+//  /marketplace before any HTML is sent, so no flash of splash.
 // ============================================================
+
+const WELCOME_COOKIE_NAME = 'welcome_seen';
+const WELCOME_COOKIE_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
 
 // Cached result of "does welcome.html exist on disk?" so we do not
 // hit the filesystem on every request to '/'.
@@ -223,12 +231,21 @@ app.use((req, res, next) => {
 
 // ============================================================
 //  SERVE STATIC FILES
+//
+//  IMPORTANT: `index: false` on the two express.static() mounts
+//  that could otherwise auto-serve index.html for '/'. Without
+//  this, express.static would answer a request for '/' with
+//  public/html/index.html BEFORE our explicit app.get('/', ...)
+//  route had a chance to run — which is exactly why the splash
+//  was never shown. With `index: false`, '/' falls through to
+//  the route handler below, which decides whether to show the
+//  splash or redirect to /marketplace.
 // ============================================================
 
-app.use(express.static(path.join(__dirname, 'public/html')));
+app.use(express.static(path.join(__dirname, 'public/html'), { index: false }));
 app.use('/css', express.static(path.join(__dirname, 'public/css')));
 app.use('/js', express.static(path.join(__dirname, 'public/js')));
-app.use(express.static('public'));
+app.use(express.static('public', { index: false }));
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // ============================================================
@@ -236,33 +253,56 @@ app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 // ============================================================
 
 // Root route:
-//   - The client (welcome.js) owns the "have they seen the splash yet?"
-//     decision, using localStorage. The server simply serves the
-//     welcome page at '/' so the splash is always the first thing a
-//     new visitor sees.
-//   - welcome.js redirects to '/' again once the visitor has
-//     acknowledged the splash; on that second hit the browser sends
-//     the same request, but welcome.js runs first, sees the flag, and
-//     replaces the URL with '/' — which lands here — then immediately
-//     rewrites to the marketplace below via a meta-refresh style
-//     redirect from the client. In practice, the flag means welcome.js
-//     sends the visitor straight to '/index.html' after the first
-//     acknowledgement, so this handler is only reached once per
-//     browser.
-//   - If welcome.html is missing from disk for any reason, we fall
-//     back to index.html so the marketplace never 404s.
+//   - If the visitor has already dismissed the splash (the
+//     `welcome_seen` cookie is present), redirect straight to
+//     /marketplace before any HTML is sent.
+//   - Otherwise, serve the splash.
+//   - If welcome.html is missing from disk, fall back to the
+//     marketplace so the site never 404s on '/'.
 app.get('/', (req, res) => {
+  // If welcome.html is missing, fall back to the marketplace.
   if (!welcomeFileExists()) {
     return res.sendFile(path.join(__dirname, 'public/html/index.html'));
   }
+
+  // If the visitor has already dismissed the splash, skip it
+  // entirely and send them to the marketplace.
+  if (req.cookies && req.cookies[WELCOME_COOKIE_NAME] === '1') {
+    return res.redirect('/marketplace');
+  }
+
   res.sendFile(path.join(__dirname, 'public/html/welcome.html'));
 });
 
-// Development helper: clears the welcome flag on the server side
-// so you can re-test the splash without clearing your whole browser
-// cookie jar. Kept as a no-op cookie clear for backwards compatibility;
-// the real flag lives in the browser's localStorage now.
+// Explicit marketplace route. welcome.js redirects here after the
+// visitor acknowledges the splash, and the '/' handler redirects
+// here for returning visitors. Serving index.html at a dedicated
+// path avoids the ambiguity of redirecting to '/', which the
+// server would otherwise re-route back to the splash.
+app.get('/marketplace', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/html/index.html'));
+});
+
+// Called by welcome.js when the visitor presses "Continue". Sets a
+// long-lived cookie so the server can skip the splash on every
+// future request from this browser.
+app.post('/api/welcome/ack', (req, res) => {
+  res.cookie(WELCOME_COOKIE_NAME, '1', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: WELCOME_COOKIE_MAX_AGE_MS,
+    path: '/'
+  });
+  res.status(204).end();
+});
+
+// Development helper: clears the welcome flag on both the server
+// side (cookie) and lets the client-side storage be cleared
+// separately. Kept for re-testing the splash without clearing the
+// whole browser cookie jar.
 app.post('/api/welcome/reset', (req, res) => {
+  res.clearCookie(WELCOME_COOKIE_NAME, { path: '/' });
   res.status(204).end();
 });
 
