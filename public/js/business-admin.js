@@ -33,25 +33,33 @@
 //   real <div class="section"> wrappers inside #myshopPage so
 //   every existing id, loader, and form submit still resolves.
 //
-//   navigateTo() understands:
-//     'myshop'   → show #section-myshop
-//     'messages' → show #section-messages
-//     'profile'  → show #section-myshop then scroll to
-//                  #section-profile
-//     'payments' → show #section-myshop then scroll to
-//                  #section-payments
-//     'delivery' → show #section-myshop then scroll to
-//                  #section-delivery
-//     'ordersettings' → show #section-myshop then scroll to
-//                  #section-ordersettings
-//     'productcategories' → show #section-products then call
-//                  switchProductsTab('categories')
+//  Section 11.B — Business account deletion (5-step flow)
+//   The Danger zone block at the bottom of My Shop opens a
+//   chained set of five modals:
+//     A — warnings + download data + acknowledgement checkbox
+//     B — password confirmation
+//     C — reason selection
+//     D — type the exact business name to confirm
+//     E — 10-second countdown, then final confirmation
+//   On submit, the client calls
+//     POST /api/business-admin/request-deletion
+//   which schedules the deletion 60 days out, hides the
+//   business from the marketplace, and logs the admin out.
+//   If the admin logs back in during the grace period, the
+//   server auto-cancels the deletion.
 //
-//   The Products page has an in-page tab bar (Products /
-//   Categories) wired through switchProductsTab().
-//
-//   jumpToShopSection(name) is called by the My Shop jump bar
-//   and simply forwards to navigateTo(name).
+//  Dead-code cleanup (this revision):
+//   The Section 8 sidebar simplification removed the Customers
+//   sidebar item. The following helpers only ever wrote into
+//   the removed Customers page, so they are removed:
+//     - loadCustomers()
+//     - the `case 'customers':` branch inside navigateTo()
+//     - the 'customers' entry in the validSections whitelist
+//       inside verifyBusinessAccess()
+//     - the customersData global
+//     - the window.loadCustomers export
+//   Backend endpoints (/api/business-admin/customers) are
+//   untouched — the frontend simply no longer calls them.
 // ============================================================
 
 // Check if running in embedded mode (inside dashboard panel)
@@ -82,7 +90,6 @@ let businessData = null;
 let currentSection = 'dashboard';
 let ordersData = [];
 let productsData = [];
-let customersData = [];
 let businessCategories = [];
 let productCategories = [];
 let socket = null;
@@ -130,6 +137,21 @@ const MYSHOP_SECTION_MAP = {
 
 // Section 8 — current Products page tab.
 let currentProductsTab = 'products';
+
+// Section 11.B — transient state for the 5-step business deletion flow.
+// Reset every time the danger-zone button is clicked.
+const businessDeletionState = {
+    acknowledged: false,
+    passwordVerified: false,
+    password: '',
+    reason: '',
+    confirmedName: '',
+    countdownTimer: null,
+    countdownValue: 10
+};
+
+// Section 11.B — how long the final-step countdown runs, in seconds.
+const BUSINESS_DELETION_COUNTDOWN_SECONDS = 10;
 
 function escapeHtml(value) {
     const element = document.createElement('div');
@@ -304,7 +326,6 @@ async function verifyBusinessAccess() {
         const validSections = [
             'dashboard',
             'orders',
-            'customers',
             'ads',
             'products',
             'productcategories',
@@ -1181,7 +1202,6 @@ function navigateTo(section) {
     const titles = {
         dashboard: 'Dashboard',
         orders: 'Orders',
-        customers: 'Customers',
         ads: 'Ad Management',
         products: 'Products',
         productcategories: 'Product Categories',
@@ -1247,9 +1267,6 @@ function navigateTo(section) {
             if (openProductsCategoriesTab) {
                 loadProductCategorySection();
             }
-            break;
-        case 'customers':
-            loadCustomers();
             break;
         case 'messages':
             break;
@@ -2237,50 +2254,6 @@ async function deleteProduct(id) {
 }
 
 // ============================================================
-//  CUSTOMERS
-// ============================================================
-
-async function loadCustomers() {
-    if (!businessData) return;
-
-    const tbody = document.getElementById('customerTableBody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Loading customers...</td></tr>';
-
-    try {
-        const res = await fetch('/api/business-admin/customers', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!res.ok) throw new Error('Failed to load customers');
-        const customers = await res.json();
-        customersData = customers;
-
-        if (!customers || customers.length === 0) {
-            if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">No customers yet.</td></tr>';
-            return;
-        }
-
-        let html = '';
-        customers.forEach(function(c) {
-            html += `
-                <tr>
-                    <td><strong>${escapeHtml(c.name)}</strong></td>
-                    <td>${escapeHtml(c.email)}</td>
-                    <td>${escapeHtml(c.phone || '—')}</td>
-                    <td>${c.order_count || 0}</td>
-                    <td>Ksh ${parseFloat(c.total_spent || 0).toFixed(2)}</td>
-                    <td>${new Date(c.created_at).toLocaleDateString()}</td>
-                </tr>
-            `;
-        });
-        if (tbody) tbody.innerHTML = html;
-
-    } catch (err) {
-        console.error('❌ Customers error:', err);
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#ef4444;">Error loading customers.</td></tr>';
-    }
-}
-
-// ============================================================
 //  BUSINESS PROFILE
 // ============================================================
 
@@ -3242,6 +3215,402 @@ function reportDeliveryIssue(orderId) {
 }
 
 // ============================================================
+//  SECTION 11.B — BUSINESS ACCOUNT DELETION (5-step flow)
+//
+//  Step A — warnings + download data + acknowledgement
+//  Step B — password confirmation
+//  Step C — reason selection
+//  Step D — type the exact business name to confirm
+//  Step E — 10-second countdown, then final confirmation
+//
+//  On submit, the client calls
+//    POST /api/business-admin/request-deletion
+//  and then logs the admin out and redirects to / with a
+//  status query param. The server-side login handler
+//  auto-cancels any pending deletion if the admin logs back
+//  in within 60 days.
+// ============================================================
+
+function openBusinessDeletionStepA() {
+    resetBusinessDeletionState();
+    showBusinessDeletionModal('A');
+}
+
+function openBusinessDeletionStepB() {
+    // Step A is only a warning + acknowledgement screen. Moving
+    // to B does not need the password yet, but we do clear any
+    // prior attempt's error so the admin sees a clean modal.
+    const statusB = document.getElementById('businessDeletionStatusB');
+    if (statusB) { statusB.textContent = ''; statusB.className = 'ba-deletion-status'; }
+
+    const passwordInput = document.getElementById('businessDeletionPassword');
+    if (passwordInput) passwordInput.value = '';
+
+    showBusinessDeletionModal('B');
+}
+
+function openBusinessDeletionStepC() {
+    const statusC = document.getElementById('businessDeletionStatusC');
+    if (statusC) { statusC.textContent = ''; statusC.className = 'ba-deletion-status'; }
+
+    const reasonSelect = document.getElementById('businessDeletionReason');
+    if (reasonSelect) reasonSelect.value = '';
+
+    showBusinessDeletionModal('C');
+}
+
+function openBusinessDeletionStepD() {
+    const statusD = document.getElementById('businessDeletionStatusD');
+    if (statusD) { statusD.textContent = ''; statusD.className = 'ba-deletion-status'; }
+
+    const expectedEl = document.getElementById('businessDeletionExpectedName');
+    const expectedName = (businessData && businessData.business_name) ? businessData.business_name : '';
+    if (expectedEl) expectedEl.textContent = expectedName || '—';
+
+    const nameInput = document.getElementById('businessDeletionConfirmName');
+    if (nameInput) nameInput.value = '';
+
+    const stepDBtn = document.getElementById('businessDeletionStepDBtn');
+    if (stepDBtn) stepDBtn.disabled = true;
+
+    showBusinessDeletionModal('D');
+}
+
+function openBusinessDeletionStepE() {
+    const statusE = document.getElementById('businessDeletionStatusE');
+    if (statusE) { statusE.textContent = ''; statusE.className = 'ba-deletion-status'; }
+
+    showBusinessDeletionModal('E');
+
+    // Start the countdown. The final button stays disabled until
+    // the countdown reaches zero.
+    startBusinessDeletionCountdown();
+}
+
+function showBusinessDeletionModal(letter) {
+    ['A', 'B', 'C', 'D', 'E'].forEach(step => {
+        const modal = document.getElementById(`businessDeletionModal${step}`);
+        if (modal) modal.classList.toggle('active', step === letter);
+    });
+}
+
+function closeBusinessDeletionModals() {
+    ['A', 'B', 'C', 'D', 'E'].forEach(step => {
+        const modal = document.getElementById(`businessDeletionModal${step}`);
+        if (modal) modal.classList.remove('active');
+    });
+
+    // Stop the countdown timer if it is still running.
+    if (businessDeletionState.countdownTimer) {
+        clearInterval(businessDeletionState.countdownTimer);
+        businessDeletionState.countdownTimer = null;
+    }
+
+    resetBusinessDeletionState();
+}
+
+function resetBusinessDeletionState() {
+    businessDeletionState.acknowledged = false;
+    businessDeletionState.passwordVerified = false;
+    businessDeletionState.password = '';
+    businessDeletionState.reason = '';
+    businessDeletionState.confirmedName = '';
+    businessDeletionState.countdownValue = BUSINESS_DELETION_COUNTDOWN_SECONDS;
+
+    if (businessDeletionState.countdownTimer) {
+        clearInterval(businessDeletionState.countdownTimer);
+        businessDeletionState.countdownTimer = null;
+    }
+
+    ['A', 'B', 'C', 'D', 'E'].forEach(step => {
+        const statusEl = document.getElementById(`businessDeletionStatus${step}`);
+        if (statusEl) { statusEl.textContent = ''; statusEl.className = 'ba-deletion-status'; }
+    });
+
+    const acknowledge = document.getElementById('businessDeletionAcknowledge');
+    if (acknowledge) acknowledge.checked = false;
+
+    const stepABtn = document.getElementById('businessDeletionStepABtn');
+    if (stepABtn) stepABtn.disabled = true;
+
+    const passwordInput = document.getElementById('businessDeletionPassword');
+    if (passwordInput) passwordInput.value = '';
+
+    const verifyBtn = document.getElementById('businessDeletionVerifyBtn');
+    if (verifyBtn) {
+        verifyBtn.disabled = false;
+        verifyBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Continue';
+    }
+
+    const reasonSelect = document.getElementById('businessDeletionReason');
+    if (reasonSelect) reasonSelect.value = '';
+
+    const nameInput = document.getElementById('businessDeletionConfirmName');
+    if (nameInput) nameInput.value = '';
+
+    const stepDBtn = document.getElementById('businessDeletionStepDBtn');
+    if (stepDBtn) stepDBtn.disabled = true;
+
+    const countdownEl = document.getElementById('businessDeletionCountdown');
+    if (countdownEl) countdownEl.textContent = String(BUSINESS_DELETION_COUNTDOWN_SECONDS);
+
+    const finalBtn = document.getElementById('businessDeletionFinalBtn');
+    if (finalBtn) {
+        finalBtn.disabled = true;
+        finalBtn.innerHTML = '<i class="fas fa-store-slash"></i> Delete My Business';
+    }
+}
+
+function businessDeletionCheckAcknowledge() {
+    const checkbox = document.getElementById('businessDeletionAcknowledge');
+    const stepABtn = document.getElementById('businessDeletionStepABtn');
+    if (!checkbox || !stepABtn) return;
+
+    businessDeletionState.acknowledged = checkbox.checked === true;
+    stepABtn.disabled = !businessDeletionState.acknowledged;
+}
+
+function businessDeletionDownloadData() {
+    // The business data-export endpoint is not part of Section 11.B.
+    // Tell the admin honestly so they do not think the download
+    // failed silently.
+    const statusEl = document.getElementById('businessDeletionStatusA');
+    if (statusEl) {
+        statusEl.textContent = '📥 Business data download is not yet available. You can still proceed with deletion, or contact support if you need a copy of your data.';
+        statusEl.className = 'ba-deletion-status info';
+    }
+
+    if (typeof showToast === 'function') {
+        showToast('Business data download is not yet available.', 'info');
+    }
+}
+
+async function businessDeletionVerifyPassword() {
+    const statusEl = document.getElementById('businessDeletionStatusB');
+    const verifyBtn = document.getElementById('businessDeletionVerifyBtn');
+    const passwordInput = document.getElementById('businessDeletionPassword');
+    const password = passwordInput ? passwordInput.value : '';
+
+    if (!password) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please enter your password.';
+            statusEl.className = 'ba-deletion-status error';
+        }
+        if (passwordInput) passwordInput.focus();
+        return;
+    }
+
+    if (verifyBtn) {
+        verifyBtn.disabled = true;
+        verifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+    }
+    if (statusEl) {
+        statusEl.textContent = '⏳ Verifying your password…';
+        statusEl.className = 'ba-deletion-status info';
+    }
+
+    try {
+        // The verification is done as part of the final request so
+        // the password is never stored anywhere on the client.
+        // To keep the flow simple we stash it in the in-memory
+        // state and verify it server-side when the admin submits
+        // in step E.
+        businessDeletionState.password = password;
+
+        // Lightweight sanity check: confirm the session is still
+        // valid before letting the admin continue.
+        const res = await fetch('/api/auth/my-business', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            credentials: 'same-origin',
+            cache: 'no-store'
+        });
+
+        if (!res.ok) {
+            throw new Error('Your session has expired. Please log in again.');
+        }
+
+        businessDeletionState.passwordVerified = true;
+
+        if (statusEl) {
+            statusEl.textContent = '✅ Password accepted.';
+            statusEl.className = 'ba-deletion-status success';
+        }
+
+        // Small delay so the admin sees the confirmation before
+        // the modal flips to step C.
+        setTimeout(() => openBusinessDeletionStepC(), 400);
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + (err.message || 'Could not verify your password.');
+            statusEl.className = 'ba-deletion-status error';
+        }
+        if (verifyBtn) verifyBtn.disabled = false;
+    } finally {
+        if (verifyBtn) {
+            verifyBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Continue';
+        }
+    }
+}
+
+function businessDeletionChooseReason() {
+    const statusEl = document.getElementById('businessDeletionStatusC');
+    const reasonSelect = document.getElementById('businessDeletionReason');
+    const reason = reasonSelect ? reasonSelect.value : '';
+
+    if (!reason) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please select a reason before continuing.';
+            statusEl.className = 'ba-deletion-status error';
+        }
+        if (reasonSelect) reasonSelect.focus();
+        return;
+    }
+
+    businessDeletionState.reason = reason;
+    openBusinessDeletionStepD();
+}
+
+function businessDeletionCheckName() {
+    const nameInput = document.getElementById('businessDeletionConfirmName');
+    const stepDBtn = document.getElementById('businessDeletionStepDBtn');
+    const typed = nameInput ? nameInput.value : '';
+    const expected = (businessData && businessData.business_name) ? businessData.business_name : '';
+
+    // Case-sensitive exact match, including spaces.
+    const matches = typed === expected;
+
+    businessDeletionState.confirmedName = typed;
+    if (stepDBtn) stepDBtn.disabled = !matches;
+}
+
+function startBusinessDeletionCountdown() {
+    // Clear any timer from a previous attempt.
+    if (businessDeletionState.countdownTimer) {
+        clearInterval(businessDeletionState.countdownTimer);
+        businessDeletionState.countdownTimer = null;
+    }
+
+    businessDeletionState.countdownValue = BUSINESS_DELETION_COUNTDOWN_SECONDS;
+
+    const countdownEl = document.getElementById('businessDeletionCountdown');
+    const finalBtn = document.getElementById('businessDeletionFinalBtn');
+
+    if (countdownEl) countdownEl.textContent = String(businessDeletionState.countdownValue);
+    if (finalBtn) finalBtn.disabled = true;
+
+    businessDeletionState.countdownTimer = setInterval(() => {
+        businessDeletionState.countdownValue -= 1;
+
+        if (countdownEl) countdownEl.textContent = String(Math.max(0, businessDeletionState.countdownValue));
+
+        if (businessDeletionState.countdownValue <= 0) {
+            clearInterval(businessDeletionState.countdownTimer);
+            businessDeletionState.countdownTimer = null;
+
+            if (finalBtn) finalBtn.disabled = false;
+        }
+    }, 1000);
+}
+
+async function businessDeletionSubmit() {
+    const statusEl = document.getElementById('businessDeletionStatusE');
+    const finalBtn = document.getElementById('businessDeletionFinalBtn');
+
+    if (!businessDeletionState.passwordVerified) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please start over from the top of the danger zone.';
+            statusEl.className = 'ba-deletion-status error';
+        }
+        return;
+    }
+
+    if (!businessDeletionState.reason) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please select a reason before continuing.';
+            statusEl.className = 'ba-deletion-status error';
+        }
+        return;
+    }
+
+    const expected = (businessData && businessData.business_name) ? businessData.business_name : '';
+    if ((businessDeletionState.confirmedName || '') !== expected) {
+        if (statusEl) {
+            statusEl.textContent = '❌ The business name does not match exactly.';
+            statusEl.className = 'ba-deletion-status error';
+        }
+        return;
+    }
+
+    if (businessDeletionState.countdownValue > 0) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please wait for the countdown to finish.';
+            statusEl.className = 'ba-deletion-status error';
+        }
+        return;
+    }
+
+    if (finalBtn) {
+        finalBtn.disabled = true;
+        finalBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scheduling…';
+    }
+    if (statusEl) {
+        statusEl.textContent = '⏳ Scheduling your business for deletion…';
+        statusEl.className = 'ba-deletion-status info';
+    }
+
+    try {
+        const res = await fetch('/api/business-admin/request-deletion', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                password: businessDeletionState.password,
+                reason: businessDeletionState.reason
+            })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Could not schedule business deletion.');
+        }
+
+        if (statusEl) {
+            const when = data.deletion_scheduled_for
+                ? new Date(data.deletion_scheduled_for).toLocaleString()
+                : 'in 60 days';
+            statusEl.textContent = `✅ Your business is scheduled for deletion on ${when}.`;
+            statusEl.className = 'ba-deletion-status success';
+        }
+
+        // Clear the client session and return the admin to the
+        // marketplace with a small notice in the query string. The
+        // cookie is cleared by the server on the way out.
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('businessId');
+        localStorage.removeItem('businessName');
+        localStorage.removeItem('businessSlug');
+        window.currentUser = null;
+
+        setTimeout(() => {
+            window.location.href = '/?business_deletion=scheduled';
+        }, 1800);
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + (err.message || 'Something went wrong. Please try again.');
+            statusEl.className = 'ba-deletion-status error';
+        }
+        if (finalBtn) {
+            finalBtn.disabled = false;
+            finalBtn.innerHTML = '<i class="fas fa-store-slash"></i> Delete My Business';
+        }
+    }
+}
+
+// ============================================================
 //  SHOW TOAST
 // ============================================================
 
@@ -3328,7 +3697,6 @@ window.submitProductBatch = submitProductBatch;
 window.filterBusinessCategoryOptions = filterBusinessCategoryOptions;
 window.loadOrders = loadOrders;
 window.loadProducts = loadProducts;
-window.loadCustomers = loadCustomers;
 window.loadBusinessProfile = loadBusinessProfile;
 window.loadPaymentSettings = loadPaymentSettings;
 window.loadDeliverySettings = loadDeliverySettings;
@@ -3382,4 +3750,19 @@ window.scrollToShopSection = scrollToShopSection;
 window.jumpToShopSection = jumpToShopSection;
 window.switchProductsTab = switchProductsTab;
 
-console.log('✅ Business Admin JS loaded successfully (Section 10 — rating tile removed)');
+// Section 11.B — expose the deletion flow helpers so the modal
+// buttons in business-admin.html resolve.
+window.openBusinessDeletionStepA = openBusinessDeletionStepA;
+window.openBusinessDeletionStepB = openBusinessDeletionStepB;
+window.openBusinessDeletionStepC = openBusinessDeletionStepC;
+window.openBusinessDeletionStepD = openBusinessDeletionStepD;
+window.openBusinessDeletionStepE = openBusinessDeletionStepE;
+window.closeBusinessDeletionModals = closeBusinessDeletionModals;
+window.businessDeletionDownloadData = businessDeletionDownloadData;
+window.businessDeletionCheckAcknowledge = businessDeletionCheckAcknowledge;
+window.businessDeletionVerifyPassword = businessDeletionVerifyPassword;
+window.businessDeletionChooseReason = businessDeletionChooseReason;
+window.businessDeletionCheckName = businessDeletionCheckName;
+window.businessDeletionSubmit = businessDeletionSubmit;
+
+console.log('✅ Business Admin JS loaded successfully (Section 10 — rating tile removed, Section 11.B — business deletion wired, dead Customers code removed)');

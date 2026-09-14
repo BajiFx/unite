@@ -13,6 +13,23 @@
 //     product detail page are left in place, as Section 10
 //     requires.
 //
+//  Dead-code cleanup (this revision):
+//   - loadBusinessReviews() removed. It fetched
+//     /api/businesses/:slug/reviews and wrote to a non-existent
+//     #reviewsList. The call site inside loadBusinessProfile()
+//     was the source of a wasted network round-trip on every
+//     profile load.
+//   - setRating() removed. Wrote to #reviewStars, which no
+//     longer exists.
+//   - submitBusinessReview() removed. Wrote to #reviewText and
+//     #reviewsList, neither of which exists.
+//   - The reviewRating global was dropped; only those two
+//     functions used it.
+//   - The exported globals for those three functions were
+//     dropped from the bottom of the file.
+//   The backend review endpoints are untouched — the frontend
+//   simply no longer calls them.
+//
 //  Section B (Product Categories) additions:
 //   - Defined product-category filter (B.7) alongside the legacy one.
 //   - Single render path for product cards (B.8, no drift).
@@ -1517,4 +1534,4 @@ window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
 window.renderThankYouBand = renderThankYouBand;
 window.renderHeroSearchTagChip = renderHeroSearchTagChip;
 
-console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed)');
+console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed, dead review code removed)');

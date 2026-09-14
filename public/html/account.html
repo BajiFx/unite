@@ -118,6 +118,21 @@
       color: #2e7d32;
     }
 
+    /* Section 11.A — Danger zone shell */
+    .profile-subsection.danger-zone {
+      border: 2px solid #fecaca;
+      background: #fef2f2;
+    }
+
+    .profile-subsection.danger-zone .profile-subsection-title {
+      color: #991b1b;
+      border-bottom-color: #fecaca;
+    }
+
+    .profile-subsection.danger-zone .profile-subsection-title i {
+      color: #ef4444;
+    }
+
     /* Section 9 — header logout button */
     .header-logout-btn {
       display: inline-flex;
@@ -191,6 +206,236 @@
     /* Hide the floating cart when the account is embedded in a workspace */
     html.embedded .account-floating-cart {
       display: none !important;
+    }
+
+    /* Section 11.A — danger-zone buttons and modal helpers */
+    .danger-zone .btn-danger-outline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: #ffffff;
+      color: #991b1b;
+      border: 2px solid #ef4444;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .danger-zone .btn-danger-outline:hover {
+      background: #fee2e2;
+      transform: translateY(-1px);
+    }
+
+    .danger-zone .btn-danger-solid {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: #dc2626;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .danger-zone .btn-danger-solid:hover:not(:disabled) {
+      background: #b91c1c;
+      transform: translateY(-1px);
+    }
+
+    .danger-zone .btn-danger-solid:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .deletion-alt-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #1e293b;
+      cursor: pointer;
+      text-align: left;
+      margin-bottom: 10px;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .deletion-alt-btn:hover {
+      background: #eff6ff;
+      border-color: #93c5fd;
+    }
+
+    .deletion-alt-btn i {
+      font-size: 1.1rem;
+      color: #2563eb;
+      width: 22px;
+      text-align: center;
+    }
+
+    .deletion-danger-link {
+      display: block;
+      width: 100%;
+      text-align: center;
+      background: none;
+      border: none;
+      color: #dc2626;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-decoration: underline;
+      cursor: pointer;
+      padding: 6px 0;
+      margin-top: 6px;
+    }
+
+    .deletion-danger-link:hover {
+      color: #991b1b;
+    }
+
+    .deletion-step-label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+
+    .deletion-step-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0 0 6px 0;
+    }
+
+    .deletion-step-text {
+      font-size: 0.85rem;
+      color: #475569;
+      line-height: 1.55;
+      margin: 0 0 14px 0;
+    }
+
+    .deletion-step-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 16px 0;
+      border-left: 3px solid #ef4444;
+      background: #fef2f2;
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+
+    .deletion-step-list li {
+      font-size: 0.82rem;
+      color: #7f1d1d;
+      line-height: 1.5;
+      padding: 3px 0;
+    }
+
+    .deletion-step-list li::before {
+      content: '•';
+      margin-right: 8px;
+      color: #ef4444;
+      font-weight: 800;
+    }
+
+    .deletion-reason-select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      background: #ffffff;
+      cursor: pointer;
+      margin-bottom: 14px;
+    }
+
+    .deletion-reason-select:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10);
+    }
+
+    .deletion-confirm-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0.05em;
+      background: #ffffff;
+      margin-bottom: 14px;
+    }
+
+    .deletion-confirm-input:focus {
+      outline: none;
+      border-color: #ef4444;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+    }
+
+    .deletion-password-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      background: #ffffff;
+      margin-bottom: 14px;
+    }
+
+    .deletion-password-input:focus {
+      outline: none;
+      border-color: #ef4444;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+    }
+
+    .deletion-status {
+      min-height: 20px;
+      font-size: 0.82rem;
+      margin-top: 10px;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .deletion-status.error { color: #ef4444; font-weight: 600; }
+    .deletion-status.success { color: #16a34a; font-weight: 600; }
+    .deletion-status.info { color: #2563eb; font-weight: 500; }
+
+    .deletion-modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+
+    .deletion-modal-actions .btn-secondary {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #e2e8f0;
+      color: #1e293b;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .deletion-modal-actions .btn-secondary:hover {
+      background: #cbd5e1;
     }
 
     @media (max-width: 640px) {
@@ -289,7 +534,7 @@
   <!-- ============================================================ -->
   <!-- PROFILE PANEL — Section 9 merged:                            -->
   <!--   Personal info · Location · Preferred area ·                -->
-  <!--   Addresses · Payment history                                -->
+  <!--   Addresses · Payment history · Danger zone (Section 11.A)   -->
   <!-- ============================================================ -->
   <div class="account-content-panel" id="panel-profile">
     <div class="panel-title">
@@ -476,6 +721,36 @@
       </div>
     </section>
 
+    <!-- ============================================================ -->
+    <!-- SECTION 11.A — DANGER ZONE (customer account deletion)       -->
+    <!--                                                              -->
+    <!-- Step 1 of the 7-step flow. The Delete My Account button      -->
+    <!-- opens #customerDeletionModalA (step 1: offer alternatives).  -->
+    <!-- The other steps are modals that chain from one to the next.  -->
+    <!-- ============================================================ -->
+    <section class="profile-subsection danger-zone" id="profileSectionDangerZone">
+      <h3 class="profile-subsection-title">
+        <i class="fas fa-exclamation-triangle"></i> Danger zone
+      </h3>
+
+      <p style="font-size:0.85rem; color:#7f1d1d; line-height:1.55; margin:0 0 14px 0;">
+        Deleting your account is permanent. You will not be able to log in again, and your
+        personal details will be removed from BidhaaLink. Your past orders will remain on
+        record for the businesses that fulfilled them, but they will no longer be linked
+        to your name, email, or phone number.
+      </p>
+
+      <button
+        type="button"
+        class="btn-danger-outline"
+        id="customerOpenDeletionBtn"
+        onclick="openCustomerDeletionStepA()">
+        <i class="fas fa-user-times"></i> Delete My Account
+      </button>
+
+      <div id="customerDeletionStatus" class="deletion-status"></div>
+    </section>
+
   </div>
 
   <!-- ===== ORDERS PANEL ===== -->
@@ -603,6 +878,173 @@
       <button class="btn btn-secondary" onclick="closeAddressModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveAddress()">Save Address</button>
     </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 11.A — CUSTOMER DELETION MODALS (7-step flow)        -->
+<!--                                                              -->
+<!--  Step A — Offer alternatives (download data, deactivate)     -->
+<!--  Step B — Password confirmation                              -->
+<!--  Step C — Reason selection                                   -->
+<!--  Step D — Type DELETE MY ACCOUNT to confirm                  -->
+<!--                                                              -->
+<!--  Steps A–D chain through the customerDeletionState object    -->
+<!--  in account.js. Only one modal is visible at a time; the     -->
+<!--  helpers openCustomerDeletionStepA() / StepB() / StepC() /   -->
+<!--  StepD() and the closeCustomerDeletionModals() helper        -->
+<!--  manage visibility.                                          -->
+<!-- ============================================================ -->
+
+<!-- Step A — offer alternatives before deletion -->
+<div class="modal-overlay" id="customerDeletionModalA">
+  <div class="modal-box" style="max-width:520px;">
+    <span class="deletion-step-label">Step 1 of 4</span>
+    <h3 class="deletion-step-title">Before you go…</h3>
+    <p class="deletion-step-text">
+      Deleting your account is permanent. If you are leaving because of a specific problem,
+      one of the options below may be a better fit.
+    </p>
+
+    <button type="button" class="deletion-alt-btn" onclick="customerDeletionDownloadData()">
+      <i class="fas fa-download"></i>
+      <span>
+        <strong>Download my data</strong>
+        <br>
+        <small style="color:#64748b; font-weight:400;">Get a copy of your orders, addresses, chats, and payment records.</small>
+      </span>
+    </button>
+
+    <button type="button" class="deletion-alt-btn" onclick="customerDeletionDeactivate()">
+      <i class="fas fa-pause-circle"></i>
+      <span>
+        <strong>Deactivate temporarily</strong>
+        <br>
+        <small style="color:#64748b; font-weight:400;">Hide your account without deleting it. You can come back any time.</small>
+      </span>
+    </button>
+
+    <button type="button" class="deletion-danger-link" onclick="openCustomerDeletionStepB()">
+      I still want to permanently delete my account
+    </button>
+
+    <div class="deletion-modal-actions" style="margin-top:14px;">
+      <button type="button" class="btn-secondary" onclick="closeCustomerDeletionModals()">Cancel</button>
+    </div>
+
+    <div id="customerDeletionStatusA" class="deletion-status"></div>
+  </div>
+</div>
+
+<!-- Step B — password confirmation -->
+<div class="modal-overlay" id="customerDeletionModalB">
+  <div class="modal-box" style="max-width:460px;">
+    <span class="deletion-step-label">Step 2 of 4</span>
+    <h3 class="deletion-step-title">Confirm your password</h3>
+    <p class="deletion-step-text">
+      For your security, please enter your account password to continue.
+    </p>
+
+    <input
+      type="password"
+      id="customerDeletionPassword"
+      class="deletion-password-input"
+      placeholder="Your account password"
+      autocomplete="current-password"
+      onkeydown="if (event.key === 'Enter') { event.preventDefault(); customerDeletionVerifyPassword(); }">
+
+    <div class="deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeCustomerDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="customerDeletionVerifyBtn"
+        onclick="customerDeletionVerifyPassword()">
+        <i class="fas fa-arrow-right"></i> Continue
+      </button>
+    </div>
+
+    <div id="customerDeletionStatusB" class="deletion-status"></div>
+  </div>
+</div>
+
+<!-- Step C — reason selection -->
+<div class="modal-overlay" id="customerDeletionModalC">
+  <div class="modal-box" style="max-width:480px;">
+    <span class="deletion-step-label">Step 3 of 4</span>
+    <h3 class="deletion-step-title">Why are you leaving?</h3>
+    <p class="deletion-step-text">
+      This helps us understand what went wrong. It is required, but it is the only
+      question we ask about your decision.
+    </p>
+
+    <select id="customerDeletionReason" class="deletion-reason-select">
+      <option value="">Select a reason…</option>
+      <option value="I don't shop here anymore">I don't shop here anymore</option>
+      <option value="Privacy concerns">Privacy concerns</option>
+      <option value="Too many emails">Too many emails</option>
+      <option value="Found a better marketplace">Found a better marketplace</option>
+      <option value="Other">Other</option>
+    </select>
+
+    <div class="deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeCustomerDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="customerDeletionReasonBtn"
+        onclick="customerDeletionChooseReason()">
+        <i class="fas fa-arrow-right"></i> Continue
+      </button>
+    </div>
+
+    <div id="customerDeletionStatusC" class="deletion-status"></div>
+  </div>
+</div>
+
+<!-- Step D — final confirmation -->
+<div class="modal-overlay" id="customerDeletionModalD">
+  <div class="modal-box" style="max-width:520px;">
+    <span class="deletion-step-label">Step 4 of 4</span>
+    <h3 class="deletion-step-title" style="color:#991b1b;">This is the last step</h3>
+    <p class="deletion-step-text">
+      Your account will be scheduled for deletion. You will be logged out immediately.
+      If you change your mind, you can log back in during the next 30 days and the
+      deletion will be cancelled automatically.
+    </p>
+
+    <ul class="deletion-step-list">
+      <li>Your name, email, and phone number will be removed.</li>
+      <li>Your saved addresses and location will be cleared.</li>
+      <li>Your chat history will remain but will no longer be linked to you.</li>
+      <li>Past orders will remain on record for the businesses that fulfilled them.</li>
+    </ul>
+
+    <label style="display:block; font-size:0.78rem; font-weight:700; color:#7f1d1d; margin-bottom:6px;">
+      Type <code style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:4px;">DELETE MY ACCOUNT</code> to confirm:
+    </label>
+    <input
+      type="text"
+      id="customerDeletionConfirmPhrase"
+      class="deletion-confirm-input"
+      placeholder="DELETE MY ACCOUNT"
+      autocomplete="off"
+      spellcheck="false"
+      oninput="customerDeletionCheckPhrase()">
+
+    <div class="deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeCustomerDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="customerDeletionFinalBtn"
+        onclick="customerDeletionSubmit()"
+        disabled>
+        <i class="fas fa-user-times"></i> Delete My Account
+      </button>
+    </div>
+
+    <div id="customerDeletionStatusD" class="deletion-status"></div>
   </div>
 </div>
 

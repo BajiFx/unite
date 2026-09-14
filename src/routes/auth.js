@@ -52,6 +52,30 @@
 //   the form <digits><name> (e.g. 3734Doppa Beddings). The DB
 //   trigger in 004_business_search_tag.sql normalizes both
 //   pieces and fills in search_tag / search_display.
+//
+//  Section 11.A — Customer account deletion:
+//   POST /customer/request-deletion
+//     Schedules the deletion 30 days out and stores the reason.
+//     The password is re-verified against the customer's hash
+//     before the deletion is scheduled.
+//   POST /customer/cancel-deletion
+//     Cancels a pending deletion on the requesting customer's
+//     own row. Also called automatically from /customer/login.
+//   The customer row is never hard-deleted. A daily cron job
+//   in server.js anonymizes rows past the grace period.
+//
+//  Section 11.B — Business account deletion:
+//   POST /business/request-deletion
+//     Schedules the deletion 60 days out, hides the business
+//     from the marketplace, and deactivates the admin account.
+//     The password is re-verified against the admin's hash
+//     before the deletion is scheduled.
+//   POST /business/cancel-deletion
+//     Cancels a pending deletion on the requesting admin's own
+//     business and reactivates both the business and the admin
+//     account. Also called automatically from /business/login.
+//   The business row is never hard-deleted. A daily cron job
+//   in server.js finalizes the row past the grace period.
 // ============================================================
 
 const express = require('express');
@@ -272,6 +296,40 @@ async function pickRandomFreeSearchPrefix(searchName, maxAttempts = 20) {
     }
     return null;
 }
+
+// ============================================================
+//  Section 11.A — customer deletion reason set
+//  Kept in one place so the client dropdown and the server
+//  validation can never drift apart.
+// ============================================================
+
+const CUSTOMER_DELETION_REASONS = new Set([
+    "I don't shop here anymore",
+    'Privacy concerns',
+    'Too many emails',
+    'Found a better marketplace',
+    'Other'
+]);
+
+// ============================================================
+//  Section 11.B — business deletion reason set
+// ============================================================
+
+const BUSINESS_DELETION_REASONS = new Set([
+    'Closing my business',
+    'Too expensive',
+    'Not enough sales',
+    'Privacy concerns',
+    'Moving to another platform',
+    'Other'
+]);
+
+// ============================================================
+//  Section 11.A / 11.B — grace periods
+// ============================================================
+
+const CUSTOMER_DELETION_GRACE_DAYS = 30;
+const BUSINESS_DELETION_GRACE_DAYS = 60;
 
 // ============================================================
 //  CHECK USERNAME AVAILABILITY
@@ -581,6 +639,11 @@ async function generateUniqueCustomerUsername(name) {
 //  CUSTOMER LOGIN — SMART
 //
 //  Section 6 — the lookup key can be username, email, or phone.
+//
+//  Section 11.A — if the customer has a pending deletion, this
+//  handler auto-cancels it before returning success. The
+//  customer is never told their account was scheduled, unless
+//  the toast surfaces it on the client (which it does).
 // ============================================================
 
 router.post('/customer/login', loginLimiter, [
@@ -621,9 +684,42 @@ router.post('/customer/login', loginLimiter, [
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const customer = result.rows[0];
+
+    // If the account has been anonymized by the cron job, the
+    // password column is NULL. bcrypt.compare throws on NULL, so
+    // we guard before calling it.
+    if (!customer.password) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
     const match = await bcrypt.compare(password, customer.password);
     if (!match) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Section 11.A — auto-cancel a pending deletion on successful
+    // login. The customer is logged in either way; the flag tells
+    // the client whether to show the "welcome back" toast.
+    let deletionCancelled = false;
+    let cancellationContext = null;
+
+    try {
+      if (customer.deletion_scheduled_at) {
+        const scheduledFor = new Date(customer.deletion_scheduled_at);
+        await pool.query(
+          `UPDATE customers
+              SET deletion_scheduled_at = NULL,
+                  deletion_reason = NULL,
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [customer.id]
+        );
+        deletionCancelled = true;
+        cancellationContext = { previous_scheduled_at: scheduledFor.toISOString() };
+        console.log(`♻️ Customer #${customer.id} deletion auto-cancelled on login.`);
+      }
+    } catch (cancelErr) {
+      console.warn('⚠️ Could not cancel pending customer deletion:', cancelErr.message);
     }
 
     await pool.query('UPDATE customers SET last_login_at = NOW() WHERE id = $1', [customer.id]);
@@ -641,7 +737,9 @@ router.post('/customer/login', loginLimiter, [
         username: customer.username,
         email: customer.email,
         phone: customer.phone || ''
-      }
+      },
+      deletion_cancelled: deletionCancelled,
+      deletion_context: cancellationContext
     });
   } catch (err) {
     console.error('❌ Customer login error:', err);
@@ -990,6 +1088,11 @@ router.post('/business/register', upload.fields([
 
 // ============================================================
 //  BUSINESS LOGIN - SMART (Username or Email)
+//
+//  Section 11.B — if the admin has a pending business deletion,
+//  this handler auto-cancels it on both the business row and the
+//  admin row, reactivates both, and returns success. The admin is
+//  never locked out by their own grace period.
 // ============================================================
 
 router.post('/business/login', loginLimiter, [
@@ -1022,6 +1125,15 @@ router.post('/business/login', loginLimiter, [
     const user = result.rows[0];
     console.log('👤 User found, checking password...');
 
+    // Section 11.B — a business admin whose account has been
+    // scheduled for deletion still carries a valid password hash
+    // during the grace period, so bcrypt.compare works normally.
+    // Only the finalization cron clears the password, and by then
+    // the account cannot log in at all.
+    if (!user.password) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
     const match = await bcrypt.compare(password, user.password);
 
     if (!match) {
@@ -1042,7 +1154,7 @@ router.post('/business/login', loginLimiter, [
     }
 
     const businessCheck = await pool.query(
-      'SELECT id, business_name, is_active, slug FROM businesses WHERE id = $1',
+      'SELECT id, business_name, is_active, slug, deletion_scheduled_at FROM businesses WHERE id = $1',
       [user.business_id]
     );
 
@@ -1051,7 +1163,49 @@ router.post('/business/login', loginLimiter, [
       return res.status(403).json({ error: 'Business not found.' });
     }
 
-    if (!businessCheck.rows[0].is_active) {
+    const businessRow = businessCheck.rows[0];
+
+    // Section 11.B — auto-cancel a pending deletion on successful
+    // login. The admin is logged in either way; the flag tells
+    // the client whether to show the "welcome back" toast.
+    let deletionCancelled = false;
+    let cancellationContext = null;
+
+    if (businessRow.deletion_scheduled_at || user.is_active === false) {
+      try {
+        const previousScheduledFor = businessRow.deletion_scheduled_at
+          ? new Date(businessRow.deletion_scheduled_at).toISOString()
+          : null;
+
+        await pool.query(
+          `UPDATE businesses
+              SET deletion_scheduled_at = NULL,
+                  deletion_reason = NULL,
+                  is_active = TRUE,
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [businessRow.id]
+        );
+
+        await pool.query(
+          `UPDATE admin_users
+              SET is_active = TRUE
+            WHERE id = $1`,
+          [user.id]
+        );
+
+        deletionCancelled = true;
+        cancellationContext = { previous_scheduled_at: previousScheduledFor };
+        console.log(`♻️ Business #${businessRow.id} deletion auto-cancelled on login.`);
+      } catch (cancelErr) {
+        console.warn('⚠️ Could not cancel pending business deletion:', cancelErr.message);
+      }
+    }
+
+    // The business is active again if we just cancelled, so the
+    // is_active check below is only a hard block for any other
+    // reason the business might be inactive (super-admin action).
+    if (!businessRow.is_active && !deletionCancelled) {
       console.log('❌ Business is inactive:', user.business_id);
       return res.status(403).json({ error: 'Business is inactive.' });
     }
@@ -1061,15 +1215,17 @@ router.post('/business/login', loginLimiter, [
     await logAdminActivity(user.id, 'BUSINESS_LOGIN', { email: user.email, businessId: user.business_id });
 
     console.log('✅ Business admin login successful for:', username);
-    console.log('✅ Business:', businessCheck.rows[0].business_name);
+    console.log('✅ Business:', businessRow.business_name);
 
     res.json({
       success: true,
       role: 'business_admin',
       business_id: user.business_id,
-      business_name: businessCheck.rows[0].business_name,
-      slug: businessCheck.rows[0].slug,
-      email: user.email
+      business_name: businessRow.business_name,
+      slug: businessRow.slug,
+      email: user.email,
+      deletion_cancelled: deletionCancelled,
+      deletion_context: cancellationContext
     });
 
   } catch (err) {
@@ -1518,6 +1674,262 @@ router.post('/customer/logout', authMiddleware, (req, res) => {
 router.post('/logout', (req, res) => {
   clearAuthCookie(res);
   res.json({ success: true });
+});
+
+// ============================================================
+//  SECTION 11.A — CUSTOMER ACCOUNT DELETION
+//
+//  POST /customer/request-deletion
+//    Required: password, reason.
+//    Verifies the password against the customer's hash, then
+//    schedules the deletion 30 days out and stores the reason.
+//    Does NOT log the customer out — the client does that.
+//
+//  POST /customer/cancel-deletion
+//    Cancels a pending deletion on the requesting customer's own
+//    row. Also called automatically from /customer/login.
+// ============================================================
+
+router.post('/customer/request-deletion', authMiddleware, customerOnly, [
+  body('password').notEmpty().withMessage('Password required'),
+  body('reason').notEmpty().withMessage('Reason required')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const customerId = req.userId;
+    if (!customerId || customerId === req.email) {
+      return res.status(400).json({ error: 'Invalid user session' });
+    }
+
+    const { password, reason } = req.body;
+
+    if (!CUSTOMER_DELETION_REASONS.has(String(reason))) {
+      return res.status(400).json({ error: 'Please select a valid reason.' });
+    }
+
+    const customerResult = await pool.query(
+      'SELECT id, password FROM customers WHERE id = $1',
+      [customerId]
+    );
+
+    if (customerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const customer = customerResult.rows[0];
+
+    if (!customer.password) {
+      return res.status(400).json({ error: 'This account cannot be scheduled for deletion.' });
+    }
+
+    const passwordOk = await bcrypt.compare(password, customer.password);
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Incorrect password.' });
+    }
+
+    const result = await pool.query(`
+      UPDATE customers
+      SET deletion_scheduled_at = NOW() + ($1::text || ' days')::interval,
+          deletion_reason = $2,
+          updated_at = NOW()
+      WHERE id = $3
+      RETURNING deletion_scheduled_at, deletion_reason
+    `, [String(CUSTOMER_DELETION_GRACE_DAYS), String(reason).slice(0, 100), customerId]);
+
+    const row = result.rows[0];
+
+    clearAuthCookie(res);
+
+    console.log(`🗓️ Customer #${customerId} deletion scheduled for ${row.deletion_scheduled_at}.`);
+
+    res.json({
+      success: true,
+      message: `Your account is scheduled for deletion in ${CUSTOMER_DELETION_GRACE_DAYS} days.`,
+      deletion_scheduled_for: row.deletion_scheduled_at,
+      deletion_reason: row.deletion_reason,
+      grace_days: CUSTOMER_DELETION_GRACE_DAYS
+    });
+  } catch (err) {
+    console.error('❌ Customer request-deletion error:', err);
+    res.status(500).json({ error: 'Could not schedule account deletion.' });
+  }
+});
+
+router.post('/customer/cancel-deletion', authMiddleware, customerOnly, async (req, res) => {
+  try {
+    const customerId = req.userId;
+    if (!customerId || customerId === req.email) {
+      return res.status(400).json({ error: 'Invalid user session' });
+    }
+
+    const result = await pool.query(`
+      UPDATE customers
+      SET deletion_scheduled_at = NULL,
+          deletion_reason = NULL,
+          updated_at = NOW()
+      WHERE id = $1 AND deletion_scheduled_at IS NOT NULL
+      RETURNING id
+    `, [customerId]);
+
+    if (result.rows.length === 0) {
+      return res.json({ success: true, cancelled: false, message: 'No pending deletion to cancel.' });
+    }
+
+    console.log(`♻️ Customer #${customerId} deletion cancelled on request.`);
+    res.json({ success: true, cancelled: true, message: 'Your account is safe.' });
+  } catch (err) {
+    console.error('❌ Customer cancel-deletion error:', err);
+    res.status(500).json({ error: 'Could not cancel account deletion.' });
+  }
+});
+
+// ============================================================
+//  SECTION 11.B — BUSINESS ACCOUNT DELETION
+//
+//  POST /business/request-deletion
+//    Required: password, reason.
+//    Verifies the password against the admin's hash, then:
+//      1. Schedules the deletion 60 days out on the business row.
+//      2. Stores the reason.
+//      3. Sets businesses.is_active = FALSE immediately.
+//      4. Sets admin_users.is_active = FALSE for the owner.
+//    Does NOT log the admin out — the client does that.
+//
+//  POST /business/cancel-deletion
+//    Cancels a pending deletion on the requesting admin's own
+//    business and reactivates both the business and the admin
+//    account. Also called automatically from /business/login.
+// ============================================================
+
+router.post('/business/request-deletion', authMiddleware, businessAdminOnly, getBusinessIdFromToken, [
+  body('password').notEmpty().withMessage('Password required'),
+  body('reason').notEmpty().withMessage('Reason required')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const adminId = req.userId;
+    const businessId = req.businessId;
+
+    if (!adminId || !businessId) {
+      return res.status(400).json({ error: 'Invalid admin session.' });
+    }
+
+    const { password, reason } = req.body;
+
+    if (!BUSINESS_DELETION_REASONS.has(String(reason))) {
+      return res.status(400).json({ error: 'Please select a valid reason.' });
+    }
+
+    const adminResult = await pool.query(
+      'SELECT id, password, business_id FROM admin_users WHERE id = $1',
+      [adminId]
+    );
+
+    if (adminResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Admin not found' });
+    }
+
+    const admin = adminResult.rows[0];
+
+    if (admin.business_id !== businessId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (!admin.password) {
+      return res.status(400).json({ error: 'This account cannot be scheduled for deletion.' });
+    }
+
+    const passwordOk = await bcrypt.compare(password, admin.password);
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Incorrect password.' });
+    }
+
+    await pool.query('BEGIN');
+
+    const result = await pool.query(`
+      UPDATE businesses
+      SET deletion_scheduled_at = NOW() + ($1::text || ' days')::interval,
+          deletion_reason = $2,
+          is_active = FALSE,
+          updated_at = NOW()
+      WHERE id = $3
+      RETURNING deletion_scheduled_at, deletion_reason
+    `, [String(BUSINESS_DELETION_GRACE_DAYS), String(reason).slice(0, 100), businessId]);
+
+    await pool.query(
+      'UPDATE admin_users SET is_active = FALSE WHERE id = $1',
+      [adminId]
+    );
+
+    await pool.query('COMMIT');
+
+    const row = result.rows[0];
+
+    clearAuthCookie(res);
+
+    console.log(`🗓️ Business #${businessId} deletion scheduled for ${row.deletion_scheduled_at}.`);
+
+    res.json({
+      success: true,
+      message: `Your business is scheduled for deletion in ${BUSINESS_DELETION_GRACE_DAYS} days.`,
+      deletion_scheduled_for: row.deletion_scheduled_at,
+      deletion_reason: row.deletion_reason,
+      grace_days: BUSINESS_DELETION_GRACE_DAYS
+    });
+  } catch (err) {
+    await pool.query('ROLLBACK');
+    console.error('❌ Business request-deletion error:', err);
+    res.status(500).json({ error: 'Could not schedule business deletion.' });
+  }
+});
+
+router.post('/business/cancel-deletion', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+  try {
+    const adminId = req.userId;
+    const businessId = req.businessId;
+
+    if (!adminId || !businessId) {
+      return res.status(400).json({ error: 'Invalid admin session.' });
+    }
+
+    await pool.query('BEGIN');
+
+    const result = await pool.query(`
+      UPDATE businesses
+      SET deletion_scheduled_at = NULL,
+          deletion_reason = NULL,
+          is_active = TRUE,
+          updated_at = NOW()
+      WHERE id = $1 AND deletion_scheduled_at IS NOT NULL
+      RETURNING id
+    `, [businessId]);
+
+    await pool.query(
+      'UPDATE admin_users SET is_active = TRUE WHERE id = $1',
+      [adminId]
+    );
+
+    await pool.query('COMMIT');
+
+    if (result.rows.length === 0) {
+      return res.json({ success: true, cancelled: false, message: 'No pending deletion to cancel.' });
+    }
+
+    console.log(`♻️ Business #${businessId} deletion cancelled on request.`);
+    res.json({ success: true, cancelled: true, message: 'Your business is safe.' });
+  } catch (err) {
+    await pool.query('ROLLBACK');
+    console.error('❌ Business cancel-deletion error:', err);
+    res.status(500).json({ error: 'Could not cancel business deletion.' });
+  }
 });
 
 // ============================================================

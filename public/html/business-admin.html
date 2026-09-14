@@ -32,7 +32,23 @@
         new scroll/tab behavior; the HTML here only needs
         the anchors and tab structure to exist.
 
-     Everything not related to Section 8 is preserved.
+     Section 11.B — Business account deletion
+      - A new Danger zone block is added at the bottom of the
+        My Shop page, after Order Settings.
+      - The block opens a 5-step deletion flow:
+          A — warnings + download data + acknowledgement
+          B — password confirmation
+          C — reason selection
+          D — type the exact business name to confirm
+          E — 10-second countdown, then final confirmation
+      - On submit, the client calls
+          POST /api/business-admin/request-deletion
+        which schedules the deletion 60 days out, hides the
+        business from the marketplace, and logs the admin out.
+      - If the admin logs back in during the grace period,
+        the server auto-cancels the deletion.
+
+     Everything not related to Section 8 or 11.B is preserved.
      ============================================================ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -57,6 +73,280 @@
 
   <!-- Socket.IO -->
   <script src="/socket.io/socket.io.js"></script>
+
+  <!-- Section 11.B — inline styles for the Danger zone block
+       and its chained modals. Scoped under .ba-danger-zone and
+       #businessDeletionModal* so nothing else on the page is
+       affected. -->
+  <style>
+    /* ---------- Danger zone shell ---------- */
+    .ba-danger-zone {
+      margin-top: 16px;
+      border: 2px solid #fecaca;
+      background: #fef2f2;
+      border-radius: 12px;
+      padding: 16px 18px;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+    }
+
+    .ba-danger-zone h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1rem;
+      font-weight: 800;
+      color: #991b1b;
+      margin: 0 0 8px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #fecaca;
+    }
+
+    .ba-danger-zone h3 i {
+      color: #ef4444;
+    }
+
+    .ba-danger-zone p {
+      font-size: 0.85rem;
+      color: #7f1d1d;
+      line-height: 1.55;
+      margin: 0 0 14px 0;
+    }
+
+    .ba-danger-zone .btn-danger-outline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: #ffffff;
+      color: #991b1b;
+      border: 2px solid #ef4444;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .ba-danger-zone .btn-danger-outline:hover {
+      background: #fee2e2;
+      transform: translateY(-1px);
+    }
+
+    .ba-danger-zone .btn-danger-solid {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: #dc2626;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .ba-danger-zone .btn-danger-solid:hover:not(:disabled) {
+      background: #b91c1c;
+      transform: translateY(-1px);
+    }
+
+    .ba-danger-zone .btn-danger-solid:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .ba-danger-zone .btn-secondary {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #e2e8f0;
+      color: #1e293b;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .ba-danger-zone .btn-secondary:hover {
+      background: #cbd5e1;
+    }
+
+    /* ---------- Modal step helpers ---------- */
+    .ba-deletion-step-label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+
+    .ba-deletion-step-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0 0 6px 0;
+    }
+
+    .ba-deletion-step-title.danger {
+      color: #991b1b;
+    }
+
+    .ba-deletion-step-text {
+      font-size: 0.85rem;
+      color: #475569;
+      line-height: 1.55;
+      margin: 0 0 14px 0;
+    }
+
+    .ba-deletion-step-list {
+      list-style: none;
+      padding: 10px 14px;
+      margin: 0 0 16px 0;
+      border-left: 3px solid #ef4444;
+      background: #fef2f2;
+      border-radius: 6px;
+    }
+
+    .ba-deletion-step-list li {
+      font-size: 0.82rem;
+      color: #7f1d1d;
+      line-height: 1.5;
+      padding: 3px 0;
+    }
+
+    .ba-deletion-step-list li::before {
+      content: '•';
+      margin-right: 8px;
+      color: #ef4444;
+      font-weight: 800;
+    }
+
+    .ba-deletion-alt-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #1e293b;
+      cursor: pointer;
+      text-align: left;
+      margin-bottom: 10px;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .ba-deletion-alt-btn:hover {
+      background: #eff6ff;
+      border-color: #93c5fd;
+    }
+
+    .ba-deletion-alt-btn i {
+      font-size: 1.1rem;
+      color: #2563eb;
+      width: 22px;
+      text-align: center;
+    }
+
+    .ba-deletion-checkbox-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-size: 0.82rem;
+      color: #7f1d1d;
+      line-height: 1.5;
+    }
+
+    .ba-deletion-checkbox-row input[type="checkbox"] {
+      margin-top: 2px;
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .ba-deletion-reason-select,
+    .ba-deletion-password-input,
+    .ba-deletion-confirm-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      background: #ffffff;
+      margin-bottom: 14px;
+      font-family: inherit;
+    }
+
+    .ba-deletion-confirm-input {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0.03em;
+    }
+
+    .ba-deletion-reason-select:focus,
+    .ba-deletion-password-input:focus,
+    .ba-deletion-confirm-input:focus {
+      outline: none;
+      border-color: #ef4444;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+    }
+
+    .ba-deletion-countdown {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 16px;
+      background: #fef2f2;
+      border: 1px dashed #fca5a5;
+      border-radius: 10px;
+      margin-bottom: 14px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #991b1b;
+    }
+
+    .ba-deletion-countdown .countdown-number {
+      font-size: 1.6rem;
+      font-weight: 900;
+      color: #dc2626;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      min-width: 44px;
+      text-align: center;
+    }
+
+    .ba-deletion-status {
+      min-height: 20px;
+      font-size: 0.82rem;
+      margin-top: 10px;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .ba-deletion-status.error { color: #ef4444; font-weight: 600; }
+    .ba-deletion-status.success { color: #16a34a; font-weight: 600; }
+    .ba-deletion-status.info { color: #2563eb; font-weight: 500; }
+
+    .ba-deletion-modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+  </style>
 </head>
 <body class="admin-body">
 
@@ -388,6 +678,10 @@
     <!-- working unchanged. navigateTo('myshop') makes all four        -->
     <!-- visible together. Deep links to ?section=payments and         -->
     <!-- friends still land on the matching wrapper and scroll.        -->
+    <!--                                                              -->
+    <!-- Section 11.B — Danger zone lives at the very bottom of this  -->
+    <!-- page, after Order Settings, so the destructive action is     -->
+    <!-- visually separated from the routine settings.                -->
     <!-- ============================================================ -->
     <div class="myshop-page" id="myshopPage">
 
@@ -1110,6 +1404,36 @@
         </div>
       </div>
 
+      <!-- ============================================================ -->
+      <!-- SECTION 11.B — DANGER ZONE (business account deletion)       -->
+      <!--                                                              -->
+      <!-- Step 1 of the 5-step flow. The Delete My Business button     -->
+      <!-- opens #businessDeletionModalA (warnings + download +        -->
+      <!-- acknowledgement). The other steps are modals chained from    -->
+      <!-- there. business-admin.js wires the flow.                    -->
+      <!-- ============================================================ -->
+      <div class="ba-danger-zone" id="businessDangerZone">
+        <h3>
+          <i class="fas fa-exclamation-triangle"></i> Danger zone
+        </h3>
+        <p>
+          Deleting your business is permanent. Your shop will be hidden from the
+          marketplace immediately, your products will be hidden, and your search
+          tag will be held for 60 days before it is released. Past orders will
+          remain visible to your customers for their records.
+        </p>
+
+        <button
+          type="button"
+          class="btn-danger-outline"
+          id="businessOpenDeletionBtn"
+          onclick="openBusinessDeletionStepA()">
+          <i class="fas fa-store-slash"></i> Delete My Business
+        </button>
+
+        <div id="businessDeletionStatus" class="ba-deletion-status"></div>
+      </div>
+
     </div><!-- /#myshopPage -->
 
     <!-- ============================================================ -->
@@ -1225,6 +1549,206 @@
 
     </div>
 
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 11.B — BUSINESS DELETION MODALS (5-step flow)        -->
+<!--                                                              -->
+<!--  Step A — warnings + download data + acknowledgement         -->
+<!--  Step B — password confirmation                              -->
+<!--  Step C — reason selection                                   -->
+<!--  Step D — type the exact business name to confirm            -->
+<!--  Step E — 10-second countdown, then final confirmation       -->
+<!--                                                              -->
+<!--  Steps A–E chain through the businessDeletionState object    -->
+<!--  in business-admin.js. Only one modal is visible at a time.  -->
+<!-- ============================================================ -->
+
+<!-- Step A — warnings + download + acknowledgement -->
+<div class="modal-overlay" id="businessDeletionModalA">
+  <div class="modal-box" style="max-width:560px;">
+    <span class="ba-deletion-step-label">Step 1 of 5</span>
+    <h3 class="ba-deletion-step-title danger">Before you delete your business…</h3>
+    <p class="ba-deletion-step-text">
+      Please read exactly what will happen. This is not reversible once the
+      60-day grace period ends.
+    </p>
+
+    <ul class="ba-deletion-step-list">
+      <li>Your shop will be hidden from the marketplace <strong>immediately</strong>.</li>
+      <li>Your products will be hidden from customers.</li>
+      <li>You will not be able to log in during the 60-day grace period.</li>
+      <li>Past orders will remain visible to your customers for their records.</li>
+      <li>Your search tag will be held for 60 days and then released.</li>
+    </ul>
+
+    <button type="button" class="ba-deletion-alt-btn" onclick="businessDeletionDownloadData()">
+      <i class="fas fa-download"></i>
+      <span>
+        <strong>Download my business data</strong>
+        <br>
+        <small style="color:#64748b; font-weight:400;">Get a copy of your orders, products, and settings.</small>
+      </span>
+    </button>
+
+    <label class="ba-deletion-checkbox-row">
+      <input type="checkbox" id="businessDeletionAcknowledge" onchange="businessDeletionCheckAcknowledge()">
+      <span>I have read the above and I have exported my data.</span>
+    </label>
+
+    <div class="ba-deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeBusinessDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="businessDeletionStepABtn"
+        onclick="openBusinessDeletionStepB()"
+        disabled>
+        <i class="fas fa-arrow-right"></i> Continue
+      </button>
+    </div>
+
+    <div id="businessDeletionStatusA" class="ba-deletion-status"></div>
+  </div>
+</div>
+
+<!-- Step B — password confirmation -->
+<div class="modal-overlay" id="businessDeletionModalB">
+  <div class="modal-box" style="max-width:460px;">
+    <span class="ba-deletion-step-label">Step 2 of 5</span>
+    <h3 class="ba-deletion-step-title">Confirm your password</h3>
+    <p class="ba-deletion-step-text">
+      For your security, please enter your business admin password to continue.
+    </p>
+
+    <input
+      type="password"
+      id="businessDeletionPassword"
+      class="ba-deletion-password-input"
+      placeholder="Your business admin password"
+      autocomplete="current-password"
+      onkeydown="if (event.key === 'Enter') { event.preventDefault(); businessDeletionVerifyPassword(); }">
+
+    <div class="ba-deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeBusinessDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="businessDeletionVerifyBtn"
+        onclick="businessDeletionVerifyPassword()">
+        <i class="fas fa-arrow-right"></i> Continue
+      </button>
+    </div>
+
+    <div id="businessDeletionStatusB" class="ba-deletion-status"></div>
+  </div>
+</div>
+
+<!-- Step C — reason selection -->
+<div class="modal-overlay" id="businessDeletionModalC">
+  <div class="modal-box" style="max-width:480px;">
+    <span class="ba-deletion-step-label">Step 3 of 5</span>
+    <h3 class="ba-deletion-step-title">Why are you leaving?</h3>
+    <p class="ba-deletion-step-text">
+      This helps us understand what went wrong. It is required, but it is the
+      only question we ask about your decision.
+    </p>
+
+    <select id="businessDeletionReason" class="ba-deletion-reason-select">
+      <option value="">Select a reason…</option>
+      <option value="Closing my business">Closing my business</option>
+      <option value="Too expensive">Too expensive</option>
+      <option value="Not enough sales">Not enough sales</option>
+      <option value="Privacy concerns">Privacy concerns</option>
+      <option value="Moving to another platform">Moving to another platform</option>
+      <option value="Other">Other</option>
+    </select>
+
+    <div class="ba-deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeBusinessDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="businessDeletionReasonBtn"
+        onclick="businessDeletionChooseReason()">
+        <i class="fas fa-arrow-right"></i> Continue
+      </button>
+    </div>
+
+    <div id="businessDeletionStatusC" class="ba-deletion-status"></div>
+  </div>
+</div>
+
+<!-- Step D — type the exact business name to confirm -->
+<div class="modal-overlay" id="businessDeletionModalD">
+  <div class="modal-box" style="max-width:520px;">
+    <span class="ba-deletion-step-label">Step 4 of 5</span>
+    <h3 class="ba-deletion-step-title danger">Type your business name to confirm</h3>
+    <p class="ba-deletion-step-text">
+      Type the exact name of your business below. Spaces and case must match
+      exactly. This is the last confirmation before the countdown.
+    </p>
+
+    <label style="display:block; font-size:0.78rem; font-weight:700; color:#7f1d1d; margin-bottom:6px;">
+      Business name:
+      <code id="businessDeletionExpectedName" style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:4px;">—</code>
+    </label>
+    <input
+      type="text"
+      id="businessDeletionConfirmName"
+      class="ba-deletion-confirm-input"
+      placeholder="Type the exact business name"
+      autocomplete="off"
+      spellcheck="false"
+      oninput="businessDeletionCheckName()">
+
+    <div class="ba-deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeBusinessDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="businessDeletionStepDBtn"
+        onclick="openBusinessDeletionStepE()"
+        disabled>
+        <i class="fas fa-arrow-right"></i> Continue
+      </button>
+    </div>
+
+    <div id="businessDeletionStatusD" class="ba-deletion-status"></div>
+  </div>
+</div>
+
+<!-- Step E — 10-second countdown, then final confirmation -->
+<div class="modal-overlay" id="businessDeletionModalE">
+  <div class="modal-box" style="max-width:520px;">
+    <span class="ba-deletion-step-label">Step 5 of 5</span>
+    <h3 class="ba-deletion-step-title danger">Final confirmation</h3>
+    <p class="ba-deletion-step-text">
+      The button below will be unlocked after the countdown finishes. This is
+      your last chance to cancel without contacting support.
+    </p>
+
+    <div class="ba-deletion-countdown" id="businessDeletionCountdownWrap">
+      <i class="fas fa-hourglass-half"></i>
+      <span>Please wait</span>
+      <span class="countdown-number" id="businessDeletionCountdown">10</span>
+      <span>second(s)…</span>
+    </div>
+
+    <div class="ba-deletion-modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeBusinessDeletionModals()">Cancel</button>
+      <button
+        type="button"
+        class="btn-danger-solid"
+        id="businessDeletionFinalBtn"
+        onclick="businessDeletionSubmit()"
+        disabled>
+        <i class="fas fa-store-slash"></i> Delete My Business
+      </button>
+    </div>
+
+    <div id="businessDeletionStatusE" class="ba-deletion-status"></div>
   </div>
 </div>
 

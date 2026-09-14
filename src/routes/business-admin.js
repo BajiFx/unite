@@ -69,10 +69,27 @@
 //   2D.D — A one-time backfill migration
 //          (20260921-ad-duration-clamp.sql) brings existing rows
 //          into line.
+//
+//  Section 11.B — Business account deletion
+//   Two new routes are appended at the very bottom of this file:
+//     POST /request-deletion
+//       Verifies the admin's password, schedules the deletion
+//       60 days out, hides the business, and deactivates the
+//       admin account. The client then logs the admin out.
+//     POST /cancel-deletion
+//       Clears a pending deletion on the requesting admin's own
+//       business and reactivates both the business and the
+//       admin account. Also called automatically from
+//       POST /api/auth/business/login (that auto-cancel lives in
+//       auth.js).
+//
+//   The finalization job that anonymizes / deactivates rows past
+//   their grace period lives in server.js (cron at 03:00).
 // ============================================================
 
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const bcrypt = require('bcrypt');
 const { pool, logError } = require('../config/database');
 const { authMiddleware, businessAdminOnly, getBusinessIdFromToken } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
@@ -106,6 +123,27 @@ const AD_SLOT_RANGE = Array.from({ length: MAX_ADS_PER_BUSINESS }, (_, i) => i +
 
 const AD_MAX_IMAGE_DURATION_SECONDS = 4;
 const AD_MAX_VIDEO_DURATION_SECONDS = 20;
+
+// ============================================================
+//  Section 11.B — Business account deletion
+//
+//  Both the reason set and the grace period are declared here so
+//  the request handler, the cancel handler, and any future code
+//  that reads them all share one source of truth. The grace
+//  period is used both when scheduling the deletion and (read
+//  only) by the server-side finalization job.
+// ============================================================
+
+const BUSINESS_DELETION_REASONS = new Set([
+    'Closing my business',
+    'Too expensive',
+    'Not enough sales',
+    'Privacy concerns',
+    'Moving to another platform',
+    'Other'
+]);
+
+const BUSINESS_DELETION_GRACE_DAYS = 60;
 
 // Sections C.3 – C.6 — helpers -------------------------------------------------
 
@@ -819,7 +857,7 @@ router.put('/categories', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 //        product owned by the same business. Enforced here at
 //        the app layer, and again by a trigger in the schema.
 //
-//  N.1 – N.6 — Fixed ad slots.
+//  Section N.1 – N.6 — Fixed ad slots.
 //   Each business has exactly three slots (1, 2, 3). A new ad
 //   is placed in the smallest free slot. Editing an ad never
 //   moves it. Deleting frees the slot without shifting others.
@@ -2556,6 +2594,177 @@ router.put('/delivery-log/:orderId', authMiddleware, businessAdminOnly, getBusin
         console.error('❌ Update delivery log error:', err);
         logError(err, 'Update delivery log');
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+//  SECTION 11.B — BUSINESS ACCOUNT DELETION
+//
+//  POST /request-deletion
+//    Required: password, reason.
+//    Verifies the password against the admin's hash, then:
+//      1. Schedules the deletion 60 days out on the business row.
+//      2. Stores the reason.
+//      3. Sets businesses.is_active = FALSE immediately, which
+//         hides the shop from the marketplace.
+//      4. Sets admin_users.is_active = FALSE for the owner.
+//    Does NOT log the admin out — the client does that.
+//
+//    If the admin logs back in during the grace period, the
+//    POST /api/auth/business/login handler in auth.js will
+//    clear the pending deletion and reactivate both rows.
+//
+//  POST /cancel-deletion
+//    Cancels a pending deletion on the requesting admin's own
+//    business and reactivates both the business and the admin
+//    account. Returns { cancelled: false } when there is
+//    nothing to cancel, so the client can be idempotent.
+//
+//  Both routes reuse authMiddleware, businessAdminOnly, and
+//  getBusinessIdFromToken so they are protected exactly like
+//  every other route in this file.
+// ============================================================
+
+router.post('/request-deletion', authMiddleware, businessAdminOnly, getBusinessIdFromToken, [
+    body('password').notEmpty().withMessage('Password required'),
+    body('reason').notEmpty().withMessage('Reason required')
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+        const adminId = req.userId;
+        const businessId = req.businessId;
+
+        if (!adminId || !businessId) {
+            return res.status(400).json({ error: 'Invalid admin session.' });
+        }
+
+        const { password, reason } = req.body;
+
+        if (!BUSINESS_DELETION_REASONS.has(String(reason))) {
+            return res.status(400).json({ error: 'Please select a valid reason.' });
+        }
+
+        const adminResult = await pool.query(
+            'SELECT id, password, business_id, is_active FROM admin_users WHERE id = $1',
+            [adminId]
+        );
+
+        if (adminResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Admin not found' });
+        }
+
+        const admin = adminResult.rows[0];
+
+        if (admin.business_id !== businessId) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        if (!admin.password) {
+            return res.status(400).json({ error: 'This account cannot be scheduled for deletion.' });
+        }
+
+        const passwordOk = await bcrypt.compare(password, admin.password);
+        if (!passwordOk) {
+            return res.status(401).json({ error: 'Incorrect password.' });
+        }
+
+        await pool.query('BEGIN');
+
+        const result = await pool.query(`
+            UPDATE businesses
+            SET deletion_scheduled_at = NOW() + ($1::text || ' days')::interval,
+                deletion_reason = $2,
+                is_active = FALSE,
+                updated_at = NOW()
+            WHERE id = $3
+            RETURNING deletion_scheduled_at, deletion_reason
+        `, [String(BUSINESS_DELETION_GRACE_DAYS), String(reason).slice(0, 100), businessId]);
+
+        await pool.query(
+            'UPDATE admin_users SET is_active = FALSE WHERE id = $1',
+            [adminId]
+        );
+
+        await pool.query('COMMIT');
+
+        const row = result.rows[0];
+
+        await logAdminActivity(adminId, 'REQUEST_BUSINESS_DELETION', {
+            businessId,
+            reason,
+            scheduled_for: row.deletion_scheduled_at
+        });
+
+        console.log(`🗓️ Business #${businessId} deletion scheduled for ${row.deletion_scheduled_at}.`);
+
+        res.json({
+            success: true,
+            message: `Your business is scheduled for deletion in ${BUSINESS_DELETION_GRACE_DAYS} days.`,
+            deletion_scheduled_for: row.deletion_scheduled_at,
+            deletion_reason: row.deletion_reason,
+            grace_days: BUSINESS_DELETION_GRACE_DAYS
+        });
+    } catch (err) {
+        await pool.query('ROLLBACK');
+        console.error('❌ Business request-deletion error:', err);
+        logError(err, 'Business request-deletion');
+        res.status(500).json({ error: 'Could not schedule business deletion.' });
+    }
+});
+
+router.post('/cancel-deletion', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const adminId = req.userId;
+        const businessId = req.businessId;
+
+        if (!adminId || !businessId) {
+            return res.status(400).json({ error: 'Invalid admin session.' });
+        }
+
+        await pool.query('BEGIN');
+
+        const result = await pool.query(`
+            UPDATE businesses
+            SET deletion_scheduled_at = NULL,
+                deletion_reason = NULL,
+                is_active = TRUE,
+                updated_at = NOW()
+            WHERE id = $1 AND deletion_scheduled_at IS NOT NULL
+            RETURNING id
+        `, [businessId]);
+
+        await pool.query(
+            'UPDATE admin_users SET is_active = TRUE WHERE id = $1',
+            [adminId]
+        );
+
+        await pool.query('COMMIT');
+
+        if (result.rows.length === 0) {
+            return res.json({
+                success: true,
+                cancelled: false,
+                message: 'No pending deletion to cancel.'
+            });
+        }
+
+        await logAdminActivity(adminId, 'CANCEL_BUSINESS_DELETION', { businessId });
+
+        console.log(`♻️ Business #${businessId} deletion cancelled on request.`);
+        res.json({
+            success: true,
+            cancelled: true,
+            message: 'Your business is safe.'
+        });
+    } catch (err) {
+        await pool.query('ROLLBACK');
+        console.error('❌ Business cancel-deletion error:', err);
+        logError(err, 'Business cancel-deletion');
+        res.status(500).json({ error: 'Could not cancel business deletion.' });
     }
 });
 

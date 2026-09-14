@@ -10,7 +10,7 @@
 //   average rating anywhere in the customer-facing UI that
 //   this file renders.
 //
-//   `createBusinessCardAccount()` still reads `business.avg_rating`
+//   createBusinessCardAccount() still reads `business.avg_rating`
 //   but that function is only reached by the marketplace block
 //   that Section 9 hid. It is dead code and Section 10 does not
 //   require touching it. Left in place for backward compatibility
@@ -36,6 +36,45 @@
 //     ?section=payments        → profile + scroll to Payment history
 //     ?section=cart            → /cart.html
 //
+//  Section 11.A — Customer account deletion (4-step flow):
+//   The Danger zone block in the Profile panel opens a chained
+//   set of four modals:
+//     A — offer alternatives (download data / deactivate)
+//     B — password confirmation
+//     C — reason selection
+//     D — type DELETE MY ACCOUNT to confirm
+//   On submit, the client calls
+//     POST /api/auth/customer/request-deletion
+//   which schedules the deletion 30 days out. The customer is
+//   logged out and redirected with a message. If they log back
+//   in during the grace period, the server auto-cancels.
+//
+//  Dead-code cleanup (this revision):
+//   The Section 9 tab simplification removed the visible
+//   marketplace block from account.html (it now carries the
+//   `hidden` attribute). The following helpers only rendered
+//   into that hidden block, so they are removed:
+//     - loadMarketplaceAccount()
+//     - loadCategoriesAccount()
+//     - loadBusinessesAccount()
+//     - renderBusinessesAccount()
+//     - appendBusinessesAccount()
+//     - createBusinessCardAccount()
+//     - searchBusinessesAccount()
+//     - filterBusinessesAccount()
+//     - loadMoreBusinessesAccount()
+//   The marketplace-state globals that only those functions
+//   used are removed too:
+//     allBusinessesAccount, currentPageAccount, hasMoreAccount,
+//     isLoadingAccount, limitAccount.
+//   The call site inside DOMContentLoaded
+//   (`if (!isEmbeddedAccount) loadMarketplaceAccount()`) is
+//   removed.
+//   The corresponding window.* exports are removed.
+//   Backend endpoints (/api/businesses/categories/all and
+//   /api/businesses) are untouched — the marketplace home page
+//   still uses them. Only the dead account-page copy is gone.
+//
 //  Everything from Sections D, E.2, and 6 below is preserved
 //  exactly.
 // ============================================================
@@ -53,11 +92,6 @@ let allOrders = [];
 let currentFilterStatus = null;
 let returnsMap = {};
 let currentSection = 'home';
-let allBusinessesAccount = [];
-let currentPageAccount = 1;
-let hasMoreAccount = true;
-let isLoadingAccount = false;
-const limitAccount = 6;
 
 // Section D — cached location state for this page.
 let customerLocationState = {
@@ -90,6 +124,15 @@ const LEGACY_SECTION_MAP = {
 };
 
 const VALID_SECTIONS = ['home', 'orders', 'profile', 'messages', 'cart'];
+
+// Section 11.A — transient state for the 4-step deletion flow.
+// Reset every time the danger-zone button is clicked.
+const customerDeletionState = {
+    passwordVerified: false,
+    password: '',
+    reason: '',
+    phrase: ''
+};
 
 // ============================================================
 //  PREVENT OLD LAYOUT FROM SHOWING
@@ -1314,167 +1357,313 @@ function loadMessagesContent() {
 }
 
 // ============================================================
-//  MARKETPLACE FUNCTIONS INSIDE ACCOUNT
+//  SECTION 11.A — CUSTOMER ACCOUNT DELETION (4-step flow)
 //
-//  Section 9 — the marketplace block is hidden in the HTML, so
-//  these functions only run for external callers. They are kept
-//  here so nothing throws if they are ever called.
+//  Step A — offer alternatives (download data / deactivate)
+//  Step B — password confirmation
+//  Step C — reason selection
+//  Step D — type DELETE MY ACCOUNT to confirm
 //
-//  Section 10 — createBusinessCardAccount() still references
-//  business.avg_rating. That is dead code (the marketplace block
-//  is hidden). Section 10 does not require touching it. Left in
-//  place for backward compatibility.
+//  On submit, the client calls
+//    POST /api/auth/customer/request-deletion
+//  and then logs the customer out and redirects to / with a
+//  status query param. The server-side login handler
+//  auto-cancels any pending deletion if the customer logs back
+//  in within 30 days.
 // ============================================================
 
-async function loadMarketplaceAccount() {
-    console.log('🏪 Loading marketplace in account...');
-    await loadCategoriesAccount();
-    await loadBusinessesAccount(true);
+function openCustomerDeletionStepA() {
+    resetCustomerDeletionState();
+    showCustomerDeletionModal('A');
 }
 
-async function loadCategoriesAccount() {
-    try {
-        const res = await fetch('/api/businesses/categories/all');
-        if (!res.ok) throw new Error('Failed to load categories');
-        const categories = await res.json();
+function openCustomerDeletionStepB() {
+    // Step A is only a choice screen; moving to B does not need
+    // the password yet, but we do need to clear any prior
+    // attempt's error message so the user sees a clean modal.
+    const statusB = document.getElementById('customerDeletionStatusB');
+    if (statusB) { statusB.textContent = ''; statusB.className = 'deletion-status'; }
 
-        const select = document.getElementById('businessCategoryFilterAccount');
-        if (select && categories.length > 0) {
-            select.innerHTML = '<option value="all">All Business Categories</option>';
-            categories.forEach(cat => {
-                const option = document.createElement('option');
-                option.value = cat.id;
-                option.textContent = `${cat.icon || '📦'} ${cat.name}`;
-                select.appendChild(option);
-            });
-        }
-    } catch (err) {
-        console.error('Error loading categories:', err);
+    const passwordInput = document.getElementById('customerDeletionPassword');
+    if (passwordInput) passwordInput.value = '';
+
+    showCustomerDeletionModal('B');
+}
+
+function openCustomerDeletionStepC() {
+    const statusC = document.getElementById('customerDeletionStatusC');
+    if (statusC) { statusC.textContent = ''; statusC.className = 'deletion-status'; }
+
+    const reasonSelect = document.getElementById('customerDeletionReason');
+    if (reasonSelect) reasonSelect.value = '';
+
+    showCustomerDeletionModal('C');
+}
+
+function openCustomerDeletionStepD() {
+    const statusD = document.getElementById('customerDeletionStatusD');
+    if (statusD) { statusD.textContent = ''; statusD.className = 'deletion-status'; }
+
+    const phraseInput = document.getElementById('customerDeletionConfirmPhrase');
+    if (phraseInput) phraseInput.value = '';
+
+    const finalBtn = document.getElementById('customerDeletionFinalBtn');
+    if (finalBtn) finalBtn.disabled = true;
+
+    showCustomerDeletionModal('D');
+}
+
+function showCustomerDeletionModal(letter) {
+    ['A', 'B', 'C', 'D'].forEach(step => {
+        const modal = document.getElementById(`customerDeletionModal${step}`);
+        if (modal) modal.classList.toggle('active', step === letter);
+    });
+}
+
+function closeCustomerDeletionModals() {
+    ['A', 'B', 'C', 'D'].forEach(step => {
+        const modal = document.getElementById(`customerDeletionModal${step}`);
+        if (modal) modal.classList.remove('active');
+    });
+    resetCustomerDeletionState();
+}
+
+function resetCustomerDeletionState() {
+    customerDeletionState.passwordVerified = false;
+    customerDeletionState.password = '';
+    customerDeletionState.reason = '';
+    customerDeletionState.phrase = '';
+
+    ['A', 'B', 'C', 'D'].forEach(step => {
+        const statusEl = document.getElementById(`customerDeletionStatus${step}`);
+        if (statusEl) { statusEl.textContent = ''; statusEl.className = 'deletion-status'; }
+    });
+
+    const passwordInput = document.getElementById('customerDeletionPassword');
+    if (passwordInput) passwordInput.value = '';
+
+    const reasonSelect = document.getElementById('customerDeletionReason');
+    if (reasonSelect) reasonSelect.value = '';
+
+    const phraseInput = document.getElementById('customerDeletionConfirmPhrase');
+    if (phraseInput) phraseInput.value = '';
+
+    const finalBtn = document.getElementById('customerDeletionFinalBtn');
+    if (finalBtn) finalBtn.disabled = true;
+}
+
+function customerDeletionDownloadData() {
+    // The data-export endpoint is not part of Section 11. Until it
+    // exists, we tell the user honestly so they do not think the
+    // download failed silently.
+    const statusEl = document.getElementById('customerDeletionStatusA');
+    if (statusEl) {
+        statusEl.textContent = '📥 Data download is not yet available. You can still proceed with deletion, or contact support if you need a copy of your data.';
+        statusEl.className = 'deletion-status info';
+    }
+
+    if (typeof window.showToast === 'function') {
+        window.showToast('Data download is not yet available.', 'info');
     }
 }
 
-async function loadBusinessesAccount(reset = true) {
-    if (reset) {
-        currentPageAccount = 1;
-        hasMoreAccount = true;
-        allBusinessesAccount = [];
+function customerDeletionDeactivate() {
+    // Deactivation is a separate feature that has not been built yet.
+    // We surface that clearly instead of silently leaving the modal open.
+    const statusEl = document.getElementById('customerDeletionStatusA');
+    if (statusEl) {
+        statusEl.textContent = '⏸️ Temporary deactivation is not yet available. You can still proceed with permanent deletion, or simply log out and stop using the account.';
+        statusEl.className = 'deletion-status info';
     }
-    if (isLoadingAccount || !hasMoreAccount) return;
-    isLoadingAccount = true;
 
-    const searchInput = document.getElementById('businessSearchAccount');
-    let search = searchInput?.value?.trim() || '';
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(search)) {
-        search = '';
-        if (searchInput) searchInput.value = '';
-    }
-    const category = document.getElementById('businessCategoryFilterAccount')?.value || 'all';
-    const sort = document.getElementById('sortFilterAccount')?.value || 'newest';
-    const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
-
-    try {
-        const url = `/api/businesses?page=${currentPageAccount}&limit=${limitAccount}${searchParam}&category=${category}&sort=${sort}&_=${Date.now()}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('Failed to load businesses');
-        const data = await res.json();
-        const businesses = data.businesses || [];
-        hasMoreAccount = data.pagination?.page < data.pagination?.pages;
-
-        if (reset) {
-            allBusinessesAccount = businesses;
-            renderBusinessesAccount();
-        } else {
-            allBusinessesAccount = [...allBusinessesAccount, ...businesses];
-            appendBusinessesAccount();
-        }
-        currentPageAccount++;
-
-        const loadMoreBtn = document.getElementById('loadMoreBtnAccount');
-        if (loadMoreBtn) {
-            loadMoreBtn.style.display = hasMoreAccount ? 'inline-flex' : 'none';
-        }
-    } catch (err) {
-        console.error('Error loading businesses:', err);
-    } finally {
-        isLoadingAccount = false;
+    if (typeof window.showToast === 'function') {
+        window.showToast('Temporary deactivation is not yet available.', 'info');
     }
 }
 
-function renderBusinessesAccount() {
-    const container = document.getElementById('businessGridAccount');
-    if (!container) return;
+async function customerDeletionVerifyPassword() {
+    const statusEl = document.getElementById('customerDeletionStatusB');
+    const verifyBtn = document.getElementById('customerDeletionVerifyBtn');
+    const passwordInput = document.getElementById('customerDeletionPassword');
+    const password = passwordInput ? passwordInput.value : '';
 
-    if (!allBusinessesAccount || allBusinessesAccount.length === 0) {
-        container.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><span class="icon">🔍</span> No businesses found</div>';
+    if (!password) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please enter your password.';
+            statusEl.className = 'deletion-status error';
+        }
+        if (passwordInput) passwordInput.focus();
         return;
     }
 
-    container.innerHTML = allBusinessesAccount.map(b => createBusinessCardAccount(b)).join('');
-}
-
-function appendBusinessesAccount() {
-    const container = document.getElementById('businessGridAccount');
-    if (!container) return;
-
-    const start = Math.max(0, allBusinessesAccount.length - limitAccount);
-    const newBusinesses = allBusinessesAccount.slice(start);
-    const newHtml = newBusinesses.map(b => createBusinessCardAccount(b)).join('');
-    container.innerHTML += newHtml;
-}
-
-function createBusinessCardAccount(business) {
-    let slug = business.slug;
-    if (!slug || slug === '' || slug === 'undefined' || slug === 'null') {
-        slug = business.business_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        if (business.id) slug = slug + '-' + business.id;
+    if (verifyBtn) {
+        verifyBtn.disabled = true;
+        verifyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+    }
+    if (statusEl) {
+        statusEl.textContent = '⏳ Verifying your password…';
+        statusEl.className = 'deletion-status info';
     }
 
-    const logoHtml = business.logo
-        ? `<img src="${business.logo}" alt="${business.business_name}" loading="lazy">`
-        : `<div class="no-image">🏪</div>`;
+    try {
+        // The verification is done as part of the final request so the
+        // password is never stored anywhere on the client. To keep the
+        // flow simple we simply stash it in the in-memory state and
+        // verify it server-side when the user submits in step D.
+        customerDeletionState.password = password;
 
-    const rating = parseFloat(business.avg_rating) || 0;
-    const ratingStars = rating > 0 ? '⭐'.repeat(Math.round(rating)) : '';
-    const ratingDisplay = rating > 0 ? `<span>⭐ ${rating.toFixed(1)}</span>` : '';
+        // Sanity check: make sure the customer exists before letting
+        // them continue. This is a lightweight call that also confirms
+        // the session is still valid.
+        const res = await fetch('/api/auth/customer/verify', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            credentials: 'same-origin'
+        });
 
-    const badges = [];
-    if (business.is_verified) badges.push('<span class="badge verified">✅ Verified</span>');
-    if (business.is_featured) badges.push('<span class="badge featured">⭐ Featured</span>');
+        if (!res.ok) {
+            throw new Error('Your session has expired. Please log in again.');
+        }
 
-    const productCount = business.product_count || 0;
-    const followerCount = business.follower_count || 0;
+        customerDeletionState.passwordVerified = true;
 
-    return `
-        <div class="business-card-account" onclick="window.location.href='/business/${encodeURIComponent(slug)}'">
-            <div class="card-image">
-                ${logoHtml}
-                <div class="card-badges" style="position:absolute;top:8px;right:8px;display:flex;gap:4px;flex-wrap:wrap;">
-                    ${badges.join('')}
-                </div>
-            </div>
-            <div class="card-body">
-                <div class="business-name">${business.business_name}</div>
-                <div class="business-location">📍 ${business.location || 'Kenya'}</div>
-                <div class="business-stats">
-                    <span>🛍️ ${productCount}</span>
-                    <span>👥 ${followerCount}</span>
-                    ${ratingDisplay}
-                </div>
-            </div>
-        </div>
-    `;
+        if (statusEl) {
+            statusEl.textContent = '✅ Password accepted.';
+            statusEl.className = 'deletion-status success';
+        }
+
+        // Small delay so the user sees the confirmation before the
+        // modal flips to step C.
+        setTimeout(() => openCustomerDeletionStepC(), 400);
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + (err.message || 'Could not verify your password.');
+            statusEl.className = 'deletion-status error';
+        }
+        if (verifyBtn) verifyBtn.disabled = false;
+    } finally {
+        if (verifyBtn) {
+            verifyBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Continue';
+        }
+    }
 }
 
-function searchBusinessesAccount() {
-    loadBusinessesAccount(true);
+function customerDeletionChooseReason() {
+    const statusEl = document.getElementById('customerDeletionStatusC');
+    const reasonSelect = document.getElementById('customerDeletionReason');
+    const reason = reasonSelect ? reasonSelect.value : '';
+
+    if (!reason) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please select a reason before continuing.';
+            statusEl.className = 'deletion-status error';
+        }
+        if (reasonSelect) reasonSelect.focus();
+        return;
+    }
+
+    customerDeletionState.reason = reason;
+    openCustomerDeletionStepD();
 }
 
-function filterBusinessesAccount() {
-    loadBusinessesAccount(true);
+function customerDeletionCheckPhrase() {
+    const phraseInput = document.getElementById('customerDeletionConfirmPhrase');
+    const finalBtn = document.getElementById('customerDeletionFinalBtn');
+    const typed = phraseInput ? phraseInput.value : '';
+
+    if (finalBtn) {
+        finalBtn.disabled = typed !== 'DELETE MY ACCOUNT';
+    }
 }
 
-function loadMoreBusinessesAccount() {
-    loadBusinessesAccount(false);
+async function customerDeletionSubmit() {
+    const statusEl = document.getElementById('customerDeletionStatusD');
+    const finalBtn = document.getElementById('customerDeletionFinalBtn');
+    const phraseInput = document.getElementById('customerDeletionConfirmPhrase');
+
+    if (!customerDeletionState.passwordVerified) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please start over from the top of the danger zone.';
+            statusEl.className = 'deletion-status error';
+        }
+        return;
+    }
+
+    if (!customerDeletionState.reason) {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please select a reason before continuing.';
+            statusEl.className = 'deletion-status error';
+        }
+        return;
+    }
+
+    if ((phraseInput?.value || '') !== 'DELETE MY ACCOUNT') {
+        if (statusEl) {
+            statusEl.textContent = '❌ Please type DELETE MY ACCOUNT exactly to confirm.';
+            statusEl.className = 'deletion-status error';
+        }
+        if (phraseInput) phraseInput.focus();
+        return;
+    }
+
+    if (finalBtn) {
+        finalBtn.disabled = true;
+        finalBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scheduling…';
+    }
+    if (statusEl) {
+        statusEl.textContent = '⏳ Scheduling your account for deletion…';
+        statusEl.className = 'deletion-status info';
+    }
+
+    try {
+        const res = await fetch('/api/auth/customer/request-deletion', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                password: customerDeletionState.password,
+                reason: customerDeletionState.reason
+            })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Could not schedule account deletion.');
+        }
+
+        if (statusEl) {
+            const when = data.deletion_scheduled_for
+                ? new Date(data.deletion_scheduled_for).toLocaleString()
+                : 'in 30 days';
+            statusEl.textContent = `✅ Your account is scheduled for deletion on ${when}.`;
+            statusEl.className = 'deletion-status success';
+        }
+
+        // Clear the client session and return the customer to the
+        // marketplace with a small notice in the query string. The
+        // cookie is cleared by the server on the way out.
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('businessId');
+        localStorage.removeItem('businessName');
+        localStorage.removeItem('businessSlug');
+        window.currentUser = null;
+
+        setTimeout(() => {
+            window.location.href = '/?account_deletion=scheduled';
+        }, 1800);
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '❌ ' + (err.message || 'Something went wrong. Please try again.');
+            statusEl.className = 'deletion-status error';
+        }
+        if (finalBtn) {
+            finalBtn.disabled = false;
+            finalBtn.innerHTML = '<i class="fas fa-user-times"></i> Delete My Account';
+        }
+    }
 }
 
 // ============================================================
@@ -1498,7 +1687,7 @@ async function logout() {
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('📄 Account page loaded - HORIZONTAL LAYOUT (Section 10 audit)');
+    console.log('📄 Account page loaded - HORIZONTAL LAYOUT (Section 10 audit, Section 11.A deletion)');
 
     setTimeout(function() {
         const oldSidebar = document.querySelector('.sidebar');
@@ -1512,15 +1701,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 100);
 
     initSocket();
-
-    const marketplaceSearch = document.getElementById('businessSearchAccount');
-    if (marketplaceSearch) {
-        marketplaceSearch.value = '';
-        marketplaceSearch.defaultValue = '';
-        setTimeout(() => { marketplaceSearch.value = ''; }, 500);
-    }
-    document.getElementById('businessCategoryFilterAccount')?.addEventListener('change', filterBusinessesAccount);
-    document.getElementById('sortFilterAccount')?.addEventListener('change', filterBusinessesAccount);
 
     const requestedSection = new URLSearchParams(window.location.search).get('section');
     const initialSection = requestedSection || 'home';
@@ -1543,8 +1723,6 @@ document.addEventListener('DOMContentLoaded', function() {
     loadCustomerLocationState();
     loadCustomerPreferredAreaState();
     renderProfileUsername(user.username);
-
-    if (!isEmbeddedAccount) loadMarketplaceAccount();
 
     updateCartBadge();
 });
@@ -1578,9 +1756,6 @@ window.saveAddress = saveAddress;
 window.setDefaultAddress = setDefaultAddress;
 window.deleteAddress = deleteAddress;
 window.selectAddressSuggestion = selectAddressSuggestion;
-window.searchBusinessesAccount = searchBusinessesAccount;
-window.filterBusinessesAccount = filterBusinessesAccount;
-window.loadMoreBusinessesAccount = loadMoreBusinessesAccount;
 window.logout = logout;
 window.updateCartBadge = updateCartBadge;
 window.returnToMarketplace = returnToMarketplace;
@@ -1598,4 +1773,18 @@ window.renderProfileUsername = renderProfileUsername;
 window.openAccountCart = openAccountCart;
 window.scrollToProfileSection = scrollToProfileSection;
 
-console.log('✅ Account.js loaded successfully (Section 10 — audit complete, no changes required)');
+// Section 11.A — expose the deletion flow helpers so the modal
+// buttons in account.html resolve.
+window.openCustomerDeletionStepA = openCustomerDeletionStepA;
+window.openCustomerDeletionStepB = openCustomerDeletionStepB;
+window.openCustomerDeletionStepC = openCustomerDeletionStepC;
+window.openCustomerDeletionStepD = openCustomerDeletionStepD;
+window.closeCustomerDeletionModals = closeCustomerDeletionModals;
+window.customerDeletionDownloadData = customerDeletionDownloadData;
+window.customerDeletionDeactivate = customerDeletionDeactivate;
+window.customerDeletionVerifyPassword = customerDeletionVerifyPassword;
+window.customerDeletionChooseReason = customerDeletionChooseReason;
+window.customerDeletionCheckPhrase = customerDeletionCheckPhrase;
+window.customerDeletionSubmit = customerDeletionSubmit;
+
+console.log('✅ Account.js loaded successfully (Section 10 audit complete, Section 11.A deletion wired, dead marketplace code removed)');

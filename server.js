@@ -520,6 +520,128 @@ cron.schedule('0 * * * *', async () => {
 });
 
 // ============================================================
+//  SECTION 11 — ACCOUNT DELETION FINALIZATION
+//
+//  Runs daily at 03:00 server time. Finds customers and businesses
+//  whose grace period has ended, and finalizes the deletion:
+//    - Customers are anonymized in place. The row is never
+//      hard-deleted because orders and chats reference it.
+//    - Businesses are deactivated in place. Products and admin
+//      accounts are also deactivated, and the search tag is
+//      released so a future business can claim it. The row is
+//      never hard-deleted.
+//
+//  Both queries are wrapped in a single transaction so a crash
+//  mid-finalization cannot leave a half-anonymized row.
+// ============================================================
+
+cron.schedule('0 3 * * *', async () => {
+  console.log('🔄 Running account deletion finalization job...');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // ----------------------------------------------------------
+    //  1. Finalize customers past their 30-day grace period.
+    // ----------------------------------------------------------
+    const customersToFinalize = await client.query(`
+      SELECT id FROM customers
+      WHERE deletion_scheduled_at IS NOT NULL
+        AND deletion_scheduled_at < NOW()
+      FOR UPDATE
+    `);
+
+    for (const row of customersToFinalize.rows) {
+      const customerId = row.id;
+      await client.query(
+        `UPDATE customers
+            SET name = 'Deleted Customer #' || id,
+                email = NULL,
+                phone = NULL,
+                password = NULL,
+                latitude = NULL,
+                longitude = NULL,
+                location_accuracy = NULL,
+                location_activated = FALSE,
+                location_activated_at = NULL,
+                location_source = NULL,
+                preferred_continent = NULL,
+                preferred_country = NULL,
+                preferred_county = NULL,
+                preferred_sub_county = NULL,
+                preferred_ward = NULL,
+                preferred_town = NULL,
+                preferred_locations_updated_at = NULL,
+                deletion_scheduled_at = NULL,
+                deletion_reason = NULL,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [customerId]
+      );
+    }
+
+    // ----------------------------------------------------------
+    //  2. Finalize businesses past their 60-day grace period.
+    //     is_active is already FALSE (set at request time), but
+    //     we set it again for safety in case a super admin
+    //     reactivated the row in between.
+    // ----------------------------------------------------------
+    const businessesToFinalize = await client.query(`
+      SELECT id, owner_id FROM businesses
+      WHERE deletion_scheduled_at IS NOT NULL
+        AND deletion_scheduled_at < NOW()
+      FOR UPDATE
+    `);
+
+    for (const row of businessesToFinalize.rows) {
+      const businessId = row.id;
+      const ownerId = row.owner_id;
+
+      // Deactivate the business and release its search tag.
+      await client.query(
+        `UPDATE businesses
+            SET is_active = FALSE,
+                search_tag = NULL,
+                search_display = NULL,
+                search_prefix = NULL,
+                search_name = NULL,
+                search_tag_confirmed = FALSE,
+                deletion_scheduled_at = NULL,
+                deletion_reason = NULL,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [businessId]
+      );
+
+      // Hide every product of the business.
+      await client.query(
+        `UPDATE products SET is_active = FALSE WHERE business_id = $1`,
+        [businessId]
+      );
+
+      // Deactivate the owner's admin account so they cannot log in.
+      if (ownerId) {
+        await client.query(
+          `UPDATE admin_users SET is_active = FALSE WHERE id = $1`,
+          [ownerId]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+
+    console.log(`✅ Finalized ${customersToFinalize.rowCount} customer(s) and ${businessesToFinalize.rowCount} business(es).`);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('❌ Account deletion finalization error:', err);
+    logError(err, 'Account deletion finalization');
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================
 //  ERROR HANDLER
 // ============================================================
 

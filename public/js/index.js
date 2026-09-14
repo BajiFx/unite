@@ -74,6 +74,30 @@
 //   ?workspace=payments fall back to the Profile tab, which is
 //   where those sub-sections now live.
 //   Kicker text and title logic are unchanged.
+//
+//  Dead-code cleanup (this revision):
+//   The Section 6/7 simplification removed the last HTML nodes
+//   that the following helpers used to write to. They are now
+//   removed from this file:
+//     - bindBusinessSearchTagFields()
+//     - renderBusinessSearchPreview()
+//     - setBusinessSearchStatus()
+//     - clearBusinessSearchTagErrors()
+//     - checkBusinessSearchTagAvailability()
+//     - debounceBusinessSearchTagCheck()
+//     - normalizeSearchTagPart()
+//     - buildSearchTagDisplay()
+//     - checkUsernameAvailability()
+//     - generateUsernameSuggestions()
+//     - fillUsername()
+//     - loadProductRecommendationsLegacy()
+//   The searchTagCheckDebounceTimer global and the
+//   SEARCH_TAG_CHECK_DEBOUNCE_MS constant were removed with them.
+//   The corresponding window.* exports were removed too.
+//   Backend endpoints (/api/auth/check-business-tag,
+//   /api/auth/check-username) are untouched — the frontend simply
+//   no longer calls them, because the forms no longer expose the
+//   fields they validated.
 // ============================================================
 
 // ============================================================
@@ -184,12 +208,6 @@ let adsImpressionFiredFor = new Set();
 
 // Section Q — in-feed ad strips.
 let inFeedAdsConsumed = 0;
-
-// ------------------------------------------------------------
-// Business Search Tag — registration-time state.
-// ------------------------------------------------------------
-let searchTagCheckDebounceTimer = null;
-const SEARCH_TAG_CHECK_DEBOUNCE_MS = 400;
 
 // ============================================================
 //  AUTO-FILL GUARD
@@ -683,7 +701,6 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   loadBusinessCategoriesForRegistration();
-  bindBusinessSearchTagFields();
 });
 
 // ============================================================
@@ -1346,154 +1363,6 @@ function populateRegisterCategorySelect(categories) {
 }
 
 // ============================================================
-//  BUSINESS SEARCH TAG — form wiring
-// ============================================================
-
-function normalizeSearchTagPart(value) {
-  if (value === undefined || value === null) return '';
-  return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function buildSearchTagDisplay(prefix, name) {
-  const p = String(prefix || '').trim();
-  const n = String(name || '').trim();
-  if (!p || !n) return '';
-  return `${p}${n}`;
-}
-
-function renderBusinessSearchPreview() {
-  const preview = document.getElementById('regBusinessSearchPreview');
-  const previewValue = document.getElementById('regBusinessSearchPreviewValue');
-  if (!preview || !previewValue) return;
-
-  const prefix = document.getElementById('regBusinessSearchPrefix')?.value || '';
-  const name = document.getElementById('regBusinessSearchName')?.value || '';
-
-  const display = buildSearchTagDisplay(prefix, name);
-  if (!display) {
-    preview.style.display = 'none';
-    previewValue.textContent = '';
-    return;
-  }
-
-  preview.style.display = 'block';
-  previewValue.textContent = display;
-}
-
-function setBusinessSearchStatus(message, tone) {
-  const statusEl = document.getElementById('regBusinessSearchStatus');
-  if (!statusEl) return;
-
-  if (!message) {
-    statusEl.style.display = 'none';
-    statusEl.textContent = '';
-    statusEl.style.color = '';
-    return;
-  }
-
-  statusEl.style.display = 'block';
-  statusEl.textContent = message;
-
-  if (tone === 'ok') statusEl.style.color = '#166534';
-  else if (tone === 'error') statusEl.style.color = '#ef4444';
-  else if (tone === 'checking') statusEl.style.color = '#2563eb';
-  else statusEl.style.color = '#64748b';
-}
-
-function clearBusinessSearchTagErrors() {
-  const prefixInput = document.getElementById('regBusinessSearchPrefix');
-  if (prefixInput) prefixInput.style.borderColor = '#d1d5db';
-  const errEl = document.getElementById('regBusinessSearchError');
-  if (errEl) errEl.style.display = 'none';
-}
-
-async function checkBusinessSearchTagAvailability() {
-  const prefixInput = document.getElementById('regBusinessSearchPrefix');
-  const nameInput = document.getElementById('regBusinessSearchName');
-  if (!prefixInput || !nameInput) return;
-
-  const prefix = prefixInput.value.trim();
-  const name = nameInput.value.trim();
-
-  clearBusinessSearchTagErrors();
-  setBusinessSearchStatus('', '');
-
-  if (!prefix && !name) return;
-
-  if (!/^[0-9]{3,4}$/.test(prefix)) {
-    if (prefix) {
-      setBusinessSearchStatus('The number must be 3 or 4 digits (e.g. 363 or 3734).', 'error');
-      prefixInput.style.borderColor = '#ef4444';
-    }
-    return;
-  }
-
-  if (name.length < 2) {
-    if (name) {
-      setBusinessSearchStatus('Please type the name customers will use (at least 2 characters).', 'error');
-    }
-    return;
-  }
-
-  setBusinessSearchStatus('Checking availability...', 'checking');
-
-  try {
-    const url = `/api/auth/check-business-tag?prefix=${encodeURIComponent(prefix)}&name=${encodeURIComponent(name)}`;
-    const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
-    const data = await res.json();
-
-    if (data && data.available) {
-      prefixInput.style.borderColor = '#22c55e';
-      setBusinessSearchStatus(`✅ "${prefix}${name}" is available.`, 'ok');
-    } else {
-      prefixInput.style.borderColor = '#ef4444';
-      setBusinessSearchStatus(
-        data && data.message
-          ? '❌ ' + data.message
-          : '❌ This number is already used. Please try another.',
-        'error'
-      );
-    }
-  } catch (err) {
-    setBusinessSearchStatus('Could not check the tag right now. You can still submit; the server will check again.', '');
-  }
-}
-
-function debounceBusinessSearchTagCheck() {
-  if (searchTagCheckDebounceTimer) {
-    clearTimeout(searchTagCheckDebounceTimer);
-  }
-  searchTagCheckDebounceTimer = setTimeout(() => {
-    searchTagCheckDebounceTimer = null;
-    checkBusinessSearchTagAvailability();
-  }, SEARCH_TAG_CHECK_DEBOUNCE_MS);
-}
-
-function bindBusinessSearchTagFields() {
-  const prefixInput = document.getElementById('regBusinessSearchPrefix');
-  const nameInput = document.getElementById('regBusinessSearchName');
-  if (!prefixInput || !nameInput) return;
-
-  prefixInput.addEventListener('input', () => {
-    const cleaned = prefixInput.value.replace(/[^0-9]/g, '').slice(0, 4);
-    if (cleaned !== prefixInput.value) prefixInput.value = cleaned;
-
-    clearBusinessSearchTagErrors();
-    renderBusinessSearchPreview();
-    debounceBusinessSearchTagCheck();
-  });
-
-  nameInput.addEventListener('input', () => {
-    clearBusinessSearchTagErrors();
-    renderBusinessSearchPreview();
-    debounceBusinessSearchTagCheck();
-  });
-
-  prefixInput.addEventListener('blur', checkBusinessSearchTagAvailability);
-  nameInput.addEventListener('blur', checkBusinessSearchTagAvailability);
-}
-
-// ============================================================
 //  SECTION K — PRODUCT-MATCH RENDERING HELPERS
 // ============================================================
 
@@ -2146,88 +2015,6 @@ function togglePwd(inputId, btn) {
 }
 
 // ============================================================
-//  CHECK USERNAME AVAILABILITY
-// ============================================================
-
-async function checkUsernameAvailability(username, type) {
-  if (!username || username.length < 3) {
-    const statusEl = type === 'customer'
-      ? document.getElementById('customerUsernameStatus')
-      : document.getElementById('businessUsernameStatus');
-    if (statusEl) {
-      statusEl.textContent = 'Username must be at least 3 characters';
-      statusEl.style.color = '#94a3b8';
-    }
-    return false;
-  }
-
-  try {
-    const res = await fetch(`/api/auth/check-username?username=${encodeURIComponent(username)}`);
-    const data = await res.json();
-    const statusEl = type === 'customer'
-      ? document.getElementById('customerUsernameStatus')
-      : document.getElementById('businessUsernameStatus');
-    const suggestionsEl = type === 'customer'
-      ? document.getElementById('customerUsernameSuggestions')
-      : document.getElementById('businessUsernameSuggestions');
-
-    if (data.available) {
-      if (statusEl) {
-        statusEl.textContent = '✅ Username available';
-        statusEl.style.color = '#22c55e';
-      }
-      if (suggestionsEl) suggestionsEl.style.display = 'none';
-      return true;
-    } else {
-      if (statusEl) {
-        statusEl.textContent = '❌ Username already taken. Try one of the suggestions below:';
-        statusEl.style.color = '#ef4444';
-      }
-      generateUsernameSuggestions(username, type);
-      return false;
-    }
-  } catch (err) {
-    console.error('Username check error:', err);
-    return false;
-  }
-}
-
-function generateUsernameSuggestions(base, type) {
-  const suggestionsEl = type === 'customer'
-    ? document.getElementById('customerUsernameSuggestions')
-    : document.getElementById('businessUsernameSuggestions');
-
-  if (!suggestionsEl) return;
-
-  const suggestions = [
-    base + Math.floor(Math.random() * 100),
-    base + '_' + Math.floor(Math.random() * 1000),
-    base + Math.floor(Math.random() * 1000),
-    base + '_shop',
-    base + '_store',
-    'my_' + base,
-    base + '_' + new Date().getFullYear()
-  ];
-
-  suggestionsEl.style.display = 'block';
-  suggestionsEl.innerHTML = `
-    <strong>Suggestions:</strong>
-    ${suggestions.map(s =>
-      `<span onclick="fillUsername('${s}', '${type}')" style="cursor:pointer; color:#2563eb; margin:0 4px; padding:2px 8px; background:white; border-radius:4px; border:1px solid #e2e8f0; display:inline-block; margin-bottom:4px;">${s}</span>`
-    ).join('')}
-  `;
-}
-
-function fillUsername(username, type) {
-  const inputId = type === 'customer' ? 'regCustomerUsername' : 'regBusinessUsername';
-  const input = document.getElementById(inputId);
-  if (input) {
-    input.value = username;
-    checkUsernameAvailability(username, type);
-  }
-}
-
-// ============================================================
 //  HANDLE LOGIN
 // ============================================================
 
@@ -2707,9 +2494,6 @@ window.togglePwd = togglePwd;
 window.handleLogin = handleLogin;
 window.handleCustomerRegister = handleCustomerRegister;
 window.handleBusinessRegister = handleBusinessRegister;
-window.checkUsernameAvailability = checkUsernameAvailability;
-window.generateUsernameSuggestions = generateUsernameSuggestions;
-window.fillUsername = fillUsername;
 window.showToast = showToast;
 window.loadBusinessCategoriesForRegistration = loadBusinessCategoriesForRegistration;
 window.maybeSuggestNearKeyword = maybeSuggestNearKeyword;
@@ -2727,11 +2511,7 @@ window.businessSellsSearchWord = businessSellsSearchWord;
 window.renderFuzzySearchHint = renderFuzzySearchHint;
 
 window.insertInFeedAdStrips = insertInFeedAdStrips;
-
-window.renderBusinessSearchPreview = renderBusinessSearchPreview;
-window.checkBusinessSearchTagAvailability = checkBusinessSearchTagAvailability;
 window.copyBusinessSearchTag = copyBusinessSearchTag;
-window.buildSearchTagDisplay = buildSearchTagDisplay;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
@@ -3181,4 +2961,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (Section 9 — customer workspace reduced to 4 tabs: Home, Orders, Profile, Messages)');
+console.log('✅ Index.js loaded successfully (Section 9 — customer workspace reduced to 4 tabs: Home, Orders, Profile, Messages; dead-code cleanup applied)');
