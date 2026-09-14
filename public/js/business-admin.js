@@ -48,19 +48,44 @@
 //   If the admin logs back in during the grace period, the
 //   server auto-cancels the deletion.
 //
-//  Dead-code cleanup (this revision):
-//   The Section 8 sidebar simplification removed the Customers
-//   sidebar item. The following helpers only ever wrote into
-//   the removed Customers page, so they are removed:
-//     - loadCustomers()
-//     - the `case 'customers':` branch inside navigateTo()
-//     - the 'customers' entry in the validSections whitelist
-//       inside verifyBusinessAccess()
-//     - the customersData global
-//     - the window.loadCustomers export
-//   Backend endpoints (/api/business-admin/customers) are
-//   untouched — the frontend simply no longer calls them.
+//  Tile provider migration (this revision):
+//   OpenStreetMap's volunteer tile servers block requests from
+//   deployments that are not plain human-browsing traffic. Any
+//   request from a custom domain, an ngrok tunnel, or a cloud
+//   host (including ours) is refused with HTTP 403, so every
+//   business-admin map showed "Access blocked" tiles.
+//
+//   The fix replaces the OSM tile URL with CartoDB Positron,
+//   a free, attribution-friendly raster basemap hosted on a
+//   proper CDN. It is the closest visual match to OSM's default
+//   style, needs no API key, and is explicitly allowed for
+//   production web apps.
+//
+//   This file now uses CARTO_TILE_URL as the single source of
+//   truth for the tile layer, so any future provider change is
+//   one constant. business-profile.js, track.js, seller-track.js
+//   and order-tracking.js have each been updated to use the same
+//   URL, and server.js has been updated so Helmet's imgSrc and
+//   connectSrc CSP directives whitelist basemaps.cartocdn.com.
 // ============================================================
+
+// ============================================================
+//  TILE PROVIDER — single source of truth
+//
+//  CartoDB Positron (light_all) is a free, no-signup raster
+//  basemap served from a global CDN. It reads well behind
+//  marker pins and matches the neutral look of the previous
+//  OSM tiles.
+//
+//  `{s}` is a subdomain placeholder Leaflet fills in with a, b,
+//  or c automatically. `{r}` is the retina placeholder Leaflet
+//  fills in with "@2x" on high-DPI screens, or an empty string
+//  otherwise. Both are handled by Leaflet, not by us.
+// ============================================================
+
+const CARTO_TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const CARTO_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const CARTO_TILE_SUBDOMAINS = 'abcd';
 
 // Check if running in embedded mode (inside dashboard panel)
 const isEmbeddedBA = new URLSearchParams(window.location.search).get('embedded') === '1';
@@ -476,8 +501,9 @@ function renderBusinessLocationMap(latitude, longitude) {
 
     if (!businessLocationMap) {
         businessLocationMap = L.map(mapContainer).setView([lat, lng], 15);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap',
+        L.tileLayer(CARTO_TILE_URL, {
+            attribution: CARTO_TILE_ATTRIBUTION,
+            subdomains: CARTO_TILE_SUBDOMAINS,
             maxZoom: 19
         }).addTo(businessLocationMap);
     } else {
@@ -3765,4 +3791,4 @@ window.businessDeletionChooseReason = businessDeletionChooseReason;
 window.businessDeletionCheckName = businessDeletionCheckName;
 window.businessDeletionSubmit = businessDeletionSubmit;
 
-console.log('✅ Business Admin JS loaded successfully (Section 10 — rating tile removed, Section 11.B — business deletion wired, dead Customers code removed)');
+console.log('✅ Business Admin JS loaded successfully (Section 10 — rating tile removed, Section 11.B — business deletion wired, CARTO tile provider active)');

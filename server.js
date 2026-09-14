@@ -1,6 +1,27 @@
 // ============================================================
 //  SERVER.JS - COMPLETE MULTI-VENDOR VERSION (FIXED)
 //  Location: server.js
+//
+//  Tile provider migration (this revision):
+//   The Helmet contentSecurityPolicy directives imgSrc and
+//   connectSrc no longer whitelist the OpenStreetMap volunteer
+//   tile hosts (https://*.tile.openstreetmap.org and
+//   https://*.openstreetmap.org). Those hosts block requests
+//   from anything that is not plain human-browsing traffic —
+//   including our deployment — with HTTP 403. Every Leaflet map
+//   in the app was showing "Access blocked" tiles as a result.
+//
+//   All five map-rendering files (business-admin.js,
+//   business-profile.js, track.js, seller-track.js, and
+//   order-tracking.js) have been updated to load CartoDB
+//   Positron from basemaps.cartocdn.com instead. This file now
+//   whitelists that host, and keeps a small allowance for the
+//   subdomains Leaflet generates (a, b, c, d).
+//
+//   The OSM hostnames are removed from imgSrc. The connectSrc
+//   entry for nominatim.openstreetmap.org is kept, because
+//   address-lookup and geocoding still use it — the tile-block
+//   policy does not apply to that endpoint.
 // ============================================================
 
 require('dotenv').config();
@@ -160,26 +181,31 @@ app.use(helmet({
         "https://fonts.gstatic.com",
         "data:"
       ],
+      // ------------------------------------------------------------
+      //  Tile provider migration — imgSrc no longer lists
+      //  *.tile.openstreetmap.org or *.openstreetmap.org.
+      //
+      //  CartoDB Positron is served from basemaps.cartocdn.com
+      //  and its numbered subdomains (a, b, c, d), which share the
+      //  same basemaps.cartocdn.com hostname. The single wildcard
+      //  entry below covers all four.
+      //
+      //  Cloudinary (business and product images) and local data
+      //  URLs are unchanged.
+      // ------------------------------------------------------------
       imgSrc: [
         "'self'",
         "data:",
+        "blob:",
         "https://res.cloudinary.com",
-        "https://*.tile.openstreetmap.org",
-        "https://*.openstreetmap.org",
+        "https://basemaps.cartocdn.com",
+        "https://*.basemaps.cartocdn.com",
         "https://unpkg.com"
       ],
       // ------------------------------------------------------------
-      //  SECTION 2 FIX — allow video playback and blob previews.
-      //
-      //  Without this directive, <video> and <audio> fall back to
-      //  defaultSrc (’self’), which blocks two cases:
-      //    • the ad-form preview, which uses a blob: URL
-      //    • the marketplace hero slider, which uses
-      //      https://res.cloudinary.com
-      //
-      //  Adding mediaSrc with ’self’, blob:, data: and Cloudinary
-      //  lets both cases load. Images already worked because imgSrc
-      //  already listed data: and Cloudinary.
+      //  mediaSrc allows video playback and blob previews for the
+      //  ad slider and product media. Unchanged from the previous
+      //  revision.
       // ------------------------------------------------------------
       mediaSrc: [
         "'self'",
@@ -187,12 +213,23 @@ app.use(helmet({
         "data:",
         "https://res.cloudinary.com"
       ],
+      // ------------------------------------------------------------
+      //  Tile provider migration — connectSrc no longer lists the
+      //  OSM tile hosts. The Nominatim geocoding endpoint is kept
+      //  because address lookup and reverse geocoding still use it
+      //  and it is not covered by the tile-block policy.
+      //
+      //  basemaps.cartocdn.com is added so any XHR/fetch preview
+      //  or preload against the tile CDN is allowed.
+      // ------------------------------------------------------------
       connectSrc: [
         "'self'",
         "ws://localhost:3000",
         "wss://*.onrender.com",
         "https://unpkg.com",
         "https://nominatim.openstreetmap.org",
+        "https://basemaps.cartocdn.com",
+        "https://*.basemaps.cartocdn.com",
         "http://localhost:3000",
         "https://localhost:3000",
         "http://localhost:*",
@@ -880,6 +917,7 @@ async function startServer() {
       console.log(`🔒 Security: ${helmet ? '✅ Enabled' : '⚠️ Disabled'}`);
       console.log(`⏰ Cron Jobs: ${cron ? '✅ Enabled' : '⚠️ Disabled'}`);
       console.log(`👋 Welcome splash: ${welcomeFileExists() ? '✅ Enabled' : '⚠️ Disabled (welcome.html not found)'}`);
+      console.log(`🗺️ Tile provider: CartoDB Positron`);
       console.log(`🌐 Base URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
       console.log(`\n📋 Admin Panel: http://localhost:${PORT}/admin.html`);
       console.log(`📋 Business Admin: http://localhost:${PORT}/business-admin.html`);

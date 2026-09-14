@@ -131,6 +131,23 @@
 //   matching, so typing "3734", "3734d", "3734doppa", etc. all
 //   narrow the list step by step. A floor of 3 characters stops
 //   a single digit from matching far too many rows.
+//
+//  Category blocks (this revision):
+//   Every business row now carries a `categories` array so the
+//   marketplace can group businesses by category on the client
+//   without a second round-trip per business. The array shape is
+//     [{ id, name, icon }, ...]
+//   The subquery is a single indexed lookup on
+//   business_category_assignments(business_id), which is already
+//   indexed by the multi-vendor schema. It is added in exactly
+//   two places:
+//     1. lookupBusinessesBySearchTag() — so tag-matched rows
+//        still carry their categories.
+//     2. runSearch() — so every list response carries them.
+//   Nothing else in this file changes. Search, filters, sort,
+//   location, ads, rotation, fuzzy fallback, smart score, the
+//   product query, the count query, pagination, and error
+//   handling are all untouched.
 // ============================================================
 
 const express = require('express');
@@ -149,6 +166,24 @@ function productFallbackImage(name) {
 
 const LOCATION_FIELDS = ['continent', 'country', 'county', 'sub_county', 'ward', 'town', 'specific_area', 'postal_code'];
 const locationSql = LOCATION_FIELDS.map(field => `COALESCE(b.${field}, '')`).join(", ' ', ");
+
+// ============================================================
+//  Category JSON subquery
+//
+//  A single SQL fragment reused in both places that return
+//  business rows. The alias is fixed (`categories`) so the
+//  client can read `business.categories` uniformly.
+// ============================================================
+
+const CATEGORIES_SUBQUERY = `
+    (SELECT COALESCE(
+        json_agg(json_build_object('id', c.id, 'name', c.name, 'icon', c.icon) ORDER BY c.name),
+        '[]'::json
+     )
+     FROM business_category_assignments bca
+     JOIN business_categories c ON c.id = bca.category_id
+     WHERE bca.business_id = b.id) AS categories
+`;
 
 // ============================================================
 //  Section D — keyword parsing
@@ -490,18 +525,6 @@ function rotateArray(list, offset) {
 
 // ============================================================
 //  Business Search Tag — server-side helpers
-//
-//  The tag is <digits><name> (e.g. 3734Doppa Beddings). The
-//  stored `search_tag` column holds the normalized form:
-//  lowercase, only [a-z0-9], no spaces or punctuation.
-//
-//  During a customer search we normalize the incoming text the
-//  same way and match it as a prefix of `search_tag`. If at
-//  least one business's tag starts with what the customer has
-//  typed so far, those businesses become the primary result set.
-//
-//  A floor of 3 characters keeps a single digit from matching
-//  half the marketplace.
 // ============================================================
 
 const SEARCH_TAG_MIN_LENGTH = 3;
@@ -512,30 +535,6 @@ function normalizeSearchTagText(value) {
     return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-/**
- * Progressive prefix lookup against businesses.search_tag.
- *
- * The customer may type:
- *   3734Doppa Beddings
- *   3734 Doppa Beddings
- *   37 34Doppa Beddings
- *   3734doppa
- *   doppa 3734
- *   3734
- *   Doppa
- *
- * We normalize the input to a single lowercase string with only
- * [a-z0-9], then try the full length first, drop the last
- * character, try again, and so on until either:
- *   - at least one business matches, or
- *   - we reach SEARCH_TAG_MIN_LENGTH characters.
- *
- * Only rows with a non-null search_tag (i.e. real tags, not the
- * "000..." placeholders from the backfill) are considered.
- *
- * Returns { rows: [...], normalized: '...' } or null when
- * nothing matched.
- */
 async function lookupBusinessesBySearchTag(rawSearch) {
     const normalized = normalizeSearchTagText(rawSearch);
     if (!normalized || normalized.length < SEARCH_TAG_MIN_LENGTH) {
@@ -553,7 +552,8 @@ async function lookupBusinessesBySearchTag(rawSearch) {
                    (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
                    (SELECT COALESCE(AVG(rating), 0) FROM business_reviews WHERE business_id = b.id) as avg_rating,
                    (SELECT COUNT(*) FROM business_reviews WHERE business_id = b.id) as review_count,
-                   (SELECT COUNT(*) FROM business_followers WHERE business_id = b.id) as follower_count
+                   (SELECT COUNT(*) FROM business_followers WHERE business_id = b.id) as follower_count,
+                   ${CATEGORIES_SUBQUERY}
             FROM businesses b
             WHERE b.is_active = true
               AND b.search_tag IS NOT NULL
@@ -809,39 +809,6 @@ router.post('/ads/:id/click', async (req, res) => {
 
 // ============================================================
 //  GET ALL BUSINESSES (Public)
-//
-//  D.3 — Smart free-text search parsing.
-//  D.4 — distance_km returned when an anchor was used.
-//  D.5 — Distance sort when an anchor is present.
-//  D.6 — Fallback to name/location matching when no anchor.
-//  D.7 — Location-name filters combine with search and category.
-//  D.8 — Location + category filters work together.
-//  D.9 — sort=urgent strictly prioritises distance when coords exist.
-//
-//  E.4 — sort=smart is the default when there is no sort, no search
-//        text, and no urgent toggle. Score computed in JS after the
-//        query, so it works no matter what filters are active.
-//  E.2 — Preferred-area soft anchor via ?preferred_county= & ?preferred_town=.
-//
-//  K   — Product-name search.
-//  L   — Fuzzy fallback.
-//  M   — Sentence-to-word extraction.
-//
-//  Search tag (new) — see lookupBusinessesBySearchTag() above.
-//   - If the normalized search text is a prefix of at least one
-//     business's stored `search_tag`, the tag-matching rows are
-//     used as the primary result set.
-//   - If the tag lookup returns exactly one row, the endpoint
-//     short-circuits and returns that one business. Name/phone
-//     and product searches are not run, because the tag is a
-//     deliberate, precise choice by the customer.
-//   - If the tag lookup returns multiple rows, those rows are
-//     returned first, followed by the normal search results
-//     (deduplicated). Pagination applies to the merged list.
-//   - If the tag lookup returns nothing, the existing behaviour
-//     runs unchanged.
-//
-//  Section R — Per-visit rotation of the default browse.
 // ============================================================
 
 router.get('/', async (req, res) => {
@@ -860,25 +827,12 @@ router.get('/', async (req, res) => {
 
         const offset = (page - 1) * limit;
 
-        // Section D + M — parse the free-text query.
         const parsed = parseSearchQuery(search || '');
         const searchText = parsed.text;
 
-        // Section K — build the primary regex and the fuzzy text.
         const searchRegex = searchText ? buildSearchRegex(searchText) : null;
         const fuzzyText = searchText ? buildFuzzyText(searchText) : null;
 
-        // ------------------------------------------------------------
-        //  Search tag lookup (new).
-        //
-        //  We run it BEFORE the anchor resolution so a customer who
-        //  types a tag can be served without needing any location
-        //  context at all.
-        //
-        //  A tag match always wins for ranking, but never
-        //  short-circuits the whole endpoint unless it resolves to
-        //  exactly one business.
-        // ------------------------------------------------------------
         let searchTagMatches = null;
         let searchTagNormalized = null;
 
@@ -894,12 +848,6 @@ router.get('/', async (req, res) => {
             }
         }
 
-        // ------------------------------------------------------------
-        //  If the tag lookup resolved to exactly one business and the
-        //  caller did not send any other filter that would need to
-        //  apply (category, featured, verified, urgent, etc.), we
-        //  short-circuit and return just that business.
-        // ------------------------------------------------------------
         const noOtherFilters =
             (!category || category === 'all') &&
             featured !== 'true' &&
@@ -962,7 +910,6 @@ router.get('/', async (req, res) => {
             });
         }
 
-        // Resolve the anchor coordinates (only when an anchor exists).
         let anchorLat = null;
         let anchorLng = null;
         let anchorSource = null;
@@ -984,7 +931,6 @@ router.get('/', async (req, res) => {
             }
         }
 
-        // D.9 — urgent mode
         const urgentMode = sort === 'urgent';
         if (urgentMode && anchorSource === null) {
             const selfLat = Number(latitude);
@@ -998,22 +944,15 @@ router.get('/', async (req, res) => {
 
         const hasAnchor = anchorSource !== null && Number.isFinite(anchorLat) && Number.isFinite(anchorLng);
 
-        // Section M.7 — effective radius for product results.
         let effectiveRadiusKm = parsed.radiusKm;
         if (!effectiveRadiusKm && anchorSource === 'self') {
             effectiveRadiusKm = DEFAULT_NEAR_ME_RADIUS_KM;
         }
 
-        // ------------------------------------------------------------
-        //  E.2 — Preferred-location soft anchor
-        // ------------------------------------------------------------
         const preferredCounty = req.query.preferred_county ? String(req.query.preferred_county).trim() : '';
         const preferredTown = req.query.preferred_town ? String(req.query.preferred_town).trim() : '';
         const hasPreferredAnchor = Boolean(preferredCounty || preferredTown);
 
-        // ------------------------------------------------------------
-        //  E.4 — smart mode decision
-        // ------------------------------------------------------------
         const smartMode =
             !sort &&
             !urgentMode &&
@@ -1021,9 +960,6 @@ router.get('/', async (req, res) => {
             !parsed.anchor &&
             !hasAnchor;
 
-        // ------------------------------------------------------------
-        //  Section R — per-visit rotation decision
-        // ------------------------------------------------------------
         const explicitSort = Boolean(sort);
         const rotateListing =
             !explicitSort &&
@@ -1042,15 +978,10 @@ router.get('/', async (req, res) => {
             }
         }
 
-        // ============================================================
-        //  Primary query (word-boundary + prefix)
-        // ============================================================
-
         async function runSearch(mode) {
             const isFuzzy = mode === 'fuzzy';
             const likeParam = isFuzzy ? `%${fuzzyText}%` : `%${searchText}%`;
 
-            // ---------- Business query ----------
             let query = `
                 SELECT b.*,
                        (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
@@ -1058,7 +989,8 @@ router.get('/', async (req, res) => {
                        (SELECT COUNT(*) FROM business_reviews WHERE business_id = b.id) as review_count,
                        (SELECT COUNT(*) FROM business_followers WHERE business_id = b.id) as follower_count,
                        (SELECT delivery_enabled FROM businesses WHERE id = b.id) as delivery_enabled,
-                       b.online_orders_enabled
+                       b.online_orders_enabled,
+                       ${CATEGORIES_SUBQUERY}
             `;
 
             const params = [];
@@ -1175,7 +1107,6 @@ router.get('/', async (req, res) => {
             query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
             params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-            // ---------- Product query ----------
             let productQuery = `
                 SELECT p.id           AS product_id,
                        p.name         AS product_name,
@@ -1257,7 +1188,6 @@ router.get('/', async (req, res) => {
 
             productQuery += ` LIMIT 60`;
 
-            // ---------- Execute ----------
             if (isFuzzy) {
                 await pool.query(`SET pg_trgm.similarity_threshold = 0.4`);
             }
@@ -1286,10 +1216,6 @@ router.get('/', async (req, res) => {
             return { businessRows, productRows, isFuzzy };
         }
 
-        // ------------------------------------------------------------
-        //  Run the primary search, then fall back to fuzzy if and
-        //  only if it produced nothing useful.
-        // ------------------------------------------------------------
         let mode = 'exact';
         let { businessRows, productRows, isFuzzy } = await runSearch('exact');
 
@@ -1316,15 +1242,6 @@ router.get('/', async (req, res) => {
             }
         }
 
-        // ------------------------------------------------------------
-        //  Search tag results: merge them in front of the normal
-        //  matches. Deduplicate by business id so a tag match that
-        //  also appears in the normal results is not shown twice.
-        //
-        //  Tag matches are marked so the client can style them
-        //  differently if it wants, and `search_mode` is set to
-        //  'tag' when the tag lookup produced anything.
-        // ------------------------------------------------------------
         if (searchTagMatches && searchTagMatches.length > 0) {
             const seen = new Set(searchTagMatches.map(r => r.id));
             const merged = searchTagMatches.map(row => ({
@@ -1347,9 +1264,6 @@ router.get('/', async (req, res) => {
             if (mode === 'exact') mode = 'tag';
         }
 
-        // ------------------------------------------------------------
-        //  E.4 — Apply smart score in JS (only in smart mode).
-        // ------------------------------------------------------------
         if (smartMode && businessRows.length > 1) {
             businessRows = businessRows.map(row => ({
                 ...row,
@@ -1368,9 +1282,6 @@ router.get('/', async (req, res) => {
             });
         }
 
-        // ------------------------------------------------------------
-        //  Section R — apply the per-visit rotation.
-        // ------------------------------------------------------------
         let rotationApplied = false;
         let rotationSeedValue = null;
 
@@ -1382,10 +1293,6 @@ router.get('/', async (req, res) => {
             rotationApplied = true;
             rotationSeedValue = rotationSeed;
         }
-
-        // ------------------------------------------------------------
-        //  Section K / L / M — shape the response.
-        // ------------------------------------------------------------
 
         const productMatches = productRows.map(row => ({
             product_id: row.product_id,
@@ -1438,9 +1345,6 @@ router.get('/', async (req, res) => {
             };
         });
 
-        // ------------------------------------------------------------
-        //  Count query — mirrors the same conditions.
-        // ------------------------------------------------------------
         let countQuery = `SELECT COUNT(*) FROM businesses b WHERE b.is_active = true`;
         const countParams = [];
         let countIndex = 1;

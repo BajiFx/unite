@@ -86,6 +86,26 @@
 //     characters before encodeURIComponent, so a corrupted product
 //     name can no longer throw "URIError: URI malformed".
 //
+//  Tile provider migration (this revision):
+//   OpenStreetMap's volunteer tile servers block requests from
+//   deployments that are not plain human-browsing traffic. Any
+//   request from a custom domain, an ngrok tunnel, or a cloud
+//   host is refused with HTTP 403, so every public shop map was
+//   showing "Access blocked" tiles.
+//
+//   The fix replaces the OSM tile URL with CartoDB Positron,
+//   a free, attribution-friendly raster basemap hosted on a
+//   proper CDN. It is the closest visual match to OSM's default
+//   style, needs no API key, and is explicitly allowed for
+//   production web apps.
+//
+//   This file now uses CARTO_TILE_URL as the single source of
+//   truth for the tile layer, so any future provider change is
+//   one constant. business-admin.js, track.js, seller-track.js
+//   and order-tracking.js have each been updated to use the same
+//   URL, and server.js has been updated so Helmet's imgSrc and
+//   connectSrc CSP directives whitelist basemaps.cartocdn.com.
+//
 //  Role-scoping fixes:
 //   - The header of business-profile.html calls logout() inline.
 //     This file now defines and exposes it, so the header no longer
@@ -98,6 +118,24 @@
 //   - getViewerRole() is the single source of truth for "who is
 //     looking at this page". Every role-scoped behaviour reads it.
 // ============================================================
+
+// ============================================================
+//  TILE PROVIDER — single source of truth
+//
+//  CartoDB Positron (light_all) is a free, no-signup raster
+//  basemap served from a global CDN. It reads well behind
+//  marker pins and matches the neutral look of the previous
+//  OSM tiles.
+//
+//  `{s}` is a subdomain placeholder Leaflet fills in with a, b,
+//  c or d automatically. `{r}` is the retina placeholder Leaflet
+//  fills in with "@2x" on high-DPI screens, or an empty string
+//  otherwise. Both are handled by Leaflet, not by us.
+// ============================================================
+
+const CARTO_TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const CARTO_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const CARTO_TILE_SUBDOMAINS = 'abcd';
 
 // ============================================================
 //  GLOBALS - Make sure no duplicate declarations with app.js
@@ -877,8 +915,10 @@ function renderMap(business) {
             if (businessMap) businessMap.remove();
             window.businessMap = L.map('shopMap').setView([lat, lng], 15);
             businessMap = window.businessMap;
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap'
+            L.tileLayer(CARTO_TILE_URL, {
+                attribution: CARTO_TILE_ATTRIBUTION,
+                subdomains: CARTO_TILE_SUBDOMAINS,
+                maxZoom: 19
             }).addTo(businessMap);
             L.marker([lat, lng]).addTo(businessMap)
                 .bindPopup(`<strong>${business.business_name}</strong><br>${address || business.location || ''}`);
@@ -1327,8 +1367,10 @@ function initBusinessLiveMap() {
     if (businessLiveMap) businessLiveMap.remove();
     window.businessLiveMap = L.map(container).setView([lat, lng], 14);
     businessLiveMap = window.businessLiveMap;
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap'
+    L.tileLayer(CARTO_TILE_URL, {
+        attribution: CARTO_TILE_ATTRIBUTION,
+        subdomains: CARTO_TILE_SUBDOMAINS,
+        maxZoom: 19
     }).addTo(businessLiveMap);
 
     window.businessLiveMarker = L.marker([lat, lng], {
@@ -1534,4 +1576,4 @@ window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
 window.renderThankYouBand = renderThankYouBand;
 window.renderHeroSearchTagChip = renderHeroSearchTagChip;
 
-console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed, dead review code removed)');
+console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed, dead review code removed, CARTO tile provider active)');

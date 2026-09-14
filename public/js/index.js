@@ -98,6 +98,22 @@
 //   /api/auth/check-username) are untouched — the frontend simply
 //   no longer calls them, because the forms no longer expose the
 //   fields they validated.
+//
+//  Category blocks integration (this revision):
+//   index.js now calls window.renderCategoryBlocks() after it
+//   finishes building the flat grid, in both renderBusinesses()
+//   and appendBusinesses(). The new helpers at the bottom of the
+//   file (getCurrentSortMode, shouldRenderAsCategoryBlocks,
+//   renderCategoryBlocksForCurrentList, toggleCategoryBlocksVisibility,
+//   hideFlatBusinessGrid, showFlatBusinessGrid) manage the
+//   swap between the two views.
+//
+//   The flat #businessGrid is now a fallback that only shows when
+//   the result set cannot be usefully grouped:
+//     - exactly one search-tag match, or
+//     - an empty result set.
+//   Everything else renders as category blocks (three sideways
+//   rows of up to 70 cards each, 210 per category per pass).
 // ============================================================
 
 // ============================================================
@@ -153,50 +169,26 @@ let lastSearchMode = null;
 
 // ------------------------------------------------------------
 // Section J — Marketplace ad slider state.
-//
-//  STRICT ROUND-ROBIN, PER-TYPE DURATIONS.
-//
-//  Each slide occupies its own amount of time on the wall clock:
-//    image → AD_IMAGE_SLOT_MS   (4 s)
-//    video → AD_VIDEO_SLOT_MS   (20 s)
-//
-//  The next slide is scheduled by a single setTimeout armed at
-//  the moment the current slide becomes active. The chain is:
-//
-//    showAdAtIndex(k)  →  arms a timer for durationOf(adsList[k])
-//                      →  on fire, calls showAdAtIndex(k + 1)
-//
-//  This is the only way to give each media type its own on-screen
-//  time AND keep a strict round-robin.
 // ------------------------------------------------------------
 
-// Section 2D — per-type durations. These are the on-screen times.
 const AD_IMAGE_SLOT_MS = 4 * 1000;    // 4 seconds
 const AD_VIDEO_SLOT_MS = 20 * 1000;   // 20 seconds
 
 const AD_BACKDROP_PALETTE = [
-  ['#16a34a', '#facc15'],  // green → gold
-  ['#0ea5e9', '#22c55e'],  // sky → emerald
-  ['#f97316', '#facc15'],  // orange → gold
-  ['#8b5cf6', '#ec4899'],  // violet → pink
-  ['#0f766e', '#4ade80'],  // deep teal → mint
-  ['#e11d48', '#fb923c'],  // rose → orange
-  ['#2563eb', '#06b6d4']   // blue → cyan
+  ['#16a34a', '#facc15'],
+  ['#0ea5e9', '#22c55e'],
+  ['#f97316', '#facc15'],
+  ['#8b5cf6', '#ec4899'],
+  ['#0f766e', '#4ade80'],
+  ['#e11d48', '#fb923c'],
+  ['#2563eb', '#06b6d4']
 ];
 
 let adsList = [];
 let adsCurrentIndex = 0;
 
-// The single timer that drives the whole rotation.
 let adsTransitionTimer = null;
-
-// The wall-clock moment the current slide became active. Used
-// only to drive the progress bar, not the rotation itself.
 let adsSlideStartedAt = 0;
-
-// The duration of the current slide, captured when it became
-// active so the progress bar keeps ticking even if the list
-// changes underneath it.
 let adsSlideDuration = AD_IMAGE_SLOT_MS;
 
 let adsSliderBound = false;
@@ -1640,6 +1632,12 @@ async function loadBusinesses(reset = true, options = {}) {
     }
     currentPage++;
 
+    // Category blocks own the primary listing view. The flat
+    // #businessGrid is the fallback for a single search-tag match
+    // or an empty result. `toggleCategoryBlocksVisibility`
+    // handles the visibility swap; see the helpers at the bottom.
+    toggleCategoryBlocksVisibility(businesses);
+
     const products = Array.isArray(data.products) ? data.products : [];
     if (search) {
       renderProductMatches(reset, products);
@@ -1677,6 +1675,7 @@ function renderBusinesses() {
   container.innerHTML = allBusinesses.map(business => createBusinessCard(business)).join('');
 
   insertInFeedAdStrips();
+  renderCategoryBlocksForCurrentList({ reset: true });
 }
 
 function appendBusinesses() {
@@ -1689,6 +1688,7 @@ function appendBusinesses() {
   container.insertAdjacentHTML('beforeend', newHtml);
 
   insertInFeedAdStrips();
+  renderCategoryBlocksForCurrentList({ reset: true });
 }
 
 // ============================================================
@@ -2478,6 +2478,83 @@ function showToast(message, type = 'success') {
 }
 
 // ============================================================
+//  CATEGORY BLOCKS — integration with public/js/category-blocks.js
+//
+//  The category-block view is the primary listing view. The flat
+//  #businessGrid is a fallback for two cases:
+//    1. A search-tag match that resolved to exactly one business.
+//    2. An empty result set.
+//
+//  Every other result set — default browse, search, category
+//  filter, location filter, sort, near me — is rendered as
+//  category blocks with three sideways rows per category.
+//
+//  The two call sites are renderBusinesses() and
+//  appendBusinesses(). Both go through
+//  renderCategoryBlocksForCurrentList(), which is a thin wrapper
+//  around window.renderCategoryBlocks that also reads the
+//  current sort mode and (when the block render fails, or when
+//  the JS file did not load) falls back to the flat grid.
+// ============================================================
+
+function getCurrentSortMode() {
+  const sort = document.getElementById('sortFilter')?.value || 'newest';
+  return sort;
+}
+
+function shouldRenderAsCategoryBlocks(businesses) {
+  // Cannot group when category-blocks.js did not load.
+  if (typeof window.renderCategoryBlocks !== 'function') return false;
+  // Cannot group an empty set.
+  if (!Array.isArray(businesses) || businesses.length === 0) return false;
+  // Cannot group a single search-tag match — the flat grid shows
+  // that one card with its search-tag context intact.
+  if (businesses.length === 1 && businesses[0] && businesses[0].search_tag_match === true) {
+    return false;
+  }
+  return true;
+}
+
+function renderCategoryBlocksForCurrentList(options) {
+  if (typeof window.renderCategoryBlocks !== 'function') return;
+  if (!Array.isArray(allBusinesses) || allBusinesses.length === 0) return;
+
+  try {
+    window.renderCategoryBlocks(allBusinesses, {
+      reset: options && options.reset === true,
+      sortMode: getCurrentSortMode()
+    });
+  } catch (err) {
+    console.warn('Category blocks render skipped:', err.message);
+    showFlatBusinessGrid();
+  }
+}
+
+function toggleCategoryBlocksVisibility(_newlyFetched) {
+  // The decision is based on the accumulated list, not just the
+  // freshly fetched page, because the block view always reflects
+  // the full result set that index.js has accumulated so far.
+  if (shouldRenderAsCategoryBlocks(allBusinesses)) {
+    hideFlatBusinessGrid();
+  } else {
+    showFlatBusinessGrid();
+  }
+}
+
+function hideFlatBusinessGrid() {
+  const section = document.querySelector('.businesses-section');
+  if (section) section.hidden = true;
+}
+
+function showFlatBusinessGrid() {
+  const section = document.querySelector('.businesses-section');
+  if (section) section.hidden = false;
+  if (typeof window.hideCategoryBlocks === 'function') {
+    window.hideCategoryBlocks();
+  }
+}
+
+// ============================================================
 //  EXPOSE FUNCTIONS GLOBALLY
 // ============================================================
 
@@ -2513,20 +2590,13 @@ window.renderFuzzySearchHint = renderFuzzySearchHint;
 window.insertInFeedAdStrips = insertInFeedAdStrips;
 window.copyBusinessSearchTag = copyBusinessSearchTag;
 
+window.renderCategoryBlocksForCurrentList = renderCategoryBlocksForCurrentList;
+window.toggleCategoryBlocksVisibility = toggleCategoryBlocksVisibility;
+window.hideFlatBusinessGrid = hideFlatBusinessGrid;
+window.showFlatBusinessGrid = showFlatBusinessGrid;
+
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
-//
-//  Section 9 — Customer workspace reduced to 4 tabs:
-//    Home, Orders, Profile, Messages.
-//
-//  The Cart tab is removed from the strip. The legacy deep link
-//  ?workspace=cart still resolves to /cart.html?embedded=1.
-//
-//  Legacy deep links ?workspace=addresses and ?workspace=payments
-//  fall back to the Profile tab, where those sub-sections now
-//  live inside the account page.
-//
-//  The business side is unchanged from Section 8.
 // ============================================================
 
 const MARKETPLACE_WORKSPACE = Object.freeze({
@@ -2556,16 +2626,12 @@ const MARKETPLACE_WORKSPACE = Object.freeze({
   }
 });
 
-// Section 9 — legacy customer deep-link names are still accepted
-// and mapped to their new home. The sub-tab row
-// (#workspaceSubtabs) is not used for the customer side.
 const LEGACY_CUSTOMER_SECTIONS = Object.freeze({
   dashboard: 'home',
   addresses: 'profile',
   payments: 'profile'
 });
 
-// Section 8 — legacy business deep-link names.
 const LEGACY_BUSINESS_SECTIONS = Object.freeze({
   profile: 'myshop',
   payments: 'myshop',
@@ -2737,18 +2803,15 @@ function getWorkspaceTarget(role, requestedSection) {
   const config = MARKETPLACE_WORKSPACE[role];
   let section = requestedSection || 'dashboard';
 
-  // Section 9 — Customer legacy names.
   if (role === 'customer' && LEGACY_CUSTOMER_SECTIONS[section]) {
     section = LEGACY_CUSTOMER_SECTIONS[section];
   }
 
-  // Section 8 — Business legacy names.
   if (role === 'business' && LEGACY_BUSINESS_SECTIONS[section]) {
     section = LEGACY_BUSINESS_SECTIONS[section];
   }
 
   if (!config.tabs.some(tab => tab.id === section)) {
-    // Fall back to the first tab for this role.
     section = config.tabs[0].id;
   }
 
@@ -2757,8 +2820,6 @@ function getWorkspaceTarget(role, requestedSection) {
 
 async function getWorkspaceSource(role, section, _subsection) {
   if (role === 'customer') {
-    // Section 9 — the Cart tab is gone from the strip, but the
-    // deep link ?workspace=cart still resolves to the cart page.
     if (section === 'cart') return '/cart.html?embedded=1';
     return `/account.html?embedded=1&section=${encodeURIComponent(section)}`;
   }
@@ -2780,9 +2841,6 @@ async function getWorkspaceSource(role, section, _subsection) {
     return `/business-profile.html?embedded=1&slug=${encodeURIComponent(slug || '')}`;
   }
 
-  // Section 8 — My Shop and Products both load the business-admin
-  // iframe with an explicit section id so business-admin.js can
-  // route to the right in-page section.
   return `/business-admin.html?embedded=1&section=${encodeURIComponent(section)}`;
 }
 
@@ -2817,8 +2875,6 @@ function updateWorkspacePresentation(role, section, _subsection) {
     button.classList.toggle('is-active', button.dataset.section === section);
   });
 
-  // Section 8 — the sub-tab row is never used. It is emptied and
-  // hidden on every presentation update.
   if (subtabs) {
     subtabs.replaceChildren();
     subtabs.hidden = true;
@@ -2961,4 +3017,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (Section 9 — customer workspace reduced to 4 tabs: Home, Orders, Profile, Messages; dead-code cleanup applied)');
+console.log('✅ Index.js loaded successfully (Section 9 — customer workspace reduced to 4 tabs: Home, Orders, Profile, Messages; dead-code cleanup applied; category blocks integrated)');

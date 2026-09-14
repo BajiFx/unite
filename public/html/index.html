@@ -279,7 +279,34 @@
         </button>
       </div>
 
-      <!-- All Businesses -->
+      <!-- ============================================================ -->
+      <!-- CATEGORY BLOCKS SECTION                                       -->
+      <!--                                                              -->
+      <!-- Injected and populated by public/js/category-blocks.js.       -->
+      <!-- Shows the current result set grouped by category, with        -->
+      <!-- three horizontal carousels (3 rows × 70 cards) per category.  -->
+      <!-- The section starts hidden so that until index.js has fetched -->
+      <!-- a result set, nothing appears here.                           -->
+      <!--                                                              -->
+      <!-- The section is hidden again automatically when the flat       -->
+      <!-- #businessGrid is the correct view (e.g. a single search-tag   -->
+      <!-- match or an empty result). The JS owns this visibility.       -->
+      <!-- ============================================================ -->
+
+      <section id="categoryBlocksSection"
+               class="category-blocks-section"
+               aria-label="Businesses by category"
+               hidden></section>
+
+      <!-- ============================================================ -->
+      <!-- FLAT BUSINESS GRID                                            -->
+      <!-- Shown on top of the category blocks whenever the customer     -->
+      <!-- searches, filters, sorts, activates Near Me, or picks a       -->
+      <!-- region. Also shown when a search-tag resolves to a single     -->
+      <!-- business. The JS controls visibility by adding or removing    -->
+      <!-- the body.category-blocks-active class.                        -->
+      <!-- ============================================================ -->
+
       <div class="businesses-section">
         <h2>📋 All Businesses</h2>
         <div class="business-grid" id="businessGrid">
@@ -513,6 +540,7 @@
 <script src="/js/cookie-auth-client.js"></script>
 <script src="/js/navigation.js"></script>
 <script src="/js/index.js"></script>
+<script src="/js/category-blocks.js"></script>
 
 </body>
 </html>

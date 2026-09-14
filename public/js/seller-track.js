@@ -1,11 +1,59 @@
 // ============================================================
 //  SELLER TRACK JAVASCRIPT
+//  Location: public/js/seller-track.js
+//
+//  Tile provider migration (this revision):
+//   OpenStreetMap's volunteer tile servers block requests from
+//   deployments that are not plain human-browsing traffic. Any
+//   request from a custom domain, an ngrok tunnel, or a cloud
+//   host is refused with HTTP 403, so the seller's live-customer
+//   map was showing "Access blocked" tiles.
+//
+//   The fix replaces the OSM tile URL with CartoDB Positron,
+//   a free, attribution-friendly raster basemap hosted on a
+//   proper CDN. It is the closest visual match to OSM's default
+//   style, needs no API key, and is explicitly allowed for
+//   production web apps.
+//
+//   This file now uses CARTO_TILE_URL as the single source of
+//   truth for the tile layer, so any future provider change is
+//   one constant. business-admin.js, business-profile.js,
+//   track.js and order-tracking.js have each been updated to use
+//   the same URL, and server.js has been updated so Helmet's
+//   imgSrc and connectSrc CSP directives whitelist
+//   basemaps.cartocdn.com.
+// ============================================================
+
+// ============================================================
+//  TILE PROVIDER — single source of truth
+//
+//  CartoDB Positron (light_all) is a free, no-signup raster
+//  basemap served from a global CDN. It reads well behind
+//  marker pins and matches the neutral look of the previous
+//  OSM tiles.
+//
+//  `{s}` is a subdomain placeholder Leaflet fills in with a, b,
+//  c or d automatically. `{r}` is the retina placeholder Leaflet
+//  fills in with "@2x" on high-DPI screens, or an empty string
+//  otherwise. Both are handled by Leaflet, not by us.
+// ============================================================
+
+const CARTO_TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const CARTO_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const CARTO_TILE_SUBDOMAINS = 'abcd';
+
+// ============================================================
+//  GLOBALS
 // ============================================================
 
 let map, shopMarker;
 let customerMarkers = {};
 let shopLat, shopLng;
 let socket;
+
+// ============================================================
+//  DISTANCE + TIME HELPERS
+// ============================================================
 
 function getDistance(lat1, lng1, lat2, lng2) {
     const R = 6371e3;
@@ -28,6 +76,10 @@ function formatTime(seconds) {
     return mins + ' min ' + (secs > 0 ? secs + ' sec' : '');
 }
 
+// ============================================================
+//  SHOP LOCATION
+// ============================================================
+
 async function getShopLocation() {
     const res = await fetch('/api/shop');
     const shop = await res.json();
@@ -40,16 +92,33 @@ async function getShopLocation() {
     return true;
 }
 
+// ============================================================
+//  MAP INIT
+// ============================================================
+
 function initMap() {
     map = L.map('map').setView([shopLat, shopLng], 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap'
+    L.tileLayer(CARTO_TILE_URL, {
+        attribution: CARTO_TILE_ATTRIBUTION,
+        subdomains: CARTO_TILE_SUBDOMAINS,
+        maxZoom: 19
     }).addTo(map);
+
     shopMarker = L.marker([shopLat, shopLng], {
         icon: L.divIcon({ className: 'shop-marker', html: '📍', iconSize: [30, 30] })
     }).addTo(map).bindPopup('🏪 Your Shop');
-    L.circle([shopLat, shopLng], { radius: 1000, color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.08 }).addTo(map);
+
+    L.circle([shopLat, shopLng], {
+        radius: 1000,
+        color: '#2563eb',
+        fillColor: '#2563eb',
+        fillOpacity: 0.08
+    }).addTo(map);
 }
+
+// ============================================================
+//  CUSTOMER MARKERS
+// ============================================================
 
 function updateCustomerOnMap(customer) {
     const { socketId, lat, lng, name } = customer;
@@ -115,6 +184,10 @@ function updateCustomerList() {
     container.innerHTML = html;
     document.getElementById('info').innerHTML = `<i class="fas fa-users"></i> Customers online: ${ids.length}`;
 }
+
+// ============================================================
+//  INIT
+// ============================================================
 
 async function init() {
     const ok = await getShopLocation();

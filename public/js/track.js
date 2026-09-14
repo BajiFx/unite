@@ -1,5 +1,49 @@
 // ============================================================
 //  CUSTOMER TRACK JAVASCRIPT
+//  Location: public/js/track.js
+//
+//  Tile provider migration (this revision):
+//   OpenStreetMap's volunteer tile servers block requests from
+//   deployments that are not plain human-browsing traffic. Any
+//   request from a custom domain, an ngrok tunnel, or a cloud
+//   host is refused with HTTP 403, so the live-tracking map was
+//   showing "Access blocked" tiles.
+//
+//   The fix replaces the OSM tile URL with CartoDB Positron,
+//   a free, attribution-friendly raster basemap hosted on a
+//   proper CDN. It is the closest visual match to OSM's default
+//   style, needs no API key, and is explicitly allowed for
+//   production web apps.
+//
+//   This file now uses CARTO_TILE_URL as the single source of
+//   truth for the tile layer, so any future provider change is
+//   one constant. business-admin.js, business-profile.js,
+//   seller-track.js and order-tracking.js have each been
+//   updated to use the same URL, and server.js has been updated
+//   so Helmet's imgSrc and connectSrc CSP directives whitelist
+//   basemaps.cartocdn.com.
+// ============================================================
+
+// ============================================================
+//  TILE PROVIDER — single source of truth
+//
+//  CartoDB Positron (light_all) is a free, no-signup raster
+//  basemap served from a global CDN. It reads well behind
+//  marker pins and matches the neutral look of the previous
+//  OSM tiles.
+//
+//  `{s}` is a subdomain placeholder Leaflet fills in with a, b,
+//  c or d automatically. `{r}` is the retina placeholder Leaflet
+//  fills in with "@2x" on high-DPI screens, or an empty string
+//  otherwise. Both are handled by Leaflet, not by us.
+// ============================================================
+
+const CARTO_TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const CARTO_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const CARTO_TILE_SUBDOMAINS = 'abcd';
+
+// ============================================================
+//  GLOBALS
 // ============================================================
 
 let map, userMarker, shopMarker, routeLine;
@@ -8,6 +52,10 @@ let socket = null;
 let watchId = null;
 let isSharing = false;
 let prevDist = null;
+
+// ============================================================
+//  DISTANCE + TIME HELPERS
+// ============================================================
 
 function getDistance(lat1, lng1, lat2, lng2) {
     const R = 6371e3;
@@ -30,6 +78,10 @@ function formatTime(seconds) {
     return mins + ' min ' + (secs > 0 ? secs + ' sec' : '');
 }
 
+// ============================================================
+//  SHOP LOCATION
+// ============================================================
+
 async function getShopLocation() {
     const res = await fetch('/api/shop');
     const shop = await res.json();
@@ -42,10 +94,16 @@ async function getShopLocation() {
     return true;
 }
 
+// ============================================================
+//  MAP INIT
+// ============================================================
+
 function initMap(userLat, userLng) {
     map = L.map('map').setView([userLat, userLng], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap'
+    L.tileLayer(CARTO_TILE_URL, {
+        attribution: CARTO_TILE_ATTRIBUTION,
+        subdomains: CARTO_TILE_SUBDOMAINS,
+        maxZoom: 19
     }).addTo(map);
 
     if (shopLat && shopLng) {
@@ -73,6 +131,10 @@ function drawRoute(userLat, userLng) {
     }).addTo(map);
 }
 
+// ============================================================
+//  INFO PANEL
+// ============================================================
+
 function updateInfo(lat, lng) {
     if (!shopLat || !shopLng) return;
     const dist = getDistance(lat, lng, shopLat, shopLng);
@@ -91,6 +153,10 @@ function updateInfo(lat, lng) {
     document.getElementById('dirValue').textContent = directionText;
     document.getElementById('statusMsg').innerHTML = '<span class="dot active"></span> Live tracking active';
 }
+
+// ============================================================
+//  GEOLOCATION WATCH
+// ============================================================
 
 function startTracking() {
     if (!navigator.geolocation) {
@@ -120,6 +186,10 @@ function startTracking() {
     );
 }
 
+// ============================================================
+//  SHARE TOGGLE
+// ============================================================
+
 function toggleSharing() {
     if (!socket) {
         socket = io();
@@ -143,6 +213,10 @@ function toggleSharing() {
         document.getElementById('statusMsg').innerHTML = '<span class="dot active"></span> 📍 Sharing stopped. You are still tracking yourself.';
     }
 }
+
+// ============================================================
+//  INIT
+// ============================================================
 
 (async function() {
     const ok = await getShopLocation();
