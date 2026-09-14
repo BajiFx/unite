@@ -397,6 +397,10 @@
       <!-- Optional: Email (kept for password recovery)                 -->
       <!--                                                              -->
       <!-- Username is auto-generated on the server from the name.       -->
+      <!--                                                              -->
+      <!-- The legal acceptance block is required before the form can    -->
+      <!-- be submitted. The server records the acceptance with date,    -->
+      <!-- version, IP, and user-agent in the terms_acceptances table.   -->
       <!-- ============================================================ -->
       <div id="customerRegisterForm">
         <div class="form-group">
@@ -425,6 +429,25 @@
           <input type="password" id="regCustomerConfirm" placeholder="Re-enter password">
           <button class="toggle-pwd" onclick="togglePwd('regCustomerConfirm', this)"><i class="fas fa-eye"></i></button>
         </div>
+
+        <!-- ============================================================ -->
+        <!-- LEGAL ACCEPTANCE BLOCK — CUSTOMER REGISTER                   -->
+        <!-- The Create Customer Account button below is gated by this    -->
+        <!-- checkbox in handleCustomerRegister(). See public/js/index.js. -->
+        <!-- ============================================================ -->
+        <div class="auth-legal-block" style="margin:10px 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:0.78rem; line-height:1.5; color:#475569;">
+          <label for="customerLegalAccept" style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="customerLegalAccept" style="width:16px; height:16px; margin-top:2px; flex-shrink:0; accent-color:#22c55e;">
+            <span>
+              I accept the
+              <a href="/terms.html" target="_blank" rel="noopener" style="color:#2563eb; font-weight:700;">Terms and Conditions</a>
+              and the
+              <a href="/privacy.html" target="_blank" rel="noopener" style="color:#2563eb; font-weight:700;">Privacy Policy</a>.
+              I confirm that I am at least 18 years old.
+            </span>
+          </label>
+        </div>
+
         <button class="btn btn-success" style="width:100%;" onclick="handleCustomerRegister()">Create Customer Account</button>
         <div id="customerRegisterStatus" class="auth-status"></div>
       </div>
@@ -445,6 +468,10 @@
       <!--                                                              -->
       <!-- The owner sees their auto-generated search tag on the         -->
       <!-- success screen immediately after registration.                -->
+      <!--                                                              -->
+      <!-- The legal acceptance block is required before the form can    -->
+      <!-- be submitted. The server records the acceptance in the same   -->
+      <!-- terms_acceptances table, with user_type = business_admin.     -->
       <!-- ============================================================ -->
       <div id="businessRegisterForm" style="display:none;">
 
@@ -498,6 +525,24 @@
           <button class="toggle-pwd" onclick="togglePwd('regBusinessConfirm', this)"><i class="fas fa-eye"></i></button>
         </div>
 
+        <!-- ============================================================ -->
+        <!-- LEGAL ACCEPTANCE BLOCK — BUSINESS REGISTER                   -->
+        <!-- The Create Business Account button below is gated by this    -->
+        <!-- checkbox in handleBusinessRegister(). See public/js/index.js. -->
+        <!-- ============================================================ -->
+        <div class="auth-legal-block" style="margin:10px 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:0.78rem; line-height:1.5; color:#475569;">
+          <label for="businessLegalAccept" style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="businessLegalAccept" style="width:16px; height:16px; margin-top:2px; flex-shrink:0; accent-color:#22c55e;">
+            <span>
+              I accept the
+              <a href="/terms.html" target="_blank" rel="noopener" style="color:#2563eb; font-weight:700;">Terms and Conditions</a>
+              and the
+              <a href="/privacy.html" target="_blank" rel="noopener" style="color:#2563eb; font-weight:700;">Privacy Policy</a>.
+              I confirm that I am at least 18 years old, and that I have authority to register this business on BidhaaLink.
+            </span>
+          </label>
+        </div>
+
         <button class="btn btn-primary" style="width:100%;" onclick="handleBusinessRegister()">Create Business Account</button>
         <div id="businessRegisterStatus" class="auth-status"></div>
 
@@ -541,6 +586,157 @@
 <script src="/js/navigation.js"></script>
 <script src="/js/index.js"></script>
 <script src="/js/category-blocks.js"></script>
+<script src="/js/legal.js"></script>
+
+<!-- ============================================================ -->
+<!-- LEGAL FOOTER — BidhaaLink                                     -->
+<!-- Terms · Privacy · Cookie Notice · Contact                     -->
+<!-- Loads /js/legal.js at the end so the cookie banner also        -->
+<!-- appears on this page, unless the page already loads it.        -->
+<!-- ============================================================ -->
+
+<footer class="bidhaa-legal-footer" role="contentinfo">
+  <div class="bidhaa-legal-footer-inner">
+    <div class="bidhaa-legal-footer-brand">
+      <strong>BidhaaLink</strong>
+      <span>Kenya's Multi-Vendor Marketplace</span>
+    </div>
+    <nav class="bidhaa-legal-footer-links" aria-label="Legal and contact links">
+      <a href="/terms.html">
+        <i class="fas fa-file-contract" aria-hidden="true"></i> Terms and Conditions
+      </a>
+      <a href="/privacy.html">
+        <i class="fas fa-shield-halved" aria-hidden="true"></i> Privacy Policy
+      </a>
+      <a href="/privacy.html#cookies">
+        <i class="fas fa-cookie-bite" aria-hidden="true"></i> Cookie Notice
+      </a>
+      <a href="mailto:georgebabji1220@gmail.com">
+        <i class="fas fa-envelope" aria-hidden="true"></i> Contact
+      </a>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  /* ============================================================
+     Self-contained styles for the legal footer.
+     Scoped under .bidhaa-legal-footer so nothing else on any page
+     is affected. No external CSS file is required.
+     ============================================================ */
+
+  .bidhaa-legal-footer {
+    background: #0f172a;
+    color: #94a3b8;
+    padding: 20px 20px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    margin-top: 32px;
+  }
+
+  .bidhaa-legal-footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .bidhaa-legal-footer-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .bidhaa-legal-footer-brand strong {
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 0.9rem;
+  }
+
+  .bidhaa-legal-footer-brand span {
+    color: #64748b;
+    font-size: 0.72rem;
+  }
+
+  .bidhaa-legal-footer-links {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  .bidhaa-legal-footer-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #cbd5e1;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.8rem;
+    transition: color 0.15s ease;
+  }
+
+  .bidhaa-legal-footer-links a:hover {
+    color: #ffffff;
+    text-decoration: underline;
+  }
+
+  .bidhaa-legal-footer-links i {
+    color: #2563eb;
+    font-size: 0.75rem;
+  }
+
+  /* On small screens, stack the brand above the links. */
+  @media (max-width: 640px) {
+    .bidhaa-legal-footer-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .bidhaa-legal-footer-links {
+      gap: 12px;
+    }
+
+    .bidhaa-legal-footer-links a {
+      font-size: 0.75rem;
+    }
+  }
+
+  /* If the page already has a fixed bottom nav (e.g. the
+     marketplace home, the cart, the account page), make sure the
+     footer clears it so it is never hidden behind the nav. */
+  body.index-body .bidhaa-legal-footer,
+  body:has(.bottom-nav) .bidhaa-legal-footer {
+    margin-bottom: 90px;
+  }
+</style>
+
+<!-- Load the legal script only if the page did not already load it.
+     The script is idempotent: it will not double-bind if it is
+     loaded more than once, and it will not show the cookie banner
+     twice. -->
+<script>
+  (function () {
+    if (window.__bidhaa_legal_script_loaded) return;
+    window.__bidhaa_legal_script_loaded = true;
+
+    var existing = Array.prototype.some.call(
+      document.getElementsByTagName('script'),
+      function (s) { return s.src && s.src.indexOf('/js/legal.js') !== -1; }
+    );
+
+    if (existing) return;
+
+    var tag = document.createElement('script');
+    tag.src = '/js/legal.js';
+    tag.defer = true;
+    document.body.appendChild(tag);
+  })();
+</script>
 
 </body>
 </html>

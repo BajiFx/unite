@@ -58,7 +58,7 @@
 //                   reset === true  → wipe and re-render
 //                   reset === false → merge only
 //
-//  Fixes applied in this revision:
+//  Fixes applied in previous revisions:
 //
 //   1. Category blocks no longer disappear when the customer
 //      clicks "Load more from every category". The old
@@ -67,15 +67,11 @@
 //      click, every category's slice had already been consumed,
 //      so renderCategoryBlock() returned '' for every category
 //      and the section ended up containing only the footer
-//      button. That is what the "That's everything" with no
-//      blocks above it looked like on screen.
-//
-//      loadMoreCategoryBlocks() is now an append path: it
-//      computes the next pass number for each category, renders
-//      just that pass, and inserts the resulting HTML after the
-//      last existing .category-block. Existing blocks are never
-//      removed or re-rendered, so scroll position, swipe
-//      position, and arrow state all survive a Load more click.
+//      button. loadMoreCategoryBlocks() is now an append path:
+//      it computes the next pass number for each category,
+//      renders just that pass, and inserts the resulting HTML
+//      after the last existing .category-block. Existing blocks
+//      are never removed or re-rendered.
 //
 //   2. renderCategoryBlock() used to read AND increment
 //      loadedPassesPerCategory on every render. Because
@@ -89,8 +85,7 @@
 //
 //   3. renderSection() now resets loadedPassesPerCategory before
 //      it renders. This is the "fresh" path used on initial
-//      render and whenever the sort mode changes. Sort = reset
-//      to pass 0 for every category (Q1 = 1A).
+//      render and whenever the sort mode changes.
 //
 //   4. renderCategoryBlocks() now compares the incoming sortMode
 //      against the sort mode from the previous render. If it
@@ -107,19 +102,49 @@
 //      .category-block and before the .category-blocks-footer.
 //      The footer button stays at the bottom of the section.
 //
-//   7. The four crash-hardening fixes from the previous revision
-//      are kept: extractCategoryNames() coerces c.name to a
-//      string before trimming; sortBusinessesWithinCategory()
-//      and renderBlockCard() guard numeric comparisons with
-//      Number.isFinite; renderCategoryRow() includes a
-//      per-render counter in the row id so two categories whose
-//      names slugify to the same string cannot collide.
+//   7. Four crash-hardening fixes are kept: extractCategoryNames()
+//      coerces c.name to a string before trimming;
+//      sortBusinessesWithinCategory() and renderBlockCard() guard
+//      numeric comparisons with Number.isFinite; renderCategoryRow()
+//      includes a per-render counter in the row id so two
+//      categories whose names slugify to the same string cannot
+//      collide.
 //
-//  Nothing else changed: config, state, grouping, alphabetical
-//  category order, sort-inside-rows, the 3×70=210 cap, the arrow
-//  step logic, the delegated listeners, the resize observer, the
-//  hide/show helpers, the escape helpers, and every window.*
-//  export are byte-for-byte identical to the previous revision.
+//  Section 20260923 — Shared card renderer delegation
+//
+//   The block card used to be rendered by a local
+//   renderBlockCard() function that had drifted from the flat
+//   grid card in index.js. It was missing the search-tag chip,
+//   the order-status badge, the full stats row, and the
+//   description block. It also had its own image fallback that
+//   diverged from the flat card.
+//
+//   This revision replaces renderBlockCard() with a thin
+//   delegation to window.renderBusinessCardShared() defined in
+//   index.js:
+//
+//     window.renderBusinessCardShared(business, { size: 'block' })
+//
+//   The shared renderer:
+//     - shows every field the flat grid card shows, at the
+//       block-card size
+//     - shows the new "What You Sell" ticker (Section 20260923)
+//       when the business has product_keywords or, failing that,
+//       the first 5 real product names
+//     - prints the VERIFIED badge as a full word with a slow
+//       blink (Verified badge revision)
+//
+//   If index.js has not yet defined window.renderBusinessCardShared
+//   (e.g. category-blocks.js loaded first on some page), the
+//   local renderBlockCardFallback() runs instead. The fallback
+//   renders the same information set with locally-scoped markup
+//   so a customer never sees an empty card.
+//
+//   Nothing else changed: config, state, grouping, alphabetical
+//   category order, sort-inside-rows, the 3×70=210 cap, the arrow
+//   step logic, the delegated listeners, the resize observer, the
+//   hide/show helpers, the escape helpers, and every window.*
+//   export are byte-for-byte identical to the previous revision.
 // ============================================================
 
 (function () {
@@ -526,9 +551,38 @@
 
     // ============================================================
     //  BUSINESS CARD
+    //
+    //  Section 20260923 — the block card is now rendered by the
+    //  shared renderer in index.js so the two card types can never
+    //  drift apart again. If the shared renderer is not available
+    //  (e.g. category-blocks.js loaded before index.js on some
+    //  page), renderBlockCardFallback() runs instead and renders
+    //  the same information set with locally-scoped markup.
     // ============================================================
 
     function renderBlockCard(business) {
+        if (!business || !business.business_name) return '';
+
+        // Prefer the shared renderer so the block card matches the
+        // flat grid card field-for-field.
+        if (typeof window.renderBusinessCardShared === 'function') {
+            try {
+                const html = window.renderBusinessCardShared(business, { size: 'block' });
+                if (html) return html;
+            } catch (err) {
+                console.warn('Shared card renderer failed; using local fallback.', err);
+            }
+        }
+
+        return renderBlockCardFallback(business);
+    }
+
+    /**
+     * Local fallback used only when index.js has not yet defined
+     * the shared renderer. Renders the same information set that
+     * the shared renderer does, using markup that mirrors it.
+     */
+    function renderBlockCardFallback(business) {
         if (!business || !business.business_name) return '';
 
         let slug = business.slug;
@@ -544,19 +598,79 @@
             ? `<img src="${escapeAttr(business.logo)}" alt="${escapeAttr(business.business_name)}" loading="lazy">`
             : `<div class="no-image">🏪</div>`;
 
+        // ---- Badges ---------------------------------------------
         const badges = [];
-        if (business.is_verified) badges.push('<span class="badge verified">✅</span>');
-        if (business.is_featured) badges.push('<span class="badge featured">⭐</span>');
+        if (business.is_verified) {
+            badges.push('<span class="badge verified badge-verified-blink">✅ VERIFIED</span>');
+        }
+        if (business.is_featured) {
+            badges.push('<span class="badge featured">⭐ FEATURED</span>');
+        }
 
-        const rating = parseFloat(business.avg_rating);
-        const safeRating = Number.isFinite(rating) ? rating : 0;
-        const ratingHtml = safeRating > 0
-            ? `<span class="block-card-rating">⭐ ${safeRating.toFixed(1)}</span>`
+        const accepting = business.online_orders_enabled !== false;
+        if (accepting) {
+            badges.push('<span class="badge accepting-orders" title="This business is accepting online orders">🟢 Accepting Orders</span>');
+        } else {
+            badges.push('<span class="badge orders-paused" title="This business is not accepting online orders right now">🔴 Orders Paused</span>');
+        }
+
+        // ---- Search tag chip ------------------------------------
+        const searchTagDisplay = business.search_display || '';
+        const searchTagChip = (searchTagDisplay && business.search_tag_confirmed === true)
+            ? `<button
+                 type="button"
+                 class="business-search-tag-chip"
+                 data-search-tag="${escapeAttr(searchTagDisplay)}"
+                 onclick="event.stopPropagation(); window.copyBusinessSearchTag(this)"
+                 title="Click to copy this shop's search tag"
+               >🔖 ${escapeHtml(searchTagDisplay)}</button>`
+            : '';
+
+        // ---- Description / ticker -------------------------------
+        const tickerNames = Array.isArray(business.product_keywords)
+            ? business.product_keywords.map(v => String(v || '').trim()).filter(Boolean)
+            : [];
+
+        let tickerHtml = '';
+        if (tickerNames.length > 0) {
+            const lines = tickerNames
+                .map(name => `<span class="business-ticker-name">${escapeHtml(name)}</span>`)
+                .join('');
+            tickerHtml = `
+                <div class="business-ticker" title="What this shop sells">
+                    <div class="business-ticker-track">
+                        ${lines}
+                        ${lines}
+                    </div>
+                </div>
+            `;
+        }
+
+        const description = business.description || '';
+        const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
+
+        const descriptionOrTicker = tickerNames.length > 0
+            ? tickerHtml
+            : (truncatedDesc ? `<div class="business-description">${escapeHtml(truncatedDesc)}</div>` : '');
+
+        // ---- Stats ----------------------------------------------
+        const productCountRaw = parseInt(business.product_count, 10);
+        const productCount = Number.isFinite(productCountRaw) ? productCountRaw : 0;
+
+        const followerCountRaw = parseInt(business.follower_count, 10);
+        const followerCount = Number.isFinite(followerCountRaw) ? followerCountRaw : 0;
+
+        const reviewCountRaw = parseInt(business.review_count, 10);
+        const reviewCount = Number.isFinite(reviewCountRaw) ? reviewCountRaw : 0;
+
+        const ratingNum = parseFloat(business.avg_rating);
+        const rating = Number.isFinite(ratingNum) ? ratingNum : 0;
+        const ratingStars = rating > 0 ? '⭐'.repeat(Math.round(rating)) : '';
+        const ratingDisplay = rating > 0
+            ? `<span class="block-card-rating">${ratingStars} ${rating.toFixed(1)}</span>`
             : '';
 
         const location = business.location || 'Kenya';
-        const productCountRaw = parseInt(business.product_count, 10);
-        const productCount = Number.isFinite(productCountRaw) ? productCountRaw : 0;
 
         return `
             <div class="block-card"
@@ -568,10 +682,14 @@
                 </div>
                 <div class="block-card-body">
                     <div class="block-card-name">${escapeHtml(business.business_name)}</div>
+                    ${searchTagChip}
                     <div class="block-card-location">📍 ${escapeHtml(location)}</div>
+                    ${descriptionOrTicker}
                     <div class="block-card-meta">
                         <span>🛍️ ${productCount}</span>
-                        ${ratingHtml}
+                        <span>👥 ${followerCount}</span>
+                        ${ratingDisplay}
+                        ${reviewCount > 0 ? `<span>${reviewCount} reviews</span>` : ''}
                     </div>
                 </div>
             </div>
@@ -816,5 +934,5 @@
 
     window.renderCategoryBlocks = renderCategoryBlocks;
 
-    console.log('✅ Category blocks JS loaded (3 rows × 70 cards per category, 210 per category per pass, alphabetical fixed order, sort inside rows, append-only Load more)');
+    console.log('✅ Category blocks JS loaded (3 rows × 70 cards per category, 210 per category per pass, alphabetical fixed order, sort inside rows, append-only Load more, shared card renderer with "What You Sell" ticker)');
 })();

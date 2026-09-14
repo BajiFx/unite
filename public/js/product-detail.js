@@ -2,21 +2,38 @@
 //  PRODUCT DETAIL JAVASCRIPT
 //
 //  Section B (B.7) additions:
-//   - Related products are scoped to the same product_category_id.
+//   - Related products are scoped to the same business.
 //   - The product's defined category is rendered as a chip.
 //   - The related filter dropdown now surfaces defined product
 //     categories alongside the legacy free-text categories.
 //
-//  Reviews removal (this revision):
+//  Reviews removal (previous revision):
 //   The customer-facing write-a-review form and the reviews list
 //   have been removed from the page. A warm thank-you band takes
 //   their place. The band's business name is injected here by
-//   renderThankYouBand() so it feels personal. The review tables
-//   and routes remain in the backend, untouched; only the
-//   customer-facing surface is gone.
+//   renderThankYouBand() so it feels personal.
 //
-//   The aggregate star rating in the product info section is a
-//   different feature and is intentionally kept.
+//  "You may also like" (this revision):
+//   The related-products list is no longer truncated on the
+//   client. The server now returns every other active product
+//   from the same business, up to a safety cap of 60. The
+//   previous frontend cap of 4 was the reason a customer of a
+//   30-product shop saw only 4 siblings. Every item the server
+//   returns is now rendered as a tile, so the customer sees all
+//   the remaining products of the shop.
+//
+//   Same-category ordering (this revision — Option B):
+//    When the viewed product has a defined product_category_id,
+//    siblings that share that category are moved to the FRONT of
+//    the list. Every other sibling follows, newest first. This
+//    is a SORT, not a FILTER — nothing is ever dropped. The
+//    customer still sees every product the server returned, and
+//    the "You may also like" section is never shorter than the
+//    full related set.
+//
+//   The search input and the category dropdown above the grid
+//   still filter the visible tiles client-side, so the customer
+//   can narrow the list without a round-trip.
 // ============================================================
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -76,6 +93,51 @@ function getAutoSocialLinks(product) {
 }
 
 // ============================================================
+//  ORDER RELATED PRODUCTS — Option B
+//
+//  Sort, do not filter.
+//
+//  Given the full `related` array that the server returned, return
+//  a new array in which:
+//    1. Every sibling that shares the viewed product's
+//       product_category_id appears first, preserving the order
+//       the server sent them in (which is newest first).
+//    2. Every other sibling follows, preserving the server order
+//       (also newest first).
+//
+//  Nothing is dropped. When the viewed product has no defined
+//  category, or when no sibling shares the category, the original
+//  order is returned unchanged.
+// ============================================================
+function orderRelatedForDisplay(related, viewedProduct) {
+  if (!Array.isArray(related) || related.length === 0) return [];
+
+  const sameCategoryId = viewedProduct && viewedProduct.product_category_id
+    ? viewedProduct.product_category_id
+    : null;
+
+  if (!sameCategoryId) return related.slice();
+
+  const sameCategory = [];
+  const otherCategories = [];
+
+  related.forEach(item => {
+    if (item && item.product_category_id === sameCategoryId) {
+      sameCategory.push(item);
+    } else {
+      otherCategories.push(item);
+    }
+  });
+
+  // If nothing matched the viewed product's category, keep the
+  // server order so the customer is not shown a shuffled list for
+  // no reason.
+  if (sameCategory.length === 0) return related.slice();
+
+  return sameCategory.concat(otherCategories);
+}
+
+// ============================================================
 //  LOAD PRODUCT DETAIL
 // ============================================================
 async function loadProductDetail() {
@@ -98,14 +160,12 @@ async function loadProductDetail() {
 
     currentVariantId = allVariants[0].id;
 
-    // B.7 — when this product has a defined category, prefer related products
-    // from the same category so the customer sees "more like this".
-    let related = data.related || [];
-    const sameCategoryId = data.product && data.product.product_category_id;
-    if (sameCategoryId) {
-      const filtered = related.filter(r => r.product_category_id === sameCategoryId);
-      if (filtered.length > 0) related = filtered;
-    }
+    // B.7 — when this product has a defined category, same-category
+    // siblings are shown first, then every other sibling of the
+    // business. Nothing is dropped. The server already returns
+    // every other active product of the same business (up to 60),
+    // so the only thing this step does is reorder.
+    const related = orderRelatedForDisplay(data.related || [], data.product);
 
     renderDetail(data.product, related);
   } catch (err) {
@@ -291,13 +351,20 @@ function renderDetail(product, related) {
     </div>
   `;
 
-  // Related
+  // ------------------------------------------------------------
+  //  Related products — "You may also like"
+  //
+  //  The server returns every other active product from the
+  //  same business (up to 60). orderRelatedForDisplay() moved
+  //  same-category siblings to the front. Nothing was dropped.
+  //  We render every item, in that order.
+  // ------------------------------------------------------------
   let relatedHtml = '';
   // A product without an uploaded photo still receives a deterministic visual
   // card instead of the blank/emoji placeholder.
   (related || []).forEach(item => { item.image = fallbackMediaUrl(item); });
   if (related && related.length > 0) {
-    relatedHtml = related.slice(0, 4).map(p => `
+    relatedHtml = related.map(p => `
       <div class="related-item"
            data-name="${(p.name || '').toLowerCase()}"
            data-category="${(p.category || '').toLowerCase()}"
@@ -540,3 +607,4 @@ window.loadProductDetail = loadProductDetail;
 window.fallbackMediaUrl = fallbackMediaUrl;
 window.filterRelatedProducts = filterRelatedProducts;
 window.renderThankYouBand = renderThankYouBand;
+window.orderRelatedForDisplay = orderRelatedForDisplay;

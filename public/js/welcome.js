@@ -3,119 +3,191 @@
 //  Location: public/js/welcome.js
 //
 //  Behaviour:
-//   1. On load, check localStorage, sessionStorage, and the
-//      server cookie for the "welcomed" flag.
-//      - If any of them says the visitor has already seen the
-//        splash, redirect straight to /marketplace.
-//      - Otherwise, keep the visitor on this page.
-//   2. When the visitor clicks "Continue to Marketplace" (or
-//      presses Enter/Space anywhere on the page):
-//      - Set the flag in localStorage and sessionStorage.
-//      - Ask the server to set a cookie so the splash is
-//        skipped on this browser for a full year.
-//      - Navigate to /marketplace.
-//   3. If JavaScript fails entirely, the <noscript> meta-refresh
+//   1. On load, if the visitor has already seen the splash AND
+//      already accepted the legal notice, redirect to
+//      /marketplace.
+//   2. The Continue button is disabled until the acceptance
+//      checkbox is ticked. The button stays disabled if the
+//      visitor tries to continue without ticking it.
+//   3. When the visitor ticks the box and presses Continue:
+//      - the acceptance is persisted client-side (localStorage
+//        + sessionStorage + cookie) together with the version
+//        and the timestamp,
+//      - the server cookie is set via /api/welcome/ack,
+//      - the visitor is navigated to /marketplace.
+//   4. If JavaScript fails entirely, the <noscript> meta-refresh
 //      inside welcome.html moves the visitor forward after 5
 //      seconds.
 //
-//  Why three storage layers?
-//   - localStorage   → primary, survives across tabs and sessions.
-//   - sessionStorage → fallback when localStorage is blocked.
-//   - cookie         → server-side, so a returning visitor is
-//                       redirected on the very first request,
-//                       before any HTML is sent.
-//
-//  Why /marketplace instead of /index.html?
-//   The server serves the splash at '/'. Redirecting to '/'
-//   after acknowledging the splash would re-serve the splash,
-//   which is the loop this file previously caused. A dedicated
-//   '/marketplace' route is unambiguous and cannot loop.
+//  Note on the acceptance:
+//   This is the guest-level acceptance. It has no account yet, so
+//   the record is stored client-side. When the visitor later
+//   registers a customer or a business account, the register form
+//   asks again and the server writes a row into
+//   terms_acceptances with the timestamp, version, IP, and
+//   user-agent. That is the durable proof.
 // ============================================================
 
 (function () {
   'use strict';
 
   var WELCOMED_KEY = 'bidhaalink_welcomed';
+  var ACCEPT_KEY   = 'bidhaalink_terms_accepted';
+  var VERSION      = '1.0';
   var DESTINATION  = '/marketplace';
 
   // ----------------------------------------------------------
-  //  Helper — has the visitor already seen the splash?
-  //  Check localStorage first, then sessionStorage. The server
-  //  cookie is checked by the server itself before it serves
-  //  welcome.html, so if this file runs at all, the cookie was
-  //  absent at request time.
+  //  Storage helpers
   // ----------------------------------------------------------
+
+  function safeGet(storage, key) {
+    try { return storage.getItem(key); } catch (err) { return null; }
+  }
+
+  function safeSet(storage, key, value) {
+    try { storage.setItem(key, value); } catch (err) { /* no-op */ }
+  }
+
+  function readCookie(name) {
+    return document.cookie
+      .split(';')
+      .map(function (v) { return v.trim(); })
+      .filter(function (v) { return v.indexOf(name + '=') === 0; })
+      .map(function (v) { return decodeURIComponent(v.slice(name.length + 1)); })
+      .shift() || null;
+  }
+
+  // ----------------------------------------------------------
+  //  Acceptance predicate
+  // ----------------------------------------------------------
+
   function alreadyWelcomed() {
-    try {
-      if (localStorage.getItem(WELCOMED_KEY) === '1') return true;
-    } catch (err) {
-      // localStorage can be blocked (private mode, strict cookies).
-      // Fall through to sessionStorage.
+    if (safeGet(localStorage, WELCOMED_KEY) === '1') return true;
+    if (safeGet(sessionStorage, WELCOMED_KEY) === '1') return true;
+    return false;
+  }
+
+  function alreadyAcceptedLegal() {
+    var stored = safeGet(localStorage, ACCEPT_KEY);
+    if (stored && stored.length > 0) {
+      try {
+        var parsed = JSON.parse(stored);
+        if (parsed && parsed.version === VERSION) return true;
+      } catch (err) { /* corrupt entry, treat as not accepted */ }
     }
 
-    try {
-      if (sessionStorage.getItem(WELCOMED_KEY) === '1') return true;
-    } catch (err) {
-      // sessionStorage can also be blocked. Fall through.
-    }
+    var cookie = readCookie('legal_notice_ack');
+    if (cookie === '1') return true;
 
     return false;
   }
 
   // ----------------------------------------------------------
-  //  Helper — persist the "welcomed" flag as best we can.
-  //  Writes to both localStorage and sessionStorage, then asks
-  //  the server to set the long-lived cookie. The server call is
-  //  fire-and-forget: we never block navigation on it.
+  //  Acceptance persistence
   // ----------------------------------------------------------
+
+  function persistAcceptance() {
+    var payload = {
+      version: VERSION,
+      accepted_at: new Date().toISOString(),
+      source: 'welcome_splash'
+    };
+    var serialized = JSON.stringify(payload);
+
+    safeSet(localStorage, ACCEPT_KEY, serialized);
+    safeSet(sessionStorage, ACCEPT_KEY, serialized);
+
+    // One year, SameSite=Lax, Secure when the page is HTTPS.
+    var oneYear = 60 * 60 * 24 * 365;
+    document.cookie =
+      'legal_notice_ack=1; Max-Age=' + oneYear + '; Path=/; SameSite=Lax' +
+      (window.location.protocol === 'https:' ? '; Secure' : '');
+  }
+
   function persistWelcomed() {
-    try { localStorage.setItem(WELCOMED_KEY, '1'); } catch (err) { /* no-op */ }
-    try { sessionStorage.setItem(WELCOMED_KEY, '1'); } catch (err) { /* no-op */ }
+    safeSet(localStorage, WELCOMED_KEY, '1');
+    safeSet(sessionStorage, WELCOMED_KEY, '1');
 
     try {
       fetch('/api/welcome/ack', {
         method: 'POST',
         credentials: 'same-origin',
         keepalive: true
-      }).catch(function () {
-        // Non-fatal. The client-side flags already do their job.
-      });
-    } catch (err) {
-      // fetch unavailable — non-fatal.
-    }
+      }).catch(function () { /* non-fatal */ });
+    } catch (err) { /* fetch unavailable, non-fatal */ }
   }
 
   // ----------------------------------------------------------
-  //  1. Skip the splash if the visitor already saw it
+  //  1. Skip if already welcomed
   // ----------------------------------------------------------
+
   if (alreadyWelcomed()) {
     window.location.replace(DESTINATION);
     return;
   }
 
   // ----------------------------------------------------------
-  //  2. Wire the Continue button and Enter/Space handler
+  //  2. Boot once DOM is ready
   // ----------------------------------------------------------
-  function continueToMarketplace() {
-    persistWelcomed();
-    window.location.href = DESTINATION;
-  }
 
   document.addEventListener('DOMContentLoaded', function () {
-    var btn = document.getElementById('continueBtn');
-    if (btn) {
-      btn.addEventListener('click', continueToMarketplace);
-      // Autofocus so pressing Enter works immediately.
-      try { btn.focus({ preventScroll: true }); } catch (e) { btn.focus(); }
+    var checkbox = document.getElementById('welcomeLegalAccept');
+    var continueBtn = document.getElementById('continueBtn');
+    var status = document.getElementById('welcomeLegalStatus');
+
+    if (!checkbox || !continueBtn) {
+      // Non-splash use of this script; nothing to do.
+      return;
     }
 
-    // Enter or Space anywhere on the page also continues.
+    // If the visitor already accepted on this browser in a
+    // previous session, honour that: pre-tick the box and enable
+    // the button immediately.
+    if (alreadyAcceptedLegal()) {
+      checkbox.checked = true;
+      continueBtn.disabled = false;
+    }
+
+    function refreshButtonState() {
+      if (checkbox.checked) {
+        continueBtn.disabled = false;
+        if (status) status.style.display = 'none';
+      } else {
+        continueBtn.disabled = true;
+      }
+    }
+
+    checkbox.addEventListener('change', refreshButtonState);
+    refreshButtonState();
+
+    function continueToMarketplace() {
+      if (!checkbox.checked) {
+        if (status) {
+          status.textContent =
+            'Please tick the box above to accept the Terms and Conditions and the Privacy Policy before continuing.';
+          status.style.display = 'block';
+        }
+        // Light shake to draw the eye.
+        checkbox.focus();
+        return;
+      }
+
+      persistAcceptance();
+      persistWelcomed();
+      window.location.href = DESTINATION;
+    }
+
+    continueBtn.addEventListener('click', continueToMarketplace);
+
     document.addEventListener('keydown', function (event) {
       if (event.key !== 'Enter' && event.key !== ' ') return;
 
-      // Do not hijack the spacebar if the user is typing into a field.
       var tag = (document.activeElement && document.activeElement.tagName) || '';
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        // Space while focused on the checkbox already toggles it;
+        // let the browser handle that.
+        if (event.key === ' ' && document.activeElement === checkbox) return;
+      }
 
       event.preventDefault();
       continueToMarketplace();

@@ -15,6 +15,25 @@
 //  The marketplace list and related-products queries intentionally
 //  stay as-is so the change is surgical and the list payloads
 //  remain lean.
+//
+//  "You may also like" (this revision):
+//   The related-products query in GET /:id/detail has been changed
+//   so that:
+//     • Every other active product of the same business is returned,
+//       up to a safety cap of 400 (was LIMIT 6, then 60).
+//     • Products that share the viewed product's product_category_id
+//       are sorted FIRST.
+//     • Every other sibling follows.
+//     • Inside each group, newest first (created_at DESC).
+//
+//   The frontend (public/js/product-detail.js) also calls
+//   orderRelatedForDisplay() as a defensive sort, so the customer
+//   sees the same-category-first order even if the server ever
+//   returns unsorted data.
+//
+//   Nothing else in this file was touched. The marketplace list,
+//   the variants batch, the review endpoints, the wishlist, and
+//   the create/update/delete handlers are all unchanged.
 // ============================================================
 
 const express = require('express');
@@ -157,12 +176,24 @@ router.get('/variants/batch', async (req, res) => {
 
 // ============================================================
 //  GET PRODUCT DETAIL (Public)
+//
 //  B.7 — returned product carries its category
 //  H  — returned product also carries the business's order-
 //       visibility fields (online_orders_enabled and
 //       order_disabled_message) so the product detail page can
 //       render the paused-orders banner and disable the cart
 //       controls when the business has paused orders.
+//
+//  "You may also like" (this revision):
+//   The related query now returns every other active product of
+//   the same business, up to a safety cap of 400. Same-category
+//   siblings are sorted FIRST, then every other sibling follows.
+//   Inside each group, newest first (created_at DESC).
+//
+//   This gives the frontend the exact array it needs to render
+//   "You may also like" without a second request, and the
+//   frontend's orderRelatedForDisplay() is a no-op when the
+//   server already sent the array in the right order.
 // ============================================================
 
 router.get('/:id/detail', async (req, res) => {
@@ -212,6 +243,19 @@ router.get('/:id/detail', async (req, res) => {
     `, [id]);
     const reviews = reviewsResult.rows || [];
 
+    // ------------------------------------------------------------
+    //  Related products — "You may also like"
+    //
+    //  Every other active product of the same business, up to 400.
+    //  Same-category siblings first, then the rest, newest first
+    //  inside each group.
+    //
+    //  The `CASE` expression uses $3 = the viewed product's
+    //  product_category_id. When the viewed product has no
+    //  defined category, $3 is NULL and the CASE evaluates to 1
+    //  for every row, so the ordering falls back to created_at
+    //  DESC alone — exactly the pre-existing behaviour.
+    // ------------------------------------------------------------
     const relatedResult = await pool.query(`
       SELECT p.*,
              pc.name AS product_category_name,
@@ -220,11 +264,18 @@ router.get('/:id/detail', async (req, res) => {
       FROM products p
       LEFT JOIN product_categories pc ON pc.id = p.product_category_id
       WHERE p.id != $1
-      AND p.business_id = $2
-      AND p.is_active = true
-      ORDER BY p.created_at DESC
-      LIMIT 6
-    `, [id, product.business_id]);
+        AND p.business_id = $2
+        AND p.is_active = true
+      ORDER BY
+        CASE
+          WHEN p.product_category_id IS NOT NULL
+           AND p.product_category_id = $3
+          THEN 0
+          ELSE 1
+        END,
+        p.created_at DESC
+      LIMIT 400
+    `, [id, product.business_id, product.product_category_id || null]);
 
     const related = [];
     for (const rel of relatedResult.rows) {
@@ -235,7 +286,7 @@ router.get('/:id/detail', async (req, res) => {
       const variant = vRes.rows[0] || null;
       related.push({
         ...rel,
-        // A variant may exist without its own image.  In that case retain the
+        // A variant may exist without its own image. In that case retain the
         // product's main image instead of replacing it with null.
         image: variant?.image || rel.image || null
       });

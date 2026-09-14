@@ -32,6 +32,28 @@
 //
 //   J.5f — Hover or focus pauses rotation; leaving resumes.
 //
+//   J.5g — Scrolling the marketplace past the ad slider stops
+//          the active video's sound. An IntersectionObserver
+//          records whether the slider is visible, and hands off
+//          to syncActiveAdVideo() — the single function in the
+//          file allowed to call video.play() or video.pause().
+//
+//   J.5h — Double-audio fix (this revision):
+//          Before this fix, video.play() was being called from
+//          three separate places (updateAdsActiveSlide, the
+//          scroll-resume helper, and the browser's own autoplay
+//          retry). Two of them landed close enough together that
+//          the same audio track started twice, out of phase.
+//          The customer heard the ad say its first second twice.
+//
+//          All video play/pause decisions are now routed through
+//          ONE function, syncActiveAdVideo(). It is guarded by
+//          adsActiveVideoPending, so a second play() cannot start
+//          while the first is still resolving, and it returns
+//          immediately when the active video is already playing.
+//          There is exactly one play() call site in the entire
+//          ad-slider code path.
+//
 //  Section 6 — Simplified customer registration:
 //   The customer registration form now asks for name, phone,
 //   optional email, password, and confirm. Username is
@@ -47,73 +69,33 @@
 //   on a small success panel.
 //
 //  Section 8 — Workspace outer tabs simplified
-//   The outer marketplace workspace (the row of tabs above the
-//   iframe) no longer shows a "Settings" tab with its own row of
-//   sub-tabs. Instead:
-//     - The tab row is:
-//         Dashboard, Orders, Products, Manage Ads,
-//         Customers, Messages, My Shop, Preview.
-//     - "My Shop" opens business-admin.html?embedded=1&section=myshop
-//       which is the merged My Shop page built in Section 8.
-//     - The sub-tab row (#workspaceSubtabs) is removed entirely.
-//     - Legacy deep links (?workspace=profile, payments, delivery,
-//       ordersettings, productcategories) still work: they are
-//       mapped to their new home (myshop or products) before the
-//       iframe is loaded.
 //
 //  Section 9 — Customer workspace reduced to 4 tabs
-//   The customer side of the workspace (the row of tabs above the
-//   account iframe) now matches the account page itself:
-//     Home, Orders, Profile, Messages.
-//   The Cart tab is removed from the strip. The cart is reached
-//   in normal use via the floating button on the account page.
-//   The legacy deep link ?workspace=cart still resolves to
-//   /cart.html?embedded=1 so any existing bookmark or link
-//   continues to work.
-//   Legacy deep links ?workspace=addresses and
-//   ?workspace=payments fall back to the Profile tab, which is
-//   where those sub-sections now live.
-//   Kicker text and title logic are unchanged.
 //
-//  Dead-code cleanup (this revision):
-//   The Section 6/7 simplification removed the last HTML nodes
-//   that the following helpers used to write to. They are now
-//   removed from this file:
-//     - bindBusinessSearchTagFields()
-//     - renderBusinessSearchPreview()
-//     - setBusinessSearchStatus()
-//     - clearBusinessSearchTagErrors()
-//     - checkBusinessSearchTagAvailability()
-//     - debounceBusinessSearchTagCheck()
-//     - normalizeSearchTagPart()
-//     - buildSearchTagDisplay()
-//     - checkUsernameAvailability()
-//     - generateUsernameSuggestions()
-//     - fillUsername()
-//     - loadProductRecommendationsLegacy()
-//   The searchTagCheckDebounceTimer global and the
-//   SEARCH_TAG_CHECK_DEBOUNCE_MS constant were removed with them.
-//   The corresponding window.* exports were removed too.
-//   Backend endpoints (/api/auth/check-business-tag,
-//   /api/auth/check-username) are untouched — the frontend simply
-//   no longer calls them, because the forms no longer expose the
-//   fields they validated.
+//  Section 20260923 — Business product keywords ("what you sell")
 //
-//  Category blocks integration (this revision):
-//   index.js now calls window.renderCategoryBlocks() after it
-//   finishes building the flat grid, in both renderBusinesses()
-//   and appendBusinesses(). The new helpers at the bottom of the
-//   file (getCurrentSortMode, shouldRenderAsCategoryBlocks,
-//   renderCategoryBlocksForCurrentList, toggleCategoryBlocksVisibility,
-//   hideFlatBusinessGrid, showFlatBusinessGrid) manage the
-//   swap between the two views.
+//  Verified badge (previous revision):
+//   The `VERIFIED` badge prints the word "VERIFIED" instead of a
+//   bare checkmark and pulses with a slow, calm blink.
 //
-//   The flat #businessGrid is now a fallback that only shows when
-//   the result set cannot be usefully grouped:
-//     - exactly one search-tag match, or
-//     - an empty result set.
-//   Everything else renders as category blocks (three sideways
-//   rows of up to 70 cards each, 210 per category per pass).
+//  Description "More / Less" toggle (previous revision):
+//   The description block on both card types no longer truncates
+//   in JavaScript. The full text is placed in the DOM inside a
+//   `.business-description.clamped` wrapper, and a small `More`
+//   link is appended after it whenever the full text is longer
+//   than 100 characters.
+//
+//   Clicking `More` calls `window.toggleCardDescription()` which:
+//     - adds or removes the `.expanded` class on the description
+//     - swaps the link text between `More` and `Less`
+//     - calls `event.stopPropagation()` so the click never opens
+//       the business profile
+//
+//   The flat grid card (index.js) and the block card
+//   (category-blocks.js, which delegates to
+//   renderBusinessCardShared) both inherit this behaviour
+//   automatically. The CSS that makes it work lives in
+//   public/css/marketplace.css.
 // ============================================================
 
 // ============================================================
@@ -197,6 +179,17 @@ let adsIsPaused = false;
 let adsProgressTimer = null;
 
 let adsImpressionFiredFor = new Set();
+
+// Pauses the active video when the slider is scrolled off-screen.
+let adsVisibilityObserver = null;
+
+// Whether the slider is currently visible enough to be heard.
+// Set by the IntersectionObserver in bindAdsVisibilityObserver().
+let adsSliderVisible = true;
+
+// Guards against two overlapping video.play() calls on the same
+// slide, which is what caused the double-audio the customer heard.
+let adsActiveVideoPending = false;
 
 // Section Q — in-feed ad strips.
 let inFeedAdsConsumed = 0;
@@ -948,6 +941,7 @@ async function loadAds() {
     renderAdsSlider();
     section.hidden = false;
     bindAdsSliderOnce();
+    bindAdsVisibilityObserver();
     showAdAtIndex(0);
   } catch (err) {
     console.warn('Ads slider skipped:', err.message);
@@ -1061,18 +1055,22 @@ function bindAdsSliderOnce() {
     slider.addEventListener('mouseenter', () => {
       adsIsPaused = true;
       if (adsTransitionTimer) { clearTimeout(adsTransitionTimer); adsTransitionTimer = null; }
+      syncActiveAdVideo();
     });
     slider.addEventListener('mouseleave', () => {
       adsIsPaused = false;
       resumeAdChain();
+      syncActiveAdVideo();
     });
     slider.addEventListener('focusin', () => {
       adsIsPaused = true;
       if (adsTransitionTimer) { clearTimeout(adsTransitionTimer); adsTransitionTimer = null; }
+      syncActiveAdVideo();
     });
     slider.addEventListener('focusout', () => {
       adsIsPaused = false;
       resumeAdChain();
+      syncActiveAdVideo();
     });
 
     slider.addEventListener('click', (event) => {
@@ -1095,40 +1093,94 @@ function bindAdsSliderOnce() {
   }
 }
 
+// ============================================================
+//  SECTION J.5h — SYNC THE ACTIVE VIDEO (SINGLE PLAY/PAUSE PATH)
+//
+//  This is the ONLY function in the file that calls video.play()
+//  or video.pause() on an ad slide. Every caller — slide changes,
+//  hover-in, hover-out, visibility changes, focus changes — goes
+//  through here.
+//
+//  Before this revision, video.play() was being called from three
+//  separate places: updateAdsActiveSlide(), the scroll-resume
+//  helper, and the browser's own autoplay retry. Two of those
+//  landed close enough together that the same audio track started
+//  twice, out of phase. The customer heard the ad say its first
+//  second twice.
+//
+//  adsActiveVideoPending is a hard lock. While a play() promise
+//  is still resolving, any second call is ignored. Combined with
+//  the "already playing" early return, this makes double-playback
+//  impossible.
+// ============================================================
+
+async function syncActiveAdVideo() {
+  const mediaFrame = document.getElementById('adsMediaFrame');
+  if (!mediaFrame) return;
+
+  const slides = mediaFrame.querySelectorAll('.ads-slide');
+
+  // 1. Every non-active slide is paused and muted.
+  slides.forEach(slide => {
+    const idx = parseInt(slide.dataset.adIndex, 10);
+    if (idx === adsCurrentIndex) return;
+    const video = slide.querySelector('video');
+    if (!video) return;
+    try { video.pause(); } catch (e) {}
+    try { video.muted = true; } catch (e) {}
+  });
+
+  // 2. The active slide is the only one that may play.
+  const activeSlide = mediaFrame.querySelector('.ads-slide.is-active');
+  if (!activeSlide) return;
+
+  const video = activeSlide.querySelector('video');
+  if (!video) return;
+
+  // 3. If the slider is not sufficiently visible, or the customer
+  //    is hovering/focusing it, the active video is paused.
+  if (!isAdSliderVisible() || adsIsPaused) {
+    try { video.pause(); } catch (e) {}
+    return;
+  }
+
+  // 4. Already playing? Do nothing. This is the key guard that
+  //    stops the double-play.
+  if (!video.paused && !video.ended) {
+    return;
+  }
+
+  // 5. Another play() is still resolving. Do nothing.
+  if (adsActiveVideoPending) return;
+
+  adsActiveVideoPending = true;
+
+  try {
+    video.muted = false;
+    video.volume = 1;
+
+    await video.play();
+  } catch (err) {
+    // Autoplay with sound was blocked. Fall back to muted playback
+    // for this one slide. The next slide change will try again
+    // with sound.
+    try {
+      video.muted = true;
+      await video.play();
+    } catch (mutedErr) {
+      // Give up silently. The next transition will try again.
+    }
+  } finally {
+    adsActiveVideoPending = false;
+  }
+}
+
 function updateAdsActiveSlide() {
   const mediaFrame = document.getElementById('adsMediaFrame');
   if (mediaFrame) {
     mediaFrame.querySelectorAll('.ads-slide').forEach(slide => {
       const idx = parseInt(slide.dataset.adIndex, 10);
       slide.classList.toggle('is-active', idx === adsCurrentIndex);
-    });
-
-    mediaFrame.querySelectorAll('.ads-slide').forEach(slide => {
-      const idx = parseInt(slide.dataset.adIndex, 10);
-      const video = slide.querySelector('video');
-      if (!video) return;
-
-      if (idx === adsCurrentIndex) {
-        try { video.currentTime = 0; } catch (e) {}
-
-        video.muted = false;
-        video.volume = 1;
-
-        const playAttempt = video.play();
-        if (playAttempt && typeof playAttempt.catch === 'function') {
-          playAttempt.catch(() => {
-            try {
-              video.muted = true;
-              video.play().catch(() => {});
-            } catch (e) {
-              // Give up silently.
-            }
-          });
-        }
-      } else {
-        try { video.pause(); } catch (e) {}
-        try { video.muted = true; } catch (e) {}
-      }
     });
   }
 
@@ -1141,6 +1193,50 @@ function updateAdsActiveSlide() {
       dot.setAttribute('aria-selected', active ? 'true' : 'false');
     });
   }
+
+  // Single entry point for all video play/pause decisions.
+  syncActiveAdVideo();
+}
+
+// ============================================================
+//  SECTION J.5g — Video audio gating on viewport visibility
+//
+//  The observer does not touch the video directly. It records
+//  whether the slider is currently visible enough to be heard,
+//  and then hands off to syncActiveAdVideo() — the one function
+//  that is allowed to call play() or pause().
+//
+//  Because there is only one decision point, the customer never
+//  hears two overlapping playbacks.
+// ============================================================
+
+function isAdSliderVisible() {
+  return adsSliderVisible === true;
+}
+
+function bindAdsVisibilityObserver() {
+  if (adsVisibilityObserver) return;
+  if (typeof IntersectionObserver !== 'function') return;
+
+  const slider = document.getElementById('adsSlider');
+  if (!slider) return;
+
+  adsVisibilityObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.target !== slider) return;
+
+      const nowVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35;
+
+      if (nowVisible === adsSliderVisible) return;
+
+      adsSliderVisible = nowVisible;
+      syncActiveAdVideo();
+    });
+  }, {
+    threshold: [0, 0.35, 0.6, 1]
+  });
+
+  adsVisibilityObserver.observe(slider);
 }
 
 function fireAdImpression(index) {
@@ -1703,35 +1799,212 @@ function getOrderStatusBadge(business) {
   return '<span class="badge orders-paused" title="This business is not accepting online orders right now">🔴 Orders Paused</span>';
 }
 
-function createBusinessCard(business) {
+/**
+ * Section 20260923 — Compute the ticker names for a business.
+ *
+ * Priority:
+ *   1. The admin's saved `product_keywords`, trimmed and blank-
+ *      filtered. If it has at least one name, use it.
+ *   2. Otherwise, the first 5 real product names from the
+ *      `product_matches` array that the search handler already
+ *      attached to the row. Those are only available when a
+ *      product-name search matched this business, so the fallback
+ *      is opportunistic.
+ *   3. Otherwise, an empty array — the caller will fall back to
+ *      the description block.
+ */
+function getTickerNamesForBusiness(business) {
+  if (!business) return [];
+
+  const out = [];
+  const seen = new Set();
+
+  const push = (value) => {
+    if (value === undefined || value === null) return;
+    const trimmed = String(value).trim();
+    if (trimmed === '') return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(trimmed);
+  };
+
+  if (Array.isArray(business.product_keywords)) {
+    business.product_keywords.forEach(push);
+  }
+
+  if (out.length === 0 && Array.isArray(business.product_matches)) {
+    business.product_matches.slice(0, 5).forEach(match => {
+      if (match && match.product_name) push(match.product_name);
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Section 20260923 — Render the upward-moving keyword ticker.
+ *
+ * Returns an empty string when there is nothing to show, so the
+ * caller can fall back to the description block.
+ */
+function renderBusinessTicker(business) {
+  const names = getTickerNamesForBusiness(business);
+  if (names.length === 0) return '';
+
+  const lines = names
+    .map(name => `<span class="business-ticker-name">${escapeProductText(name)}</span>`)
+    .join('');
+
+  return `
+    <div class="business-ticker" title="What this shop sells">
+      <div class="business-ticker-track">
+        ${lines}
+        ${lines}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Description "More / Less" toggle (previous revision)
+ *
+ * Threshold — the description needs a "More" link only when its
+ * full text is longer than this many characters. Anything shorter
+ * is already fully visible in two lines and does not need a link.
+ */
+const CARD_DESCRIPTION_MORE_THRESHOLD = 100;
+
+/**
+ * Render the description block for a business card.
+ *
+ * The full description is placed in the DOM. A `More` link is
+ * appended after it only when the text is longer than the
+ * threshold. The link calls `window.toggleCardDescription()` and
+ * stops the click from bubbling to the card's open-profile
+ * handler.
+ *
+ * When the ticker has names, the caller does not invoke this
+ * function — the ticker replaces the description.
+ */
+function renderBusinessCardDescription(business) {
+  const description = business && business.description ? String(business.description) : '';
+  const trimmed = description.trim();
+
+  if (!trimmed) return '';
+
+  const needsToggle = trimmed.length > CARD_DESCRIPTION_MORE_THRESHOLD;
+
+  const safe = escapeProductText(trimmed);
+
+  if (!needsToggle) {
+    return `<div class="business-description">${safe}</div>`;
+  }
+
+  return `
+    <div class="business-description clamped" data-description="1">${safe}</div>
+    <button
+      type="button"
+      class="card-description-more"
+      data-description-toggle="1"
+      aria-expanded="false"
+      onclick="window.toggleCardDescription(event, this)"
+    >More</button>
+  `;
+}
+
+/**
+ * Click handler for the "More / Less" link.
+ *
+ * Expands or collapses the description block that lives in the
+ * same card as the clicked button. Stops the event from bubbling
+ * to the card so the profile does not open.
+ */
+function toggleCardDescription(event, button) {
+  if (event && typeof event.stopPropagation === 'function') {
+    event.stopPropagation();
+  }
+  if (event && typeof event.preventDefault === 'function') {
+    event.preventDefault();
+  }
+
+  if (!button) return;
+
+  const card = button.closest('.business-card, .block-card');
+  if (!card) return;
+
+  const description = card.querySelector('.business-description');
+  if (!description) return;
+
+  const isExpanded = description.classList.contains('expanded');
+
+  if (isExpanded) {
+    description.classList.remove('expanded');
+    description.classList.add('clamped');
+    button.textContent = 'More';
+    button.setAttribute('aria-expanded', 'false');
+  } else {
+    description.classList.remove('clamped');
+    description.classList.add('expanded');
+    button.textContent = 'Less';
+    button.setAttribute('aria-expanded', 'true');
+  }
+}
+
+/**
+ * Section 20260923 — Shared business-card renderer.
+ *
+ * Both the flat grid view (this file) and the category-block view
+ * (category-blocks.js) call this function so the two cards can
+ * never drift apart again.
+ *
+ * options.size:
+ *   'grid'  — the flat grid card. Uses class `business-card`.
+ *   'block' — the category-block card. Uses class `block-card`.
+ *
+ * Description vs ticker:
+ *   - When the business has keywords (or fallback product names),
+ *     the ticker replaces the description entirely.
+ *   - When the business has no ticker names, the description block
+ *     is rendered instead. If the description is longer than
+ *     `CARD_DESCRIPTION_MORE_THRESHOLD`, a "More" link is
+ *     appended so the customer can expand it.
+ */
+function renderBusinessCardShared(business, options) {
+  const opts = options || {};
+  const size = opts.size === 'block' ? 'block' : 'grid';
+
+  if (!business || !business.business_name) return '';
+
+  // Slug resolution — same rule as the previous createBusinessCard.
   let slug = business.slug;
   if (!slug || slug === '' || slug === 'undefined' || slug === 'null') {
-    slug = business.business_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    slug = String(business.business_name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
     if (business.id) slug = slug + '-' + business.id;
   }
 
   const logoHtml = business.logo
-    ? `<img src="${business.logo}" alt="${business.business_name}" loading="lazy">`
+    ? `<img src="${escapeProductAttr(business.logo)}" alt="${escapeProductAttr(business.business_name)}" loading="lazy">`
     : `<div class="no-image">🏪</div>`;
 
-  const rating = parseFloat(business.avg_rating) || 0;
-  const ratingStars = rating > 0 ? '⭐'.repeat(Math.round(rating)) : '';
-  const ratingDisplay = rating > 0 ? `<span class="rating">${ratingStars} ${rating.toFixed(1)}</span>` : '';
-
+  // ---- Badges -------------------------------------------------
   const badges = [];
-  if (business.is_verified) badges.push('<span class="badge verified">✅ Verified</span>');
-  if (business.is_featured) badges.push('<span class="badge featured">⭐ Featured</span>');
+
+  // Verified — Section "Verified badge" — full word + slow blink.
+  if (business.is_verified) {
+    badges.push('<span class="badge verified badge-verified-blink">✅ VERIFIED</span>');
+  }
+
+  if (business.is_featured) {
+    badges.push('<span class="badge featured">⭐ FEATURED</span>');
+  }
 
   badges.push(getOrderStatusBadge(business));
 
-  const sellsWord = getBusinessSellsLabel(business);
-  const sellsBannerHtml = sellsWord
-    ? `<div class="business-sells-banner" title="This shop sells a product that matches your search">
-         <span class="business-sells-dot" aria-hidden="true"></span>
-         <span class="business-sells-text">SELLS: ${escapeProductText(sellsWord)}</span>
-       </div>`
-    : '';
-
+  // ---- Search tag chip ---------------------------------------
   const searchTagDisplay = business.search_display || '';
   const searchTagChip = (searchTagDisplay && business.search_tag_confirmed === true)
     ? `<button
@@ -1743,14 +2016,31 @@ function createBusinessCard(business) {
        >🔖 ${escapeProductText(searchTagDisplay)}</button>`
     : '';
 
-  const description = business.description || '';
-  const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
-  const productCount = business.product_count || 0;
-  const followerCount = business.follower_count || 0;
-  const reviewCount = business.review_count || 0;
+  // ---- Description vs ticker ---------------------------------
+  const hasTicker = getTickerNamesForBusiness(business).length > 0;
 
-  const escapedName = business.business_name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const descriptionOrTicker = hasTicker
+    ? renderBusinessTicker(business)
+    : renderBusinessCardDescription(business);
 
+  // ---- Stats --------------------------------------------------
+  const productCountRaw = parseInt(business.product_count, 10);
+  const productCount = Number.isFinite(productCountRaw) ? productCountRaw : 0;
+
+  const followerCountRaw = parseInt(business.follower_count, 10);
+  const followerCount = Number.isFinite(followerCountRaw) ? followerCountRaw : 0;
+
+  const reviewCountRaw = parseInt(business.review_count, 10);
+  const reviewCount = Number.isFinite(reviewCountRaw) ? reviewCountRaw : 0;
+
+  const ratingNum = parseFloat(business.avg_rating);
+  const rating = Number.isFinite(ratingNum) ? ratingNum : 0;
+  const ratingStars = rating > 0 ? '⭐'.repeat(Math.round(rating)) : '';
+  const ratingDisplay = rating > 0
+    ? `<span class="rating">${ratingStars} ${rating.toFixed(1)}</span>`
+    : '';
+
+  // ---- Distance ----------------------------------------------
   const distanceKm = business.distance_km !== undefined && business.distance_km !== null
     ? Number(business.distance_km)
     : null;
@@ -1758,30 +2048,57 @@ function createBusinessCard(business) {
     ? `<div class="business-distance">📍 ${formatDistance(distanceKm)} away</div>`
     : '';
 
+  // ---- Sells banner (product-name match) ---------------------
+  const sellsWord = getBusinessSellsLabel(business);
+  const sellsBannerHtml = sellsWord
+    ? `<div class="business-sells-banner" title="This shop sells a product that matches your search">
+         <span class="business-sells-dot" aria-hidden="true"></span>
+         <span class="business-sells-text">SELLS: ${escapeProductText(sellsWord)}</span>
+       </div>`
+    : '';
+
+  // ---- Root element ------------------------------------------
+  const rootClass = size === 'block' ? 'block-card' : 'business-card';
+  const imageWrapClass = size === 'block' ? 'block-card-media' : 'card-image';
+  const bodyClass = size === 'block' ? 'block-card-body' : 'card-body';
+  const nameClass = size === 'block' ? 'block-card-name' : 'business-name';
+  const locationClass = size === 'block' ? 'block-card-location' : 'business-location';
+  const statsClass = size === 'block' ? 'block-card-meta' : 'business-stats';
+  const badgesWrapClass = size === 'block' ? 'block-card-badges' : 'card-badges';
+
   return `
-    <div class="business-card" data-slug="${slug}" data-name="${escapedName}" onclick="window.location.href='/business/${encodeURIComponent(slug)}'">
-      <div class="card-image">
+    <div class="${rootClass}"
+         data-slug="${escapeProductAttr(slug)}"
+         data-name="${escapeProductAttr(business.business_name)}"
+         onclick="window.location.href='/business/${encodeURIComponent(slug)}'">
+      <div class="${imageWrapClass}">
         ${logoHtml}
-        <div class="card-badges">
+        <div class="${badgesWrapClass}">
           ${badges.join('')}
         </div>
       </div>
-      <div class="card-body">
+      <div class="${bodyClass}">
         ${sellsBannerHtml}
-        <div class="business-name">${business.business_name}</div>
+        <div class="${nameClass}">${escapeProductText(business.business_name)}</div>
         ${searchTagChip}
-        <div class="business-location">📍 ${business.location || 'Kenya'}</div>
+        <div class="${locationClass}">📍 ${escapeProductText(business.location || 'Kenya')}</div>
         ${distanceBadge}
-        ${truncatedDesc ? `<div class="business-description">${truncatedDesc}</div>` : ''}
-        <div class="business-stats">
-          <span>🛍️ ${productCount} products</span>
-          <span>👥 ${followerCount} followers</span>
+        ${descriptionOrTicker}
+        <div class="${statsClass}">
+          <span>🛍️ ${productCount} ${size === 'block' ? '' : 'products'}</span>
+          <span>👥 ${followerCount} ${size === 'block' ? '' : 'followers'}</span>
           ${ratingDisplay}
           ${reviewCount > 0 ? `<span>${reviewCount} reviews</span>` : ''}
         </div>
       </div>
     </div>
   `;
+}
+
+// Thin wrapper used by the flat grid — keeps the old name and
+// signature so nothing else in this file has to change.
+function createBusinessCard(business) {
+  return renderBusinessCardShared(business, { size: 'grid' });
 }
 
 function copyBusinessSearchTag(button) {
@@ -2479,22 +2796,6 @@ function showToast(message, type = 'success') {
 
 // ============================================================
 //  CATEGORY BLOCKS — integration with public/js/category-blocks.js
-//
-//  The category-block view is the primary listing view. The flat
-//  #businessGrid is a fallback for two cases:
-//    1. A search-tag match that resolved to exactly one business.
-//    2. An empty result set.
-//
-//  Every other result set — default browse, search, category
-//  filter, location filter, sort, near me — is rendered as
-//  category blocks with three sideways rows per category.
-//
-//  The two call sites are renderBusinesses() and
-//  appendBusinesses(). Both go through
-//  renderCategoryBlocksForCurrentList(), which is a thin wrapper
-//  around window.renderCategoryBlocks that also reads the
-//  current sort mode and (when the block render fails, or when
-//  the JS file did not load) falls back to the flat grid.
 // ============================================================
 
 function getCurrentSortMode() {
@@ -2594,6 +2895,20 @@ window.renderCategoryBlocksForCurrentList = renderCategoryBlocksForCurrentList;
 window.toggleCategoryBlocksVisibility = toggleCategoryBlocksVisibility;
 window.hideFlatBusinessGrid = hideFlatBusinessGrid;
 window.showFlatBusinessGrid = showFlatBusinessGrid;
+
+// Section 20260923 — expose the shared card renderer and the
+// ticker helpers so category-blocks.js can call the same code
+// path. `createBusinessCard` is kept for backward compatibility
+// (any inline HTML still calling it gets the grid variant).
+window.renderBusinessCardShared = renderBusinessCardShared;
+window.createBusinessCard = createBusinessCard;
+window.getTickerNamesForBusiness = getTickerNamesForBusiness;
+window.renderBusinessTicker = renderBusinessTicker;
+
+// Description "More / Less" toggle (previous revision) — exposed
+// so the inline `onclick` in every card can find it.
+window.toggleCardDescription = toggleCardDescription;
+window.renderBusinessCardDescription = renderBusinessCardDescription;
 
 // ============================================================
 //  CENTRAL MARKETPLACE WORKSPACE
@@ -3017,4 +3332,4 @@ window.openBusinessPreview = openBusinessPreview;
 window.handleLogout = handleLogout;
 window.updateCartBadge = updateCartBadge;
 
-console.log('✅ Index.js loaded successfully (Section 9 — customer workspace reduced to 4 tabs: Home, Orders, Profile, Messages; dead-code cleanup applied; category blocks integrated)');
+console.log('✅ Index.js loaded successfully (Section 9 — customer workspace reduced to 4 tabs; Section 20260923 — shared card renderer + "What You Sell" ticker + VERIFIED badge with slow blink + description More/Less toggle; category blocks integrated; J.5g — video audio pauses on scroll; J.5h — double-audio fixed by routing every play/pause through syncActiveAdVideo())');

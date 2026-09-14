@@ -48,6 +48,29 @@
 //   If the admin logs back in during the grace period, the
 //   server auto-cancels the deletion.
 //
+//  Section 20260923 — Business product keywords ("What You Sell")
+//   A new subsection inside My Shop → Business Profile lets the
+//   admin list up to 10 short names of what the business sells
+//   or the services it offers. Each name is capped at 20 chars
+//   and a soft target of 5 is shown as a warning only. The list
+//   is rendered by the marketplace as a slow upward ticker on
+//   every business card.
+//
+//   This file now owns five new helpers:
+//     loadProductKeywords()          — GET /product-keywords
+//     renderKeywordRows(list)        — paints the row inputs
+//     addKeywordRow(value)           — appends one row
+//     removeKeywordRow(button)       — deletes one row
+//     saveProductKeywords()          — PUT  /product-keywords
+//
+//   Plus three small utilities:
+//     collectKeywordValues()         — reads the current inputs
+//     updateKeywordCounters()        — live counter + warning
+//     clearKeywordStatus()           — resets the status line
+//
+//   The whole feature is optional. The server never refuses a
+//   short or empty list; the 5-row target is a UI hint.
+//
 //  Tile provider migration (this revision):
 //   OpenStreetMap's volunteer tile servers block requests from
 //   deployments that are not plain human-browsing traffic. Any
@@ -177,6 +200,29 @@ const businessDeletionState = {
 
 // Section 11.B — how long the final-step countdown runs, in seconds.
 const BUSINESS_DELETION_COUNTDOWN_SECONDS = 10;
+
+// ------------------------------------------------------------
+//  Section 20260923 — Business product keywords state
+//
+//  These mirror the server-side constants from
+//  src/routes/business-admin.js so the UI can validate and
+//  warn without an extra round-trip.
+//
+//  PRODUCT_KEYWORDS_MIN_LENGTH      — shortest allowed name
+//  PRODUCT_KEYWORDS_MAX_LENGTH      — longest allowed name
+//  PRODUCT_KEYWORDS_MAX_ENTRIES     — hard cap on the list size
+//  PRODUCT_KEYWORDS_SOFT_TARGET     — the "we recommend at
+//                                     least N" hint. Never a
+//                                     server-side rejection.
+// ------------------------------------------------------------
+
+const PRODUCT_KEYWORDS_MIN_LENGTH = 2;
+const PRODUCT_KEYWORDS_MAX_LENGTH = 20;
+const PRODUCT_KEYWORDS_MAX_ENTRIES = 10;
+const PRODUCT_KEYWORDS_SOFT_TARGET = 5;
+
+// Current cached list, refreshed on load and after each save.
+let productKeywords = [];
 
 function escapeHtml(value) {
     const element = document.createElement('div');
@@ -1301,6 +1347,7 @@ function navigateTo(section) {
             loadPaymentSettings();
             loadDeliverySettings();
             loadOrderSettings();
+            loadProductKeywords();
             break;
     }
 }
@@ -1658,6 +1705,404 @@ async function submitProductCategoryRequest() {
             statusEl.style.color = '#ef4444';
         }
         showToast('❌ ' + err.message, 'error');
+    }
+}
+
+// ============================================================
+//  Section 20260923 — PRODUCT KEYWORDS ("What You Sell")
+//
+//  The section is inside My Shop → Business Profile, right
+//  after the Search Tag card. These helpers:
+//    - load the current list on first paint and any refresh
+//    - render up to 10 row inputs
+//    - add / remove rows
+//    - update the live counter and soft warning
+//    - save via PUT /product-keywords
+// ============================================================
+
+/**
+ * Update the row index labels and per-row counters, then update
+ * the overall summary and the soft warning.
+ *
+ * Called after any input change, after addKeywordRow(), and
+ * after removeKeywordRow().
+ */
+function updateKeywordCounters() {
+    const rowsHost = document.getElementById('productKeywordsRows');
+    const summaryEl = document.getElementById('productKeywordsSummary');
+    const warningEl = document.getElementById('productKeywordsWarning');
+    const addBtn = document.getElementById('productKeywordsAddBtn');
+
+    if (!rowsHost) return;
+
+    const rows = rowsHost.querySelectorAll('.pkw-row');
+    const total = rows.length;
+    let filled = 0;
+
+    rows.forEach((row, index) => {
+        const input = row.querySelector('input[type="text"]');
+        const counter = row.querySelector('.pkw-counter');
+        const indexEl = row.querySelector('.pkw-index');
+        const value = input ? input.value : '';
+        const length = value.length;
+
+        if (indexEl) indexEl.textContent = String(index + 1);
+
+        if (counter) {
+            counter.textContent = `${length}/${PRODUCT_KEYWORDS_MAX_LENGTH}`;
+            counter.classList.toggle('pkw-counter-over', length > PRODUCT_KEYWORDS_MAX_LENGTH);
+        }
+
+        if (input) {
+            const isInvalid = value.length > 0 && (
+                value.trim().length < PRODUCT_KEYWORDS_MIN_LENGTH ||
+                value.length > PRODUCT_KEYWORDS_MAX_LENGTH
+            );
+            input.classList.toggle('pkw-invalid', isInvalid);
+        }
+
+        if (value.trim() !== '') filled += 1;
+    });
+
+    if (summaryEl) {
+        if (filled >= PRODUCT_KEYWORDS_SOFT_TARGET) {
+            summaryEl.textContent = `${filled} of ${PRODUCT_KEYWORDS_SOFT_TARGET} recommended — great!`;
+            summaryEl.classList.remove('pkw-summary-warn');
+        } else {
+            summaryEl.textContent = `${filled} of ${PRODUCT_KEYWORDS_SOFT_TARGET} recommended — add ${PRODUCT_KEYWORDS_SOFT_TARGET - filled} more to reach the target.`;
+            summaryEl.classList.add('pkw-summary-warn');
+        }
+    }
+
+    if (warningEl) {
+        if (filled >= PRODUCT_KEYWORDS_SOFT_TARGET) {
+            warningEl.classList.remove('show');
+            warningEl.textContent = '';
+        } else {
+            warningEl.classList.add('show');
+            warningEl.textContent =
+                `💡 Add at least ${PRODUCT_KEYWORDS_SOFT_TARGET} short names so browsing customers can see what you sell. ` +
+                `Each name must be ${PRODUCT_KEYWORDS_MIN_LENGTH} to ${PRODUCT_KEYWORDS_MAX_LENGTH} characters.`;
+        }
+    }
+
+    if (addBtn) {
+        addBtn.disabled = total >= PRODUCT_KEYWORDS_MAX_ENTRIES;
+    }
+}
+
+/**
+ * Read the current input values, trim them, and return the raw
+ * array (may contain empty strings). The server is the one that
+ * drops blanks and enforces the rules.
+ */
+function collectKeywordValues() {
+    const rowsHost = document.getElementById('productKeywordsRows');
+    if (!rowsHost) return [];
+    return Array.from(rowsHost.querySelectorAll('.pkw-row input[type="text"]'))
+        .map(input => input.value);
+}
+
+/**
+ * Clear the status line under the subsection.
+ */
+function clearKeywordStatus() {
+    const statusEl = document.getElementById('productKeywordsStatus');
+    if (!statusEl) return;
+    statusEl.textContent = '';
+    statusEl.className = 'pkw-status';
+}
+
+/**
+ * Reset the status line to a message + tone.
+ *  tone: 'error' | 'success' | 'info'
+ */
+function setKeywordStatus(message, tone) {
+    const statusEl = document.getElementById('productKeywordsStatus');
+    if (!statusEl) return;
+    statusEl.textContent = message || '';
+    statusEl.className = 'pkw-status' + (tone ? ' ' + tone : '');
+}
+
+/**
+ * Create a single row element.
+ *  @param {string} value  initial input value (defaults to '')
+ */
+function createKeywordRowElement(value = '') {
+    const row = document.createElement('div');
+    row.className = 'pkw-row';
+    row.innerHTML = `
+        <span class="pkw-index">1</span>
+        <input type="text"
+               maxlength="${PRODUCT_KEYWORDS_MAX_LENGTH}"
+               placeholder="e.g. Bedsheets"
+               autocomplete="off"
+               spellcheck="false">
+        <span class="pkw-counter">0/${PRODUCT_KEYWORDS_MAX_LENGTH}</span>
+        <button type="button" class="pkw-remove" title="Remove this row" aria-label="Remove this row">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+
+    const input = row.querySelector('input[type="text"]');
+    if (input) {
+        input.value = String(value || '');
+        input.addEventListener('input', () => {
+            clearKeywordStatus();
+            updateKeywordCounters();
+        });
+    }
+
+    const removeBtn = row.querySelector('.pkw-remove');
+    if (removeBtn) {
+        removeBtn.addEventListener('click', () => removeKeywordRow(removeBtn));
+    }
+
+    return row;
+}
+
+/**
+ * Paint the row list from a saved array. Any trailing blanks are
+ * preserved so the admin keeps the same number of rows they had
+ * before, but the section always shows at least one row so the
+ * form is usable on a fresh business.
+ */
+function renderKeywordRows(list) {
+    const rowsHost = document.getElementById('productKeywordsRows');
+    if (!rowsHost) return;
+
+    rowsHost.innerHTML = '';
+
+    const cleaned = Array.isArray(list)
+        ? list.map(v => (v === undefined || v === null ? '' : String(v)))
+        : [];
+
+    // Always start with at least one row so the form is usable
+    // on a fresh business that has never saved a list.
+    const initialRows = cleaned.length > 0 ? cleaned : [''];
+
+    initialRows.forEach(value => {
+        rowsHost.appendChild(createKeywordRowElement(value));
+    });
+
+    // If the saved list is very short, top it up to the soft
+    // target so the admin sees what a full list looks like, but
+    // never go beyond the hard cap.
+    while (rowsHost.children.length < PRODUCT_KEYWORDS_SOFT_TARGET &&
+           rowsHost.children.length < PRODUCT_KEYWORDS_MAX_ENTRIES) {
+        rowsHost.appendChild(createKeywordRowElement(''));
+    }
+
+    updateKeywordCounters();
+}
+
+/**
+ * Append one empty row (called from the "Add another row" button).
+ * Refuses when the hard cap is already reached.
+ */
+function addKeywordRow() {
+    const rowsHost = document.getElementById('productKeywordsRows');
+    if (!rowsHost) return;
+
+    if (rowsHost.children.length >= PRODUCT_KEYWORDS_MAX_ENTRIES) {
+        showToast(`You can add up to ${PRODUCT_KEYWORDS_MAX_ENTRIES} names.`, 'warning');
+        return;
+    }
+
+    rowsHost.appendChild(createKeywordRowElement(''));
+    updateKeywordCounters();
+
+    // Focus the new input for a fast workflow.
+    const lastRow = rowsHost.lastElementChild;
+    const input = lastRow ? lastRow.querySelector('input[type="text"]') : null;
+    if (input) input.focus();
+}
+
+/**
+ * Remove the row that owns the clicked button. Keeps at least
+ * one row so the form never becomes empty by accident.
+ */
+function removeKeywordRow(button) {
+    if (!button) return;
+    const row = button.closest('.pkw-row');
+    const rowsHost = document.getElementById('productKeywordsRows');
+    if (!row || !rowsHost) return;
+
+    if (rowsHost.children.length <= 1) {
+        const input = row.querySelector('input[type="text"]');
+        if (input) input.value = '';
+        clearKeywordStatus();
+        updateKeywordCounters();
+        return;
+    }
+
+    row.remove();
+    clearKeywordStatus();
+    updateKeywordCounters();
+}
+
+/**
+ * Fetch the saved list from the server and paint it. Called on
+ * first visit to My Shop and on every re-open of the section.
+ */
+async function loadProductKeywords() {
+    const rowsHost = document.getElementById('productKeywordsRows');
+    if (!rowsHost) return;
+
+    // Show a lightweight placeholder on first paint.
+    if (rowsHost.children.length === 0) {
+        rowsHost.innerHTML = '<p style="font-size:0.78rem; color:#166534; margin:0 0 6px 0;">Loading your list…</p>';
+    }
+
+    try {
+        const res = await fetch('/api/business-admin/product-keywords', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            credentials: 'same-origin',
+            cache: 'no-store'
+        });
+
+        if (!res.ok) throw new Error(`Failed to load product keywords (${res.status})`);
+        const data = await res.json();
+
+        productKeywords = Array.isArray(data.keywords) ? data.keywords : [];
+        renderKeywordRows(productKeywords);
+
+        // Reuse the server's status line if it exists.
+        if (data.below_soft_target === true) {
+            setKeywordStatus(
+                `You have ${productKeywords.length} of ${PRODUCT_KEYWORDS_SOFT_TARGET} recommended names.`,
+                'info'
+            );
+        } else {
+            clearKeywordStatus();
+        }
+    } catch (err) {
+        console.error('❌ Load product keywords error:', err);
+        // Always render at least one empty row so the admin can
+        // still type and save a list.
+        renderKeywordRows([]);
+        setKeywordStatus('Could not load your list right now. You can still type and save.', 'error');
+    }
+}
+
+/**
+ * Client-side pre-check before the PUT. Mirrors the server rules
+ * so the admin gets an instant message instead of a round-trip.
+ *
+ * Returns null when the payload is valid, or a string error.
+ */
+function validateKeywordsClientSide(values) {
+    const seen = new Set();
+    let cleaned = 0;
+
+    for (let i = 0; i < values.length; i += 1) {
+        const raw = values[i];
+        const trimmed = String(raw == null ? '' : raw).trim();
+
+        if (trimmed === '') continue;
+
+        if (trimmed.length < PRODUCT_KEYWORDS_MIN_LENGTH) {
+            return `Row ${i + 1}: "${trimmed}" must be at least ${PRODUCT_KEYWORDS_MIN_LENGTH} characters.`;
+        }
+        if (trimmed.length > PRODUCT_KEYWORDS_MAX_LENGTH) {
+            return `Row ${i + 1}: "${trimmed}" must be ${PRODUCT_KEYWORDS_MAX_LENGTH} characters or fewer.`;
+        }
+
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) {
+            return `Row ${i + 1}: "${trimmed}" is already used in another row.`;
+        }
+        seen.add(key);
+
+        cleaned += 1;
+    }
+
+    if (cleaned > PRODUCT_KEYWORDS_MAX_ENTRIES) {
+        return `You can save up to ${PRODUCT_KEYWORDS_MAX_ENTRIES} names.`;
+    }
+
+    return null;
+}
+
+/**
+ * Save the current list. Uses PUT /product-keywords and handles
+ * the server's per-row error shape so the admin knows exactly
+ * which input to fix.
+ */
+async function saveProductKeywords() {
+    const saveBtn = document.getElementById('productKeywordsSaveBtn');
+    if (!saveBtn) return;
+
+    const values = collectKeywordValues();
+
+    // Fast client-side check so obvious problems never hit the
+    // network.
+    const clientError = validateKeywordsClientSide(values);
+    if (clientError) {
+        setKeywordStatus('❌ ' + clientError, 'error');
+        showToast('❌ ' + clientError, 'error');
+        return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    setKeywordStatus('⏳ Saving your list…', 'info');
+
+    try {
+        const res = await fetch('/api/business-admin/product-keywords', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ keywords: values })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            // Server sent a per-row error — highlight the row that
+            // failed so the admin can fix exactly one field.
+            const rowNumber = Number.isInteger(data.row) ? data.row : null;
+            if (rowNumber && rowNumber >= 1) {
+                const rowsHost = document.getElementById('productKeywordsRows');
+                const rows = rowsHost ? rowsHost.querySelectorAll('.pkw-row') : [];
+                const row = rows[rowNumber - 1];
+                const input = row ? row.querySelector('input[type="text"]') : null;
+                if (input) {
+                    input.classList.add('pkw-invalid');
+                    input.focus();
+                }
+            }
+            throw new Error(data.error || 'Failed to save product keywords');
+        }
+
+        productKeywords = Array.isArray(data.keywords) ? data.keywords : [];
+        renderKeywordRows(productKeywords);
+
+        const parts = [];
+        if (data.dropped) parts.push(`${data.dropped} blank row${data.dropped === 1 ? '' : 's'} ignored`);
+        if (data.collapsed) parts.push(`${data.collapsed} duplicate${data.collapsed === 1 ? '' : 's'} removed`);
+        const extra = parts.length ? ' (' + parts.join(', ') + ')' : '';
+
+        const successMessage = `✅ Saved ${productKeywords.length} name${productKeywords.length === 1 ? '' : 's'}${extra}.`;
+        setKeywordStatus(successMessage, 'success');
+        showToast(successMessage, 'success');
+
+        if (data.below_soft_target === true) {
+            showToast(
+                `Tip: add at least ${PRODUCT_KEYWORDS_SOFT_TARGET} names so customers see a richer ticker.`,
+                'info'
+            );
+        }
+    } catch (err) {
+        console.error('❌ Save product keywords error:', err);
+        setKeywordStatus('❌ ' + err.message, 'error');
+        showToast('❌ ' + err.message, 'error');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save what you sell';
     }
 }
 
@@ -2349,6 +2794,14 @@ async function loadBusinessProfile() {
         }
 
         hydrateSearchTagFromBusiness(business);
+
+        // Section 20260923 — the keyword subsection is populated
+        // by its own loader so it can also be refreshed on demand.
+        // Only load if the subsection has never been painted.
+        const rowsHost = document.getElementById('productKeywordsRows');
+        if (rowsHost && rowsHost.children.length === 0) {
+            loadProductKeywords();
+        }
 
     } catch (err) {
         console.error('❌ Profile error:', err);
@@ -3776,6 +4229,16 @@ window.scrollToShopSection = scrollToShopSection;
 window.jumpToShopSection = jumpToShopSection;
 window.switchProductsTab = switchProductsTab;
 
+// Section 20260923 — expose the "What You Sell" helpers so the
+// inline HTML in business-admin.html and any future surface can
+// call them.
+window.loadProductKeywords = loadProductKeywords;
+window.renderKeywordRows = renderKeywordRows;
+window.addKeywordRow = addKeywordRow;
+window.removeKeywordRow = removeKeywordRow;
+window.saveProductKeywords = saveProductKeywords;
+window.updateKeywordCounters = updateKeywordCounters;
+
 // Section 11.B — expose the deletion flow helpers so the modal
 // buttons in business-admin.html resolve.
 window.openBusinessDeletionStepA = openBusinessDeletionStepA;
@@ -3791,4 +4254,4 @@ window.businessDeletionChooseReason = businessDeletionChooseReason;
 window.businessDeletionCheckName = businessDeletionCheckName;
 window.businessDeletionSubmit = businessDeletionSubmit;
 
-console.log('✅ Business Admin JS loaded successfully (Section 10 — rating tile removed, Section 11.B — business deletion wired, CARTO tile provider active)');
+console.log('✅ Business Admin JS loaded successfully (Section 10 — rating tile removed, Section 11.B — business deletion wired, Section 20260923 — product keywords wired, CARTO tile provider active)');

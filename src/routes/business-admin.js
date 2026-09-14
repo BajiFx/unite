@@ -85,6 +85,42 @@
 //
 //   The finalization job that anonymizes / deactivates rows past
 //   their grace period lives in server.js (cron at 03:00).
+//
+//  Section 20260923 — Business product keywords ("what you sell")
+//   Adds a small, optional, free-text list of short product or
+//   service names that the marketplace renders as a slow upward
+//   ticker inside every business card (both the flat grid card
+//   and the category-block card).
+//
+//   Two routes are added to this file:
+//     GET /product-keywords  → returns the current list
+//     PUT /product-keywords  → saves a new list
+//
+//   And GET /profile now also returns `product_keywords` so the
+//   admin panel can hydrate the section on first paint without
+//   a second request.
+//
+//   Rules enforced by PUT /product-keywords:
+//     - The body must be { keywords: [ ... ] }.
+//     - Each entry is trimmed.
+//     - Each entry must be between 2 and 20 characters after
+//       trimming. Anything outside that range is rejected with
+//       a per-row error so the admin can fix the exact field.
+//     - Empty strings are dropped silently, so a trailing blank
+//       row in the admin UI does not block the save.
+//     - Duplicates (case-insensitive) are collapsed so the
+//       ticker never shows the same name twice.
+//     - The list is capped at 10 entries.
+//     - A list with fewer than 5 entries is saved successfully.
+//       The 5-entry target is a UI warning only; the server
+//       never refuses a short list because the feature is
+//       optional.
+//     - A list with 0 entries after trimming is accepted and
+//       clears the column back to '[]'::jsonb, which is what the
+//       admin expects when they empty the section on purpose.
+//
+//   The column itself is created by
+//   migrations/sql/20260923-business-product-keywords.sql.
 // ============================================================
 
 const express = require('express');
@@ -145,6 +181,26 @@ const BUSINESS_DELETION_REASONS = new Set([
 
 const BUSINESS_DELETION_GRACE_DAYS = 60;
 
+// ============================================================
+//  Section 20260923 — Product keywords ("What You Sell")
+//
+//  These limits are enforced by PUT /product-keywords. They are
+//  declared once so the route, the migration comment, and the
+//  admin UI all reference the same numbers.
+//
+//  PRODUCT_KEYWORDS_MIN_LENGTH      — shortest allowed name
+//  PRODUCT_KEYWORDS_MAX_LENGTH      — longest allowed name
+//  PRODUCT_KEYWORDS_MAX_ENTRIES     — hard cap on the list size
+//  PRODUCT_KEYWORDS_SOFT_TARGET     — UI-only "we recommend at
+//                                     least N" target, never a
+//                                     server-side rejection
+// ============================================================
+
+const PRODUCT_KEYWORDS_MIN_LENGTH = 2;
+const PRODUCT_KEYWORDS_MAX_LENGTH = 20;
+const PRODUCT_KEYWORDS_MAX_ENTRIES = 10;
+const PRODUCT_KEYWORDS_SOFT_TARGET = 5;
+
 // Sections C.3 – C.6 — helpers -------------------------------------------------
 
 /**
@@ -201,6 +257,92 @@ async function geocodeLocation(location) {
         console.warn('Location geocoding skipped:', error.message);
         return null;
     }
+}
+
+// ============================================================
+//  Section 20260923 — Product keywords helpers
+//
+//  A single normaliser is used by PUT /product-keywords and by
+//  the profile save path. It returns a structured result so the
+//  caller can surface per-row errors to the admin UI without
+//  duplicating the rules.
+//
+//  Return shape:
+//    {
+//      ok: true,
+//      keywords: ['Bedsheets', 'Towels', ...],
+//      dropped: 2,          // blank rows silently dropped
+//      collapsed: 1         // duplicate rows collapsed
+//    }
+//    or
+//    {
+//      ok: false,
+//      error: 'Row 3: "..." must be 2 to 20 characters.',
+//      row: 3,
+//      value: '...'
+//    }
+// ============================================================
+
+function normaliseProductKeywords(raw) {
+    if (raw === undefined || raw === null) {
+        return { ok: true, keywords: [], dropped: 0, collapsed: 0 };
+    }
+
+    if (!Array.isArray(raw)) {
+        return { ok: false, error: 'product_keywords must be an array of strings.' };
+    }
+
+    const cleaned = [];
+    const seen = new Set();
+    let dropped = 0;
+    let collapsed = 0;
+
+    for (let i = 0; i < raw.length; i += 1) {
+        const value = raw[i];
+
+        if (value === undefined || value === null) {
+            dropped += 1;
+            continue;
+        }
+
+        const trimmed = String(value).trim();
+
+        if (trimmed === '') {
+            dropped += 1;
+            continue;
+        }
+
+        if (trimmed.length < PRODUCT_KEYWORDS_MIN_LENGTH) {
+            return {
+                ok: false,
+                row: i + 1,
+                value: trimmed,
+                error: `Row ${i + 1}: "${trimmed}" must be at least ${PRODUCT_KEYWORDS_MIN_LENGTH} characters.`
+            };
+        }
+
+        if (trimmed.length > PRODUCT_KEYWORDS_MAX_LENGTH) {
+            return {
+                ok: false,
+                row: i + 1,
+                value: trimmed,
+                error: `Row ${i + 1}: "${trimmed}" must be ${PRODUCT_KEYWORDS_MAX_LENGTH} characters or fewer.`
+            };
+        }
+
+        const dedupeKey = trimmed.toLowerCase();
+        if (seen.has(dedupeKey)) {
+            collapsed += 1;
+            continue;
+        }
+
+        seen.add(dedupeKey);
+        cleaned.push(trimmed);
+
+        if (cleaned.length >= PRODUCT_KEYWORDS_MAX_ENTRIES) break;
+    }
+
+    return { ok: true, keywords: cleaned, dropped, collapsed };
 }
 
 // ============================================================
@@ -322,6 +464,10 @@ router.post('/product-categories/request', authMiddleware, businessAdminOnly, ge
 //  the admin panel can render the "Make people find you by
 //  your location" section, the "✅ Location Activated" badge,
 //  and the "your business cannot be found" warning.
+//
+//  Section 20260923 — the response now also carries
+//  `product_keywords` so the admin panel can hydrate the
+//  "What You Sell (card ticker)" section on first paint.
 // ============================================================
 
 router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -361,9 +507,21 @@ router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
         const locationActivated = business.location_activated === true;
         const locationComplete = business.location_complete === true;
 
+        // Section 20260923 — normalise the keyword list for the client.
+        // The column is JSONB and already an array, but we defensively
+        // coerce it to a plain JS array so a NULL or a string never
+        // reaches the client.
+        let productKeywords = [];
+        if (Array.isArray(business.product_keywords)) {
+            productKeywords = business.product_keywords
+                .map(v => (v === undefined || v === null ? '' : String(v).trim()))
+                .filter(v => v !== '');
+        }
+
         res.json({
             business: {
                 ...business,
+                product_keywords: productKeywords,
                 location_activated: locationActivated,
                 location_complete: locationComplete
             },
@@ -388,6 +546,123 @@ router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
 });
 
 // ============================================================
+//  Section 20260923 — PRODUCT KEYWORDS ("What You Sell")
+//
+//  GET /product-keywords
+//   Returns the current list for the requesting admin's business.
+//   Lightweight so the admin panel can refresh the section
+//   without reloading the whole profile.
+// ============================================================
+
+router.get('/product-keywords', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT product_keywords FROM businesses WHERE id = $1',
+            [req.businessId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Business not found' });
+        }
+
+        const raw = result.rows[0].product_keywords;
+        const keywords = Array.isArray(raw)
+            ? raw.map(v => (v === undefined || v === null ? '' : String(v).trim())).filter(v => v !== '')
+            : [];
+
+        res.json({
+            success: true,
+            keywords,
+            soft_target: PRODUCT_KEYWORDS_SOFT_TARGET,
+            max_entries: PRODUCT_KEYWORDS_MAX_ENTRIES,
+            min_length: PRODUCT_KEYWORDS_MIN_LENGTH,
+            max_length: PRODUCT_KEYWORDS_MAX_LENGTH
+        });
+    } catch (err) {
+        console.error('❌ Get product keywords error:', err);
+        logError(err, 'Get product keywords');
+        res.status(500).json({ error: 'Unable to load product keywords' });
+    }
+});
+
+// ============================================================
+//  Section 20260923 — PRODUCT KEYWORDS ("What You Sell")
+//
+//  PUT /product-keywords
+//   Replaces the list for the requesting admin's business.
+//
+//   Body: { keywords: ['Bedsheets', 'Towels', ...] }
+//
+//   Rules:
+//     - Each entry is trimmed.
+//     - Each entry must be 2 to 20 characters.
+//     - Blank rows are dropped silently.
+//     - Duplicates (case-insensitive) are collapsed.
+//     - The list is capped at 10 entries.
+//     - Fewer than 5 entries is accepted (warning-only target).
+//     - An empty list is accepted and clears the column.
+//
+//   A validation failure returns 400 with a
+//   { success: false, error, row, value } body so the admin UI
+//   can highlight the exact field that failed.
+//
+//   Success returns the saved list plus the standard limits so
+//   the panel can refresh its counters without a second call.
+// ============================================================
+
+router.put('/product-keywords', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const raw = req.body ? req.body.keywords : undefined;
+        const normalised = normaliseProductKeywords(raw);
+
+        if (!normalised.ok) {
+            return res.status(400).json({
+                success: false,
+                error: normalised.error,
+                row: normalised.row || null,
+                value: normalised.value || null
+            });
+        }
+
+        const keywords = normalised.keywords;
+
+        const result = await pool.query(
+            `UPDATE businesses
+                SET product_keywords = $1::jsonb,
+                    updated_at = NOW()
+              WHERE id = $2
+              RETURNING product_keywords`,
+            [JSON.stringify(keywords), req.businessId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Business not found' });
+        }
+
+        await logAdminActivity(req.userId, 'UPDATE_PRODUCT_KEYWORDS', {
+            businessId: req.businessId,
+            count: keywords.length
+        });
+
+        res.json({
+            success: true,
+            keywords,
+            dropped: normalised.dropped,
+            collapsed: normalised.collapsed,
+            soft_target: PRODUCT_KEYWORDS_SOFT_TARGET,
+            max_entries: PRODUCT_KEYWORDS_MAX_ENTRIES,
+            min_length: PRODUCT_KEYWORDS_MIN_LENGTH,
+            max_length: PRODUCT_KEYWORDS_MAX_LENGTH,
+            below_soft_target: keywords.length < PRODUCT_KEYWORDS_SOFT_TARGET
+        });
+    } catch (err) {
+        console.error('❌ Save product keywords error:', err);
+        logError(err, 'Save product keywords');
+        res.status(500).json({ error: 'Unable to save product keywords' });
+    }
+});
+
+// ============================================================
 //  UPDATE BUSINESS PROFILE
 //
 //  C.1 — latitude / longitude remain accepted but are no
@@ -399,6 +674,13 @@ router.get('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
 //  C.4 — When coordinates come in via the profile form, the
 //        activation flag is set automatically and the source
 //        defaults to "geocode" unless already set.
+//
+//  Section 20260923 — `product_keywords` may be sent as a JSON
+//  string in the multipart body (the admin panel posts the
+//  whole profile form as FormData). When present it is passed
+//  through the same normaliser as PUT /product-keywords, so the
+//  rules are enforced in exactly one place. A blank or invalid
+//  list is rejected with the same per-row error shape.
 // ============================================================
 
 router.put('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
@@ -452,6 +734,46 @@ router.put('/profile', authMiddleware, businessAdminOnly, getBusinessIdFromToken
                     }
                     paramIndex++;
                 }
+            }
+
+            // Section 20260923 — optional product_keywords in the
+            // same multipart form. Accepted as a JSON string of an
+            // array, or as a real array if the caller ever sends
+            // JSON instead of multipart.
+            if (req.body.product_keywords !== undefined) {
+                let parsed;
+
+                if (Array.isArray(req.body.product_keywords)) {
+                    parsed = req.body.product_keywords;
+                } else {
+                    const rawString = String(req.body.product_keywords || '').trim();
+                    if (rawString === '') {
+                        parsed = [];
+                    } else {
+                        try {
+                            parsed = JSON.parse(rawString);
+                        } catch (jsonErr) {
+                            return res.status(400).json({
+                                success: false,
+                                error: 'product_keywords must be a valid JSON array of strings.'
+                            });
+                        }
+                    }
+                }
+
+                const normalised = normaliseProductKeywords(parsed);
+                if (!normalised.ok) {
+                    return res.status(400).json({
+                        success: false,
+                        error: normalised.error,
+                        row: normalised.row || null,
+                        value: normalised.value || null
+                    });
+                }
+
+                fields.push(`product_keywords = $${paramIndex}::jsonb`);
+                values.push(JSON.stringify(normalised.keywords));
+                paramIndex++;
             }
 
             // C.4 — If the admin supplied coordinates via this form,

@@ -48,7 +48,27 @@
       - If the admin logs back in during the grace period,
         the server auto-cancels the deletion.
 
-     Everything not related to Section 8 or 11.B is preserved.
+     Section 20260923 — Business product keywords ("What You Sell")
+      - A new subsection is added inside My Shop → Business
+        Profile, right after the business categories field.
+      - The subsection is a small form with:
+          * up to 10 text inputs, each capped at 20 characters
+          * a live per-row character counter
+          * a live overall counter ("3 of 5 recommended")
+          * an "Add another row" button
+          * a "Save what you sell" button
+          * a soft warning banner when fewer than 5 rows are
+            filled
+          * a green confirmation when the list is saved
+      - The list is rendered by the marketplace as a slow
+        upward ticker inside every business card (both the
+        flat grid card and the category-block card).
+      - The whole subsection is optional. The server never
+        refuses a short or empty list; the 5-row target is a
+        UI hint only.
+
+     Everything not related to Section 8, 11.B, or 20260923
+     is preserved.
      ============================================================ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -77,6 +97,11 @@
   <!-- Section 11.B — inline styles for the Danger zone block
        and its chained modals. Scoped under .ba-danger-zone and
        #businessDeletionModal* so nothing else on the page is
+       affected.
+
+       Section 20260923 — inline styles for the new
+       "What You Sell (card ticker)" subsection. Scoped under
+       #productKeywordsSection so nothing else on the page is
        affected. -->
   <style>
     /* ---------- Danger zone shell ---------- */
@@ -345,6 +370,221 @@
       justify-content: flex-end;
       flex-wrap: wrap;
       margin-top: 6px;
+    }
+
+    /* ------------------------------------------------------------
+       Section 20260923 — "What You Sell (card ticker)" subsection
+
+       Scoped under #productKeywordsSection so nothing else on
+       the page is affected. Every style here is additive.
+       ------------------------------------------------------------ */
+    #productKeywordsSection {
+      margin-top: 16px;
+      border: 1px solid #c8e6c8;
+      background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+
+    #productKeywordsSection h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1rem;
+      font-weight: 800;
+      color: #14532d;
+      margin: 0 0 4px 0;
+    }
+
+    #productKeywordsSection h3 i {
+      color: #16a34a;
+    }
+
+    #productKeywordsSection .pkw-intro {
+      font-size: 0.82rem;
+      color: #166534;
+      line-height: 1.55;
+      margin: 0 0 12px 0;
+    }
+
+    #productKeywordsSection .pkw-row {
+      display: grid;
+      grid-template-columns: 32px 1fr 56px 28px;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    #productKeywordsSection .pkw-row .pkw-index {
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #94a3b8;
+      text-align: right;
+    }
+
+    #productKeywordsSection .pkw-row input[type="text"] {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1.5px solid #bbf7d0;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      background: #ffffff;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    #productKeywordsSection .pkw-row input[type="text"]:focus {
+      outline: none;
+      border-color: #16a34a;
+      box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+    }
+
+    #productKeywordsSection .pkw-row input[type="text"].pkw-invalid {
+      border-color: #ef4444;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+    }
+
+    #productKeywordsSection .pkw-counter {
+      font-size: 0.62rem;
+      font-weight: 700;
+      color: #94a3b8;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #productKeywordsSection .pkw-counter.pkw-counter-over {
+      color: #ef4444;
+    }
+
+    #productKeywordsSection .pkw-remove {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+
+    #productKeywordsSection .pkw-remove:hover {
+      background: #fecaca;
+    }
+
+    #productKeywordsSection .pkw-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    #productKeywordsSection .pkw-summary {
+      font-size: 0.78rem;
+      color: #166534;
+      font-weight: 700;
+    }
+
+    #productKeywordsSection .pkw-summary.pkw-summary-warn {
+      color: #92400e;
+    }
+
+    #productKeywordsSection .pkw-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #productKeywordsSection .pkw-btn-add {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: #ffffff;
+      color: #166534;
+      border: 1.5px solid #86efac;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    #productKeywordsSection .pkw-btn-add:hover:not(:disabled) {
+      background: #ecfdf5;
+      border-color: #16a34a;
+    }
+
+    #productKeywordsSection .pkw-btn-add:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #productKeywordsSection .pkw-btn-save {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 18px;
+      background: #16a34a;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    #productKeywordsSection .pkw-btn-save:hover:not(:disabled) {
+      background: #15803d;
+      transform: translateY(-1px);
+    }
+
+    #productKeywordsSection .pkw-btn-save:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #productKeywordsSection .pkw-warning {
+      display: none;
+      margin-top: 10px;
+      padding: 8px 12px;
+      background: #fffbeb;
+      color: #92400e;
+      border-left: 3px solid #f59e0b;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+
+    #productKeywordsSection .pkw-warning.show {
+      display: block;
+    }
+
+    #productKeywordsSection .pkw-status {
+      min-height: 18px;
+      margin-top: 8px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+
+    #productKeywordsSection .pkw-status.error { color: #ef4444; font-weight: 600; }
+    #productKeywordsSection .pkw-status.success { color: #16a34a; font-weight: 600; }
+    #productKeywordsSection .pkw-status.info { color: #2563eb; font-weight: 500; }
+
+    @media (max-width: 640px) {
+      #productKeywordsSection .pkw-row {
+        grid-template-columns: 24px 1fr 44px 24px;
+        gap: 6px;
+      }
+      #productKeywordsSection .pkw-row input[type="text"] {
+        padding: 8px 10px;
+        font-size: 0.85rem;
+      }
     }
   </style>
 </head>
@@ -682,6 +922,10 @@
     <!-- Section 11.B — Danger zone lives at the very bottom of this  -->
     <!-- page, after Order Settings, so the destructive action is     -->
     <!-- visually separated from the routine settings.                -->
+    <!--                                                              -->
+    <!-- Section 20260923 — "What You Sell (card ticker)" lives       -->
+    <!-- inside the Business Profile group, right after the business  -->
+    <!-- categories field. It is a small optional form.                -->
     <!-- ============================================================ -->
     <div class="myshop-page" id="myshopPage">
 
@@ -811,6 +1055,60 @@
           <p style="font-size:0.72rem; color:#94a3b8; margin:10px 0 0 0;">
             Share this tag with customers so they can find your shop directly.
           </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- Section 20260923 — "What You Sell (card ticker)"             -->
+        <!--                                                              -->
+        <!-- A small optional form letting the admin list up to 10 short   -->
+        <!-- product or service names. Each name is capped at 20 chars.    -->
+        <!-- The marketplace renders this list as a slow upward ticker     -->
+        <!-- inside every business card. The 5-row target is a UI hint     -->
+        <!-- only; the server never refuses a short list.                  -->
+        <!--                                                              -->
+        <!-- The whole block is populated by business-admin.js:            -->
+        <!--   - buildKeywordRows(list)      — renders the rows            -->
+        <!--   - addKeywordRow()             — appends one row             -->
+        <!--   - removeKeywordRow(button)    — deletes one row             -->
+        <!--   - saveProductKeywords()       — saves via PUT                -->
+        <!--   - loadProductKeywords()       — loads via GET                -->
+        <!--                                                              -->
+        <!-- The section is idempotent: business-admin.js can call it       -->
+        <!-- once on first paint and refresh it any time.                   -->
+        <!-- ============================================================ -->
+        <div class="settings-section" id="productKeywordsSection">
+          <h3>
+            <i class="fas fa-stream"></i> What You Sell (card ticker)
+          </h3>
+          <p class="pkw-intro">
+            Add at least 5 short names of what your business sells or the services you offer.
+            These names appear on your marketplace card as a slow upward ticker, giving
+            browsing customers an instant overview without opening your shop.
+            Each name must be 2 to 20 characters.
+          </p>
+
+          <div id="productKeywordsRows"></div>
+
+          <div class="pkw-toolbar">
+            <div class="pkw-summary" id="productKeywordsSummary">0 of 5 recommended</div>
+            <div class="pkw-actions">
+              <button type="button"
+                      class="pkw-btn-add"
+                      id="productKeywordsAddBtn"
+                      onclick="addKeywordRow()">
+                <i class="fas fa-plus"></i> Add another row
+              </button>
+              <button type="button"
+                      class="pkw-btn-save"
+                      id="productKeywordsSaveBtn"
+                      onclick="saveProductKeywords()">
+                <i class="fas fa-save"></i> Save what you sell
+              </button>
+            </div>
+          </div>
+
+          <div class="pkw-warning" id="productKeywordsWarning"></div>
+          <div class="pkw-status" id="productKeywordsStatus"></div>
         </div>
 
         <div class="settings-section">

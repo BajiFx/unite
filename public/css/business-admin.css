@@ -1226,3 +1226,230 @@ html.embedded .sidebar { display: none !important; }
     flex: 1 1 100%;
   }
 }
+
+/* ============================================================
+   SECTION 20260923 — "What You Sell (card ticker)"
+   Location: appended to public/css/business-admin.css
+
+   These rules style the new admin form section that lets a
+   business admin list up to 10 short names of what the business
+   sells. Each name is capped at 20 characters. The marketplace
+   renders the list as a slow upward ticker on every business
+   card so a browsing customer gets an instant overview without
+   opening the profile.
+
+   Everything here is scoped under #productKeywordsSection so
+   nothing else on the page is affected. All rules are new.
+
+   The section is optional. The server never refuses a short or
+   empty list; the 5-name target is a UI hint only.
+   ============================================================ */
+
+#productKeywordsSection {
+  margin-top: 16px;
+  border: 1px solid #c8e6c8;
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+#productKeywordsSection h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #14532d;
+  margin: 0 0 4px 0;
+}
+
+#productKeywordsSection h3 i {
+  color: #16a34a;
+}
+
+#productKeywordsSection .pkw-intro {
+  font-size: 0.82rem;
+  color: #166534;
+  line-height: 1.55;
+  margin: 0 0 12px 0;
+}
+
+#productKeywordsSection .pkw-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 56px 28px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+#productKeywordsSection .pkw-row .pkw-index {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #94a3b8;
+  text-align: right;
+}
+
+#productKeywordsSection .pkw-row input[type="text"] {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#productKeywordsSection .pkw-row input[type="text"]:focus {
+  outline: none;
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+#productKeywordsSection .pkw-row input[type="text"].pkw-invalid {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+#productKeywordsSection .pkw-counter {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#productKeywordsSection .pkw-counter.pkw-counter-over {
+  color: #ef4444;
+}
+
+#productKeywordsSection .pkw-remove {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+#productKeywordsSection .pkw-remove:hover {
+  background: #fecaca;
+}
+
+#productKeywordsSection .pkw-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+#productKeywordsSection .pkw-summary {
+  font-size: 0.78rem;
+  color: #166534;
+  font-weight: 700;
+}
+
+#productKeywordsSection .pkw-summary.pkw-summary-warn {
+  color: #92400e;
+}
+
+#productKeywordsSection .pkw-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#productKeywordsSection .pkw-btn-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #ffffff;
+  color: #166534;
+  border: 1.5px solid #86efac;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+#productKeywordsSection .pkw-btn-add:hover:not(:disabled) {
+  background: #ecfdf5;
+  border-color: #16a34a;
+}
+
+#productKeywordsSection .pkw-btn-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#productKeywordsSection .pkw-btn-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  background: #16a34a;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+#productKeywordsSection .pkw-btn-save:hover:not(:disabled) {
+  background: #15803d;
+  transform: translateY(-1px);
+}
+
+#productKeywordsSection .pkw-btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+#productKeywordsSection .pkw-warning {
+  display: none;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #fffbeb;
+  color: #92400e;
+  border-left: 3px solid #f59e0b;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+#productKeywordsSection .pkw-warning.show {
+  display: block;
+}
+
+#productKeywordsSection .pkw-status {
+  min-height: 18px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+#productKeywordsSection .pkw-status.error { color: #ef4444; font-weight: 600; }
+#productKeywordsSection .pkw-status.success { color: #16a34a; font-weight: 600; }
+#productKeywordsSection .pkw-status.info { color: #2563eb; font-weight: 500; }
+
+@media (max-width: 640px) {
+  #productKeywordsSection .pkw-row {
+    grid-template-columns: 24px 1fr 44px 24px;
+    gap: 6px;
+  }
+  #productKeywordsSection .pkw-row input[type="text"] {
+    padding: 8px 10px;
+    font-size: 0.85rem;
+  }
+}

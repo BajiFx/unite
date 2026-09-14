@@ -6,11 +6,6 @@
   <title>Welcome to BidhaaLink</title>
   <meta name="description" content="Welcome to BidhaaLink — Kenya's multi-vendor marketplace.">
 
-  <!-- Last-resort fallback: if JavaScript is disabled, blocked, or
-       fails to load, the visitor is moved forward after 5 seconds.
-       Browsers ignore meta-refresh inside <noscript> whenever
-       JavaScript IS enabled, so this never interferes with the
-       normal flow. -->
   <noscript>
     <meta http-equiv="refresh" content="5;url=/marketplace">
   </noscript>
@@ -18,10 +13,59 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="/css/welcome.css">
+  <link rel="stylesheet" href="/css/legal.css">
+
+  <style>
+    /* Welcome-page-only styles for the acceptance block.
+       Scoped under #welcomeLegalBlock so nothing else on the
+       page is affected. */
+    #welcomeLegalBlock {
+      margin: 20px auto 0;
+      max-width: 520px;
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(250, 204, 21, 0.35);
+      border-radius: 12px;
+      text-align: left;
+      color: #e2e8f0;
+      font-size: 0.85rem;
+      line-height: 1.55;
+    }
+    #welcomeLegalBlock label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+    }
+    #welcomeLegalBlock input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      flex-shrink: 0;
+      accent-color: #16a34a;
+      cursor: pointer;
+    }
+    #welcomeLegalBlock a {
+      color: #facc15;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    #welcomeLegalBlock a:hover { text-decoration: underline; }
+    #welcomeLegalStatus {
+      margin-top: 8px;
+      font-size: 0.78rem;
+      color: #fca5a5;
+      display: none;
+    }
+    .welcome-continue:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+  </style>
 </head>
 <body class="welcome-body">
 
-  <!-- Animated background -->
   <div class="welcome-bg" aria-hidden="true">
     <div class="welcome-blob welcome-blob-1"></div>
     <div class="welcome-blob welcome-blob-2"></div>
@@ -36,7 +80,6 @@
     </div>
   </div>
 
-  <!-- Main card -->
   <main class="welcome-card">
     <div class="welcome-logo">🛍️</div>
 
@@ -72,7 +115,28 @@
       <li><i class="fas fa-shield-alt"></i> Secure M-Pesa, Airtel &amp; bank payments</li>
     </ul>
 
-    <button type="button" class="welcome-continue" id="continueBtn">
+    <!-- ============================================================ -->
+    <!-- LEGAL ACCEPTANCE BLOCK                                       -->
+    <!-- The Continue button is disabled until the box below is       -->
+    <!-- ticked. The acceptance is persisted client-side and asked    -->
+    <!-- for again, on the server, at registration.                   -->
+    <!-- ============================================================ -->
+
+    <div id="welcomeLegalBlock">
+      <label for="welcomeLegalAccept">
+        <input type="checkbox" id="welcomeLegalAccept">
+        <span>
+          I have read and accept the
+          <a href="/terms.html" target="_blank" rel="noopener">Terms and Conditions</a>
+          and the
+          <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.
+          I confirm that I am at least 18 years old.
+        </span>
+      </label>
+      <div id="welcomeLegalStatus"></div>
+    </div>
+
+    <button type="button" class="welcome-continue" id="continueBtn" disabled>
       Continue to the Marketplace <i class="fas fa-arrow-right"></i>
     </button>
 

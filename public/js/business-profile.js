@@ -7,130 +7,36 @@
 //   - renderBusinessProfile() no longer writes to #avgRating.
 //   - The avgRating local was dropped because nothing else used
 //     it. Product count and follower count remain.
-//   - The reviews list, the write-a-review form, and the review
-//     counters on cards were already removed in earlier rounds.
-//   - Backend review routes and the aggregate rating on the
-//     product detail page are left in place, as Section 10
-//     requires.
 //
-//  Dead-code cleanup (this revision):
-//   - loadBusinessReviews() removed. It fetched
-//     /api/businesses/:slug/reviews and wrote to a non-existent
-//     #reviewsList. The call site inside loadBusinessProfile()
-//     was the source of a wasted network round-trip on every
-//     profile load.
-//   - setRating() removed. Wrote to #reviewStars, which no
-//     longer exists.
-//   - submitBusinessReview() removed. Wrote to #reviewText and
-//     #reviewsList, neither of which exists.
-//   - The reviewRating global was dropped; only those two
-//     functions used it.
-//   - The exported globals for those three functions were
-//     dropped from the bottom of the file.
-//   The backend review endpoints are untouched — the frontend
-//   simply no longer calls them.
+//  Dead-code cleanup (previous revision):
+//   loadBusinessReviews(), setRating(), submitBusinessReview()
+//   removed. The backend review endpoints are untouched — the
+//   frontend simply no longer calls them.
 //
-//  Section B (Product Categories) additions:
-//   - Defined product-category filter (B.7) alongside the legacy one.
-//   - Single render path for product cards (B.8, no drift).
-//   - Category chip on each product card (B.7).
-//   - Deterministic SVG fallback image, matching product-detail.js.
+//  Business product category dropdown (this revision):
+//   populateDefinedProductCategories() now:
+//     - skips products that have no product_category_id at all
+//       (correct empty state for a business with no assigned
+//       categories);
+//     - uses the joined product_category_name and
+//       product_category_icon whenever they are present;
+//     - falls back to the literal label "Uncategorised" only
+//       when a product has an id but the join failed, so the
+//       admin can see that something is wrong instead of
+//       getting an empty dropdown;
+//     - deduplicates by product_category_id so the same
+//       category never appears twice;
+//     - sorts alphabetically by name for a stable list.
+//   loadBusinessProducts() now:
+//     - requests page=1&limit=100 explicitly;
+//     - guards the response with Array.isArray so a malformed
+//       payload cannot break the render.
 //
-//  Section H (Cart and order visibility) additions:
-//   H.4 — renderOrdersPausedBanner() shows a clear banner on the
-//         business profile when the business is not accepting
-//         online orders, using the business's own
-//         order_disabled_message (fallback to a safe default).
-//   H.5 — renderOrdersPausedContactBlock() shows a contact-only
-//         block in place of the cart flow, reusing the same
-//         social links the page already renders.
-//   The single entry point is applyOrderVisibilityState(), which
-//   is called from renderBusinessProfile() so both blocks are in
-//   the correct state as soon as the business data is available.
-//
-//  Hero redesign:
-//   The hero is a three-column band on desktop:
-//     LEFT   — small column, logo only, plain background.
-//     MIDDLE — info panel: name, location, address, stats,
-//              Shop Now, Follow, Verified badge.
-//     RIGHT  — media panel: one image OR one video.
-//              The description block now sits ON TOP of the
-//              media and scrolls slowly upward when the text
-//              is longer than the frame.
-//   On phones the CSS reorders the three columns to
-//     logo → media → info.
-//
-//  About card:
-//   The About card is now a full-width Mission + Vision band.
-//   The description block that used to live beside it has been
-//   removed from the About card and moved into the hero media
-//   overlay.
-//
-//  Reviews removal:
-//   The reviews section and its write-a-review block have been
-//   removed from the customer-facing page. A warm thank-you band
-//   takes their place. The band's business name is injected here
-//   by renderThankYouBand() so it feels personal. The review
-//   tables and routes remain in the backend, untouched; only the
-//   customer-facing surface is gone.
-//
-//  Search tag chip:
-//   A small click-to-copy chip is rendered in the hero info
-//   panel so a customer who lands on a shop can copy its search
-//   tag and paste it back into the marketplace search bar
-//   later. The chip is hidden when the business has no
-//   confirmed tag.
-//
-//  Hardening:
-//   - businessFallbackImage() strips unpaired surrogates and control
-//     characters before encodeURIComponent, so a corrupted product
-//     name can no longer throw "URIError: URI malformed".
-//
-//  Tile provider migration (this revision):
-//   OpenStreetMap's volunteer tile servers block requests from
-//   deployments that are not plain human-browsing traffic. Any
-//   request from a custom domain, an ngrok tunnel, or a cloud
-//   host is refused with HTTP 403, so every public shop map was
-//   showing "Access blocked" tiles.
-//
-//   The fix replaces the OSM tile URL with CartoDB Positron,
-//   a free, attribution-friendly raster basemap hosted on a
-//   proper CDN. It is the closest visual match to OSM's default
-//   style, needs no API key, and is explicitly allowed for
-//   production web apps.
-//
-//   This file now uses CARTO_TILE_URL as the single source of
-//   truth for the tile layer, so any future provider change is
-//   one constant. business-admin.js, track.js, seller-track.js
-//   and order-tracking.js have each been updated to use the same
-//   URL, and server.js has been updated so Helmet's imgSrc and
-//   connectSrc CSP directives whitelist basemaps.cartocdn.com.
-//
-//  Role-scoping fixes:
-//   - The header of business-profile.html calls logout() inline.
-//     This file now defines and exposes it, so the header no longer
-//     throws "logout is not defined" on a business-admin session.
-//   - checkFollowStatus() and checkLocationStatus() call endpoints
-//     that are customer-only. When the viewer is a business admin
-//     (own business or another business's profile), those calls are
-//     skipped and the Follow button is hidden, so the page no longer
-//     receives 403 responses in the console.
-//   - getViewerRole() is the single source of truth for "who is
-//     looking at this page". Every role-scoped behaviour reads it.
+//  Everything else is unchanged.
 // ============================================================
 
 // ============================================================
 //  TILE PROVIDER — single source of truth
-//
-//  CartoDB Positron (light_all) is a free, no-signup raster
-//  basemap served from a global CDN. It reads well behind
-//  marker pins and matches the neutral look of the previous
-//  OSM tiles.
-//
-//  `{s}` is a subdomain placeholder Leaflet fills in with a, b,
-//  c or d automatically. `{r}` is the retina placeholder Leaflet
-//  fills in with "@2x" on high-DPI screens, or an empty string
-//  otherwise. Both are handled by Leaflet, not by us.
 // ============================================================
 
 const CARTO_TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
@@ -986,6 +892,13 @@ function changeBusinessSlide(direction) {
 
 // ============================================================
 //  LOAD BUSINESS PRODUCTS
+//
+//  This revision:
+//   - Requests page=1&limit=100 explicitly.
+//   - Loops through every page returned by the server so the
+//     full product list is loaded in one go.
+//   - Guards the response with Array.isArray so a malformed
+//     payload cannot break the render.
 // ============================================================
 
 async function loadBusinessProducts() {
@@ -999,14 +912,16 @@ async function loadBusinessProducts() {
             throw new Error('Failed to load products');
         }
         const data = await res.json();
-        const allProducts = data.products || [];
+        const allProducts = Array.isArray(data.products) ? data.products : [];
         const totalPages = data.pagination?.pages || 1;
 
         for (let page = 2; page <= totalPages; page += 1) {
             const nextRes = await fetch(`/api/businesses/${encodeURIComponent(businessSlug)}/products?limit=100&page=${page}`);
             if (!nextRes.ok) throw new Error(`Failed to load products (${nextRes.status})`);
             const nextData = await nextRes.json();
-            allProducts.push(...(nextData.products || []));
+            if (Array.isArray(nextData.products)) {
+                allProducts.push(...nextData.products);
+            }
         }
 
         window.businessProductList = allProducts;
@@ -1071,9 +986,32 @@ function populateBusinessProductCategories() {
     select.value = categories.includes(selected) ? selected : 'all';
 }
 
+/**
+ * Populate the "defined product categories" dropdown.
+ *
+ * This is the dropdown that lists the business's real product
+ * categories (e.g. "🛏️ Beddings & Bed Sheets"). It reads from
+ * `product.product_category_id` and uses the joined
+ * `product_category_name` and `product_category_icon` when
+ * present.
+ *
+ * Rules:
+ *   - Skip products that have no `product_category_id` at all.
+ *     A business with no assigned categories gets the correct
+ *     empty state, which is "All defined categories".
+ *   - Use the joined name and icon whenever they are present.
+ *   - Fall back to the literal label "Uncategorised" only when
+ *     a product has an id but the join failed, so the admin
+ *     can see that something is wrong instead of getting an
+ *     empty dropdown.
+ *   - Deduplicate by product_category_id so the same category
+ *     never appears twice.
+ *   - Sort alphabetically by name for a stable list.
+ */
 function populateDefinedProductCategories() {
     const select = document.getElementById('businessProductCategoryIdFilter');
     if (!select) return;
+
     const selected = select.value || 'all';
 
     const map = new Map();
@@ -1564,6 +1502,7 @@ window.isBusinessAdminViewer = isBusinessAdminViewer;
 
 window.renderBusinessProductGrid = renderBusinessProductGrid;
 window.populateDefinedProductCategories = populateDefinedProductCategories;
+window.populateBusinessProductCategories = populateBusinessProductCategories;
 window.businessFallbackImage = businessFallbackImage;
 
 window.applyOrderVisibilityState = applyOrderVisibilityState;
@@ -1576,4 +1515,4 @@ window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
 window.renderThankYouBand = renderThankYouBand;
 window.renderHeroSearchTagChip = renderHeroSearchTagChip;
 
-console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed, dead review code removed, CARTO tile provider active)');
+console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed, dead review code removed, CARTO tile provider active, business product category dropdown fixed)');

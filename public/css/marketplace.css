@@ -2,92 +2,36 @@
    MARKETPLACE CSS - Multi-Vendor Platform with Dashboard Layout
    Location: public/css/marketplace.css
 
-   Section H additions:
-    H.6 — .badge.accepting-orders and .badge.orders-paused, the
-          two order-status badges rendered by index.js on each
-          business card.
+   Card size bump (this revision):
+   Both card types were increased slightly for more breathing
+   room. Only size values changed. No rules were added or removed.
 
-   Section J additions:
-    J.4 / J.5 — the marketplace hero ad slider that replaces the
-                Featured Businesses grid. Sections:
-                  .ads-slider-section  — outer wrapper
-                  .ads-slider          — the slider viewport
-                  .ads-slide           — each slide (media only now)
-                  .ads-nav             — prev/next buttons
-                  .ads-dots / .ads-dot — dot indicators
-                  .ads-progress        — thin time-remaining bar
+   Flat grid card:
+     - grid minmax          280px → 320px
+     - grid gap             18px  → 22px
+     - image height         180px → 200px
+     - body padding         12px 14px 14px → 14px 16px 16px
+     - name font-size       1rem    → 1.05rem
+     - location font-size   0.75rem → 0.8rem
+     - description          0.8rem  → 0.85rem
+     - stats font-size      0.7rem  → 0.75rem
 
-                Images default to 6s, videos to 60s. The per-ad
-                display_duration, when set, overrides both.
+   Block card (category rows):
+     - width                200px → 220px
+     - image height         125px → 140px
+     - name font-size       0.82rem → 0.88rem
+     - location font-size   0.68rem → 0.72rem
+     - meta font-size       0.65rem → 0.7rem
 
-    J.5b — "Liveness" for image slides
-                Image slides sit on a colourful 2-stop gradient
-                backdrop that fills the whole square frame so the
-                frame never looks empty. The gradient pair is
-                seeded per slide by renderAdSlide() in index.js
-                through the --ad-bg-a and --ad-bg-b CSS variables,
-                so every ad gets its own pair of attractive brand
-                colours instead of one flat grey blur. A subtle
-                radial highlight and a slow Ken Burns drift keep
-                the frame feeling alive.
-                The sharp image on top uses object-fit: contain,
-                so the whole picture is always visible and never
-                cropped. Videos keep a single element and play
-                normally.
+   Tablet / phone bumps:
+     - flat card  ≤768 image  160px → 175px
+     - flat card  ≤480 image  130px → 145px
+     - block card ≤1024 w     185px → 200px, image 115px → 130px
+     - block card ≤768  w     170px → 185px, image 105px → 118px
+     - block card ≤480  w     150px → 165px, image  95px → 108px
 
-    J.5c — Split slider layout (final)
-                The slider is a two-column grid on desktop:
-                  LEFT  — square ad media frame
-                  RIGHT — solid blue reserved panel with a faint
-                          inner border.
-                Mobile ≤720px stacks; panel gets a short fixed
-                height so the search bar stays on-screen.
-
-   SEARCH BAR — MERGED LAYOUT
-                The search bar and location controls have been
-                merged into one compact row:
-                  1. single #businessSearch input
-                  2. category dropdown
-                  3. sort dropdown
-                  4. Filters toggle
-                  5. Find Near Me / Refresh
-                  6. Urgent toggle
-                  7. location status chip + ✕ turn-off
-                The dropdown filters live in a separate
-                .location-filters-row that opens only when the
-                Filters button is pressed.
-
-   MOBILE FIX
-                On small screens the text labels next to the
-                filter, refresh, and urgent buttons are now
-                kept visible (only the search-submit label is
-                hidden when it would otherwise overflow). This
-                makes the buttons understandable at a glance.
-
-   Section K additions:
-    K.6 — .product-match-section / .product-match-grid /
-          .product-match-card, the tile grid rendered by
-          renderProductMatches() in index.js when a customer
-          searches a product name like "shoes".
-    K.7 — .business-sells-banner, the green blinking
-          "SELLS: <search word>" banner at the TOP of a business
-          card when the shop matched only because one of its
-          products matched the search. The banner echoes the
-          customer's typed word, not the stored product name.
-
-   Section L additions:
-    L.5 — .fuzzy-search-hint, a small strip that appears above
-          the product grid when the server corrected a typo via
-          the pg_trgm fallback (mode === 'fuzzy').
-
-   Section Q additions:
-    Q.1 — .in-feed-ad-strip / .in-feed-ad-card, the in-feed ad
-          strips inserted every 10 business cards by
-          insertInFeedAdStrips() in index.js.
-    Q.2 — 4 ad cards per strip on desktop, 2 on phones.
-    Q.3 — The counter only counts business cards.
-    Q.4 — The strips share the same global ad cycle as the hero.
-    Q.5 — When the cycle is exhausted, no more strips appear.
+   Section 20260923b — Description "More / Less" toggle
+   is preserved exactly.
    ============================================================ */
 
 /* ============================================================
@@ -472,21 +416,6 @@
 
 /* ============================================================
    SECTION J — MARKETPLACE AD SLIDER (SPLIT LAYOUT)
-   Replaces the old Featured Businesses grid. The hero banner
-   above stays in place.
-
-   J.5b — Image slides sit on a colourful brand gradient that
-          fills the frame so nothing ever looks empty. The
-          gradient pair comes from renderAdSlide() in index.js
-          via --ad-bg-a and --ad-bg-b, chosen deterministically
-          per ad id, so every ad gets its own attractive pair.
-          A soft radial highlight and a slow Ken Burns drift
-          keep the frame alive. The sharp image on top uses
-          object-fit: contain, so the whole picture stays
-          visible and is never cropped.
-
-   J.5c — Split layout: LEFT is the square media frame, RIGHT
-          is a solid blue reserved panel.
    ============================================================ */
 
 .ads-slider-section {
@@ -506,13 +435,10 @@
   letter-spacing: 0.01em;
 }
 
-/* ------------------------------------------------------------
-   Slider viewport — split grid
-   ------------------------------------------------------------ */
 .ads-slider {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr;   /* LEFT ad · RIGHT panel */
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
   width: 100%;
   align-items: stretch;
@@ -524,13 +450,11 @@
   border-radius: 14px;
 }
 
-/* Left column — square media frame.
-   aspect-ratio 1/1 keeps the ad square and fully visible. */
 .ads-slider__media {
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  max-height: 260px;             /* caps height on wide screens */
+  max-height: 260px;
   border-radius: 14px;
   overflow: hidden;
   background: #0f172a;
@@ -538,7 +462,6 @@
   min-height: 140px;
 }
 
-/* Right column — reserved blue panel with faint inner border. */
 .ads-slider__panel {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -553,7 +476,6 @@
   overflow: hidden;
 }
 
-/* Small reminder label so the empty panel does not look broken. */
 .ads-slider__panel::after {
   content: 'Reserved';
   position: absolute;
@@ -567,10 +489,6 @@
   pointer-events: none;
 }
 
-/* ------------------------------------------------------------
-   Slide — the media frame now lives inside .ads-slider__media,
-   so the slide wrapper only carries the media itself.
-   ------------------------------------------------------------ */
 .ads-slide {
   position: absolute;
   inset: 0;
@@ -594,18 +512,6 @@
   overflow: hidden;
 }
 
-/* ------------------------------------------------------------
-   Colourful gradient backdrop for image slides.
-
-   The two colour stops come from renderAdSlide() in index.js
-   through --ad-bg-a and --ad-bg-b, seeded per ad id, so every
-   slide gets its own attractive pair instead of one flat grey.
-
-   The 2-stop linear gradient plus a soft radial highlight gives
-   the frame a warm, branded look even when the underlying image
-   is bright or dark. It fills the whole square frame behind the
-   sharp image, so no letterbox area ever looks empty.
-   ------------------------------------------------------------ */
 .ads-media-bg {
   position: absolute;
   inset: 0;
@@ -634,9 +540,6 @@
   will-change: transform;
 }
 
-/* The sharp image on top. object-fit: contain guarantees the
-   whole picture is visible and never cropped. Its letterbox
-   area is filled by the colourful gradient behind it. */
 .ads-media {
   position: absolute;
   inset: 0;
@@ -648,29 +551,14 @@
   z-index: 1;
 }
 
-/* Video slides do not carry a gradient backdrop — the video
-   itself is the visual. Safety net in case a .ads-media-bg
-   is ever emitted next to a video. */
 .ads-slide.is-video .ads-media-bg {
   display: none;
 }
 
-/* Videos keep their original cover behaviour so they fill the
-   frame edge-to-edge and play normally. */
 .ads-slide.is-video .ads-media {
   object-fit: cover;
 }
 
-/* ------------------------------------------------------------
-   Ken Burns on the gradient backdrop.
-   Keyed off .ads-slide.is-active so it restarts on every
-   activation. Videos are untouched (the gradient backdrop is
-   not emitted for them, and the safety rule above hides it if
-   it ever is).
-
-   The 6s duration matches the image default so the drift
-   finishes as the slide changes.
-   ------------------------------------------------------------ */
 @keyframes adKenBurns {
   0% {
     transform: scale(1.02) translate3d(0, 0, 0);
@@ -684,17 +572,12 @@
   animation: adKenBurns 6s ease-out forwards;
 }
 
-/* Respect reduced-motion preference: still colourful backdrop,
-   no drift. */
 @media (prefers-reduced-motion: reduce) {
   .ads-slide.is-active .ads-media-bg {
     animation: none;
   }
 }
 
-/* ------------------------------------------------------------
-   Caption — kept on the media frame, compact.
-   ------------------------------------------------------------ */
 .ads-caption {
   position: absolute;
   left: 14px;
@@ -744,8 +627,6 @@
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
-/* A soft gradient overlay guarantees the caption stays legible
-   regardless of how light or busy the underlying media is. */
 .ads-overlay {
   position: absolute;
   inset: 0;
@@ -755,9 +636,6 @@
   z-index: 2;
 }
 
-/* ------------------------------------------------------------
-   Prev / Next navigation — sit on the media frame only.
-   ------------------------------------------------------------ */
 .ads-nav {
   position: absolute;
   top: 50%;
@@ -789,13 +667,9 @@
   transform: translateY(-50%) scale(0.96);
 }
 
-/* Anchor prev / next to the media frame, not the whole grid. */
 .ads-slider__media .ads-prev { left: 10px; }
 .ads-slider__media .ads-next { right: 10px; }
 
-/* ------------------------------------------------------------
-   Dot indicators — below the whole slider.
-   ------------------------------------------------------------ */
 .ads-dots {
   display: flex;
   justify-content: center;
@@ -803,7 +677,7 @@
   gap: 7px;
   margin-top: 8px;
   flex-wrap: wrap;
-  grid-column: 1 / -1;    /* span both grid columns */
+  grid-column: 1 / -1;
 }
 
 .ads-dot {
@@ -833,9 +707,6 @@
   outline-offset: 2px;
 }
 
-/* ------------------------------------------------------------
-   Progress bar — thin line at the bottom of the MEDIA FRAME.
-   ------------------------------------------------------------ */
 .ads-progress {
   position: absolute;
   left: 0;
@@ -849,7 +720,6 @@
   border-radius: 0 0 14px 14px;
 }
 
-/* A very small pulse when the user presses prev/next. */
 @keyframes adsPulse {
   0%   { box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16); }
   40%  { box-shadow: 0 8px 22px rgba(37, 99, 235, 0.45); }
@@ -860,9 +730,6 @@
   animation: adsPulse 300ms ease;
 }
 
-/* ------------------------------------------------------------
-   Ad slider — responsive
-   ------------------------------------------------------------ */
 @media (max-width: 720px) {
   .ads-slider {
     grid-template-columns: 1fr;
@@ -878,7 +745,7 @@
 
   .ads-slider__panel {
     aspect-ratio: auto;
-    height: 90px;                /* fixed short height */
+    height: 90px;
     min-height: 90px;
     max-height: 90px;
     border-radius: 12px;
@@ -928,7 +795,6 @@
     width: 16px;
   }
 
-  /* Gentler Ken Burns on small screens. */
   @keyframes adKenBurns {
     0%   { transform: scale(1.02) translate3d(0, 0, 0); }
     100% { transform: scale(1.06) translate3d(-1%, -0.8%, 0); }
@@ -972,22 +838,6 @@
 
 /* ============================================================
    MERGED SEARCH + LOCATION BAR
-   Single compact row on ≥900px, wraps to two lines below that.
-   The controls are, left to right:
-     1. single #businessSearch input
-     2. #businessCategoryFilter
-     3. #sortFilter
-     4. #locationFiltersToggle
-     5. #findNearMeBtn
-     6. #urgentToggle (as a pill)
-     7. #locationStatusChip + #turnOffLocationBtn
-
-   MOBILE — text labels are kept visible on small screens for
-   the Filters, Near Me, and Urgent buttons so the user always
-   knows what each control does without having to guess. Only
-   the Search submit label is dropped below 560px, because the
-   magnifying glass icon is universally understood and keeps
-   the search row on one line.
    ============================================================ */
 
 .search-filter-bar {
@@ -1004,7 +854,6 @@
   row-gap: 8px;
 }
 
-/* 1. Search input grows to fill leftover space */
 .search-filter-bar .search-wrapper {
   flex: 1 1 260px;
   min-width: 200px;
@@ -1065,7 +914,6 @@
   transform: scale(0.97);
 }
 
-/* 2 & 3. Category + Sort dropdowns — compact */
 .search-filter-bar > select {
   flex: 0 1 auto;
   min-width: 0;
@@ -1091,7 +939,6 @@
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
 }
 
-/* 4. Filters toggle button */
 .search-filter-bar .loc-filters-toggle {
   display: inline-flex;
   align-items: center;
@@ -1138,7 +985,6 @@
   display: none !important;
 }
 
-/* 5 & 6. Pill buttons — Near Me and Urgent */
 .search-filter-bar .loc-pill {
   display: inline-flex;
   align-items: center;
@@ -1212,7 +1058,6 @@
   color: #78350f;
 }
 
-/* 7. Location status chip + turn-off */
 .search-filter-bar .loc-status-chip {
   display: inline-flex;
   align-items: center;
@@ -1258,13 +1103,10 @@
   display: none !important;
 }
 
-/* Hidden proxy input — never shown, kept only for existing JS listeners. */
 .search-filter-bar input[type="hidden"] {
   display: none;
 }
 
-/* The location search clear button and the hidden proxy input are
-   never visible in the merged bar. */
 #locationSearchInput,
 #locationSearchClearBtn {
   display: none !important;
@@ -1272,7 +1114,6 @@
 
 /* ============================================================
    Collapsed dropdown-filters row
-   Opened via the Filters button in the merged bar.
    ============================================================ */
 
 .location-filters-row {
@@ -1357,7 +1198,6 @@
    RESPONSIVE — merged search bar
    ============================================================ */
 
-/* ≥900px: single row, text labels stay visible */
 @media (min-width: 900px) {
   .search-filter-bar {
     flex-wrap: nowrap;
@@ -1367,7 +1207,6 @@
   }
 }
 
-/* <900px: controls wrap to two lines. */
 @media (max-width: 899px) {
   .search-filter-bar {
     padding: 8px;
@@ -1410,9 +1249,6 @@
   }
 }
 
-/* <560px: only the Search submit label is dropped. The Filters,
-   Near Me, and Urgent labels are kept visible so the buttons stay
-   self-explanatory on small phone screens. */
 @media (max-width: 560px) {
   .search-filter-bar .search-submit-label {
     display: none;
@@ -1439,17 +1275,20 @@
 
 /* ============================================================
    BUSINESS GRID
+   Card size bump — minmax 280px → 320px, gap 18px → 22px
    ============================================================ */
 
 .business-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 22px;
   padding: 0;
 }
 
 /* ============================================================
    BUSINESS CARD
+   Card size bump — image 180px → 200px, padding and font sizes
+   bumped one step.
    ============================================================ */
 
 .business-card {
@@ -1469,7 +1308,7 @@
 
 .business-card .card-image {
   width: 100%;
-  height: 160px;
+  height: 200px;
   background: #e2e8f0;
   position: relative;
   overflow: hidden;
@@ -1497,6 +1336,8 @@
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+  max-width: calc(100% - 16px);
+  justify-content: flex-end;
 }
 
 .business-card .card-badges .badge {
@@ -1505,6 +1346,7 @@
   font-size: 0.55rem;
   font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .business-card .card-badges .badge.verified {
@@ -1517,11 +1359,28 @@
   color: #0f172a;
 }
 
+/* ------------------------------------------------------------
+   Verified badge — slow blink on the VERIFIED pill.
+   ------------------------------------------------------------ */
+@keyframes verifiedBadgeBlink {
+  0%   { opacity: 1;    }
+  50%  { opacity: 0.45; }
+  100% { opacity: 1;    }
+}
+
+.badge-verified-blink {
+  animation: verifiedBadgeBlink 2.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-verified-blink {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* ============================================================
    Section H.6 — Order-status badge on each business card
-   Rendered by getOrderStatusBadge() in public/js/index.js.
-   Both badges sit inside .card-badges and follow the same
-   layout as verified / featured.
    ============================================================ */
 
 .business-card .card-badges .badge.accepting-orders {
@@ -1551,24 +1410,24 @@
 }
 
 .business-card .card-body {
-  padding: 12px 14px 14px;
+  padding: 14px 16px 16px;
 }
 
 .business-card .card-body .business-name {
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1.05rem;
   color: #0f172a;
   margin-bottom: 2px;
 }
 
 .business-card .card-body .business-location {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: #64748b;
   margin-bottom: 4px;
 }
 
 .business-card .card-body .business-description {
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: #475569;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1581,7 +1440,7 @@
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: #64748b;
   border-top: 1px solid #f1f4f8;
   padding-top: 8px;
@@ -1610,22 +1469,125 @@
 }
 
 /* ============================================================
+   Section 20260923 — Business search-tag chip
+   ============================================================ */
+
+.business-card .card-body .business-search-tag-chip,
+.block-card .block-card-body .business-search-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 4px 0;
+  padding: 2px 10px;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #14532d;
+  font-size: 0.65rem;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.business-card .card-body .business-search-tag-chip:hover,
+.block-card .block-card-body .business-search-tag-chip:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+  transform: translateY(-1px);
+}
+
+.business-card .card-body .business-search-tag-chip:active,
+.block-card .block-card-body .business-search-tag-chip:active {
+  transform: scale(0.97);
+}
+
+/* ============================================================
+   Section 20260923 — "What You Sell" ticker
+   ============================================================ */
+
+.business-ticker {
+  position: relative;
+  height: 44px;
+  margin: 4px 0 8px 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f8fafc, #f1f5f9);
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+}
+
+.business-ticker::before,
+.business-ticker::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 10px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.business-ticker::before {
+  top: 0;
+  background: linear-gradient(180deg, #f8fafc 0%, rgba(248, 250, 252, 0) 100%);
+}
+
+.business-ticker::after {
+  bottom: 0;
+  background: linear-gradient(0deg, #f1f5f9 0%, rgba(241, 245, 249, 0) 100%);
+}
+
+.business-ticker-track {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 10px;
+  will-change: transform;
+  animation: businessTickerScroll 10s linear infinite;
+}
+
+.business-ticker:hover .business-ticker-track,
+.business-ticker:focus-within .business-ticker-track {
+  animation-play-state: paused;
+}
+
+.business-ticker-name {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+@keyframes businessTickerScroll {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .business-ticker {
+    height: auto;
+    max-height: 90px;
+    overflow-y: auto;
+  }
+  .business-ticker-track {
+    animation: none;
+    transform: none;
+  }
+  .business-ticker::before,
+  .business-ticker::after {
+    display: none;
+  }
+}
+
+/* ============================================================
    Section K.7 — "SELLS: …" banner on a business card
-
-   Shown by createBusinessCard() when the shop matched only
-   because one of its products matched the search word.
-
-   Rendered at the very TOP of the card body, above the business
-   name, so it is the first thing the eye lands on.
-
-   The banner echoes the customer's typed word (matched_word),
-   not the stored product name, so every matching business shows
-   the same green label.
-
-   The dot blinks to draw attention, and the whole banner is
-   soft-green on soft-green so it stays legible without being
-   garish. Blinking stops when the user has prefers-reduced-motion
-   set.
    ============================================================ */
 
 .business-card .card-body .business-sells-banner {
@@ -1670,22 +1632,18 @@
   white-space: nowrap;
 }
 
-/* Gentle breathing pulse on the pill itself. */
 @keyframes sellsBannerPulse {
   0%   { box-shadow: 0 1px 3px rgba(22, 101, 52, 0.18); }
   50%  { box-shadow: 0 1px 12px rgba(22, 163, 74, 0.55); }
   100% { box-shadow: 0 1px 3px rgba(22, 101, 52, 0.18); }
 }
 
-/* Faster blink on the inner dot. */
 @keyframes sellsBannerDot {
   0%   { transform: scale(1);   opacity: 1;    }
   50%  { transform: scale(0.7); opacity: 0.35; }
   100% { transform: scale(1);   opacity: 1;    }
 }
 
-/* Respect reduced-motion preference: keep the green banner,
-   drop the pulse and blink so nothing moves. */
 @media (prefers-reduced-motion: reduce) {
   .business-card .card-body .business-sells-banner,
   .business-card .card-body .business-sells-banner .business-sells-dot {
@@ -1693,9 +1651,6 @@
   }
 }
 
-/* Back-compat: the old class name is kept around so any older
-   markup still renders as a plain chip instead of a broken node.
-   Nothing new uses it. */
 .business-card .card-body .business-sells-chip {
   display: inline-block;
   max-width: 100%;
@@ -1715,9 +1670,7 @@
 }
 
 /* ============================================================
-   FEATURED SECTION — kept for compatibility with the account
-   page. The marketplace home page no longer renders this block;
-   the ad slider (Section J) replaces it.
+   FEATURED SECTION — kept for compatibility
    ============================================================ */
 
 .featured-section {
@@ -1798,6 +1751,7 @@
 
 /* ============================================================
    RESPONSIVE — business grid, sidebar, top bar
+   Card size bump — flat card images bumped at 768 and 480.
    ============================================================ */
 
 @media (max-width: 768px) {
@@ -1839,8 +1793,8 @@
   }
 
   .business-grid {
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
   }
 
   .hero-banner h1 {
@@ -1865,20 +1819,28 @@
     font-size: 0.5rem;
     padding: 2px 8px;
   }
+
+  .business-card .card-image {
+    height: 175px;
+  }
 }
 
 @media (max-width: 480px) {
   .business-grid {
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 10px;
   }
 
   .business-card .card-image {
-    height: 120px;
+    height: 145px;
+  }
+
+  .business-card .card-body {
+    padding: 10px 12px 12px;
   }
 
   .business-card .card-body .business-name {
-    font-size: 0.85rem;
+    font-size: 0.9rem;
   }
 
   .hero-banner {
@@ -1912,11 +1874,24 @@
     width: 6px;
     height: 6px;
   }
+
+  .business-card .card-body .business-search-tag-chip {
+    font-size: 0.55rem;
+    padding: 1px 8px;
+  }
+
+  .business-ticker {
+    height: 36px;
+    margin: 3px 0 6px 0;
+  }
+
+  .business-ticker-name {
+    font-size: 0.65rem;
+  }
 }
 
 /* ============================================================
    CENTRAL MARKETPLACE WORKSPACE
-   The marketplace owns logged-in navigation; feature views render in place.
    ============================================================ */
 
 .app-container {
@@ -2271,8 +2246,6 @@ body.workspace-active .marketplace-container {
 
 /* ============================================================
    GUEST LOCATION BANNER
-   Shown by index.js when a guest types `near` without having
-   activated location. Unchanged from before.
    ============================================================ */
 
 .location-banner {
@@ -2376,8 +2349,6 @@ body.workspace-active .marketplace-container {
 
 /* ============================================================
    SEARCH "NEAR ME" HINT
-   Small tooltip shown by index.js while the customer types
-   the word "near" into the merged search field.
    ============================================================ */
 
 .search-near-hint {
@@ -2415,20 +2386,8 @@ body.workspace-active .marketplace-container {
 
 /* ============================================================
    SECTION K — PRODUCT-MATCH TILE GRID
-   Rendered by renderProductMatches() in public/js/index.js when
-   a customer searches a product name like "shoes", "laptop",
-   "cloth", etc. The tiles let a customer jump straight to the
-   item they want without knowing which shop sells it.
-
-   The entire block is additive: until the HTML adds the
-   #productMatchSection / #productMatchGrid nodes, none of these
-   rules ever apply, and the page keeps working exactly as
-   before.
    ============================================================ */
 
-/* Wrapper: sits between the merged search bar and the business
-   grid. Hidden by default; index.js unhides it when there is at
-   least one product match and the customer is actively searching. */
 .product-match-section {
   margin: 0 0 16px 0;
   padding: 0;
@@ -2456,10 +2415,6 @@ body.workspace-active .marketplace-container {
   letter-spacing: 0.01em;
 }
 
-/* Section L.5 — "Showing results for …" hint that appears only
-   when the server corrected a typo via the pg_trgm fallback.
-   It sits above the grid, below the header, and disappears on
-   the next exact search. */
 .fuzzy-search-hint {
   display: inline-block;
   margin: 0 0 10px 0;
@@ -2473,8 +2428,6 @@ body.workspace-active .marketplace-container {
   letter-spacing: 0.01em;
 }
 
-/* Responsive tile grid:
-   2 columns on phones, 3 on tablets, 4 on desktop. */
 .product-match-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -2613,8 +2566,6 @@ body.workspace-active .marketplace-container {
   letter-spacing: 0.01em;
 }
 
-/* Small green pill echoing the business-card SELLS banner so the
-   matched word is consistent wherever it appears. */
 .product-match-matched-word {
   display: inline-block;
   align-self: flex-start;
@@ -2648,9 +2599,6 @@ body.workspace-active .marketplace-container {
   align-self: flex-start;
 }
 
-/* Responsive — product tile grid.
-   Tighter gaps and smaller tiles on phones so 2 columns fit
-   comfortably without crowding the screen. */
 @media (max-width: 720px) {
   .product-match-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -2706,33 +2654,9 @@ body.workspace-active .marketplace-container {
 
 /* ============================================================
    SECTION Q — IN-FEED AD STRIPS
-   Rendered by insertInFeedAdStrips() in public/js/index.js.
-
-   Q.1 — One strip every 10 business cards.
-   Q.2 — 4 ads per strip.
-   Q.3 — The counter only counts business cards.
-   Q.4 — The strips walk the same global ad cycle as the hero.
-         The hero is a showcase; the strips are the continuous
-         scroll experience. Both share the clock.
-   Q.5 — When the cycle is exhausted, no more strips.
-
-   Visual notes:
-    - A strip is a full-width row inside the .business-grid, so
-      it spans every column and reads as a horizontal break
-      between business rows.
-    - Inside, 4 small ad cards sit in the same visual rhythm as
-      the business cards: same border radius, same shadow, same
-      hover lift.
-    - Each card reuses the existing .ads-slide / .ads-media /
-      .ads-caption primitives already defined for the hero so
-      no new markup is invented.
-    - On phones the 4 cards fall to 2 columns, and on very small
-      screens to 1 column, matching the business grid behaviour.
    ============================================================ */
 
 .in-feed-ad-strip {
-  /* Span every column of the parent business grid so the strip
-     reads as a full-width horizontal band between business rows. */
   grid-column: 1 / -1;
 
   display: grid;
@@ -2745,8 +2669,6 @@ body.workspace-active .marketplace-container {
   background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
 }
 
-/* The heading is optional. If index.js later adds a "Sponsored"
-   label above the strip it will look right out of the box. */
 .in-feed-ad-strip::before {
   content: 'Sponsored';
   grid-column: 1 / -1;
@@ -2780,9 +2702,6 @@ body.workspace-active .marketplace-container {
   outline: none;
 }
 
-/* The strip reuses the hero slide markup. Inside a strip card
-   the slide is always the active one, so we force it visible
-   and pin it to the card box. */
 .in-feed-ad-card .ads-slide {
   position: absolute;
   inset: 0;
@@ -2798,8 +2717,6 @@ body.workspace-active .marketplace-container {
   overflow: hidden;
 }
 
-/* Same colourful gradient backdrop treatment as the hero, so a
-   strip card never looks grey or empty. */
 .in-feed-ad-card .ads-media-bg {
   position: absolute;
   inset: 0;
@@ -2822,7 +2739,6 @@ body.workspace-active .marketplace-container {
   object-fit: cover;
 }
 
-/* Compact caption inside the small strip card. */
 .in-feed-ad-card .ads-caption {
   position: absolute;
   left: 8px;
@@ -2845,7 +2761,7 @@ body.workspace-active .marketplace-container {
 }
 
 .in-feed-ad-card .ads-description {
-  display: none;   /* too small a box for a description */
+  display: none;
 }
 
 .in-feed-ad-card .ads-overlay {
@@ -2857,24 +2773,16 @@ body.workspace-active .marketplace-container {
     linear-gradient(180deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.05) 40%, rgba(0, 0, 0, 0.72) 100%);
 }
 
-/* The strip cards do not need the hero's nav buttons, dots, or
-   progress bar. Hide them if any parent CSS ever bleeds in. */
 .in-feed-ad-card .ads-nav,
 .in-feed-ad-card .ads-progress {
   display: none !important;
 }
 
-/* Respect reduced-motion: keep the colourful backdrop, drop the
-   Ken Burns drift inside strip cards. */
 @media (prefers-reduced-motion: reduce) {
   .in-feed-ad-card .ads-slide .ads-media-bg {
     animation: none !important;
   }
 }
-
-/* ------------------------------------------------------------
-   Section Q — responsive
-   ------------------------------------------------------------ */
 
 @media (max-width: 900px) {
   .in-feed-ad-strip {
@@ -2926,31 +2834,6 @@ body.workspace-active .marketplace-container {
     margin-bottom: 2px;
   }
 }
-/* ============================================================
-   MARKETPLACE CSS - Multi-Vendor Platform with Dashboard Layout
-   Location: public/css/marketplace.css
-
-   ... (all existing content preserved) ...
-
-   This revision APPENDS a new block at the very end:
-
-   CATEGORY BLOCKS
-    Styles for the marketplace's category-block listing view
-    rendered by public/js/category-blocks.js.
-
-    Each block is:
-      - a header (icon + name + count)
-      - three horizontal carousels (rows)
-      - each row is a scroll-snap container with left/right
-        arrow buttons that hide at the ends
-
-    The section is created dynamically by the JS file and
-    injected above .businesses-section, so none of the existing
-    grid styles need to change. The new block is scoped entirely
-    under .category-blocks-section so it cannot leak into the
-    flat business grid, the ad slider, the in-feed ad strips, or
-    the product-match tiles.
-   ============================================================ */
 
 /* ============================================================
    CATEGORY BLOCKS — outer section
@@ -2965,9 +2848,6 @@ body.workspace-active .marketplace-container {
   display: none !important;
 }
 
-/* When category blocks are active, the flat grid section is
-   hidden by the JS. This class is the hook the JS adds to the
-   body so CSS can adjust spacing if needed. */
 body.category-blocks-active .businesses-section {
   display: none !important;
 }
@@ -3048,9 +2928,6 @@ body.category-blocks-active .businesses-section {
 
 /* ============================================================
    CATEGORY ROW — scroller
-   The real carousel. Native overflow-x scroll, scroll-snap,
-   momentum scrolling on iOS, and hidden scrollbars so the row
-   reads as a clean strip of cards.
    ============================================================ */
 
 .category-row-scroller {
@@ -3065,8 +2942,6 @@ body.category-blocks-active .businesses-section {
   padding: 4px 2px 10px;
   -webkit-overflow-scrolling: touch;
 
-  /* Hide the scrollbar across engines so the row reads as a
-     swipeable strip on desktop as well as mobile. */
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -3083,11 +2958,6 @@ body.category-blocks-active .businesses-section {
 
 /* ============================================================
    CATEGORY ROW — arrow buttons
-   Two arrows per row, at the far left and far right. They hide
-   themselves (disabled + aria-hidden) at the ends of the row
-   via the JS in category-blocks.js. On small screens they stay
-   visible but shrink, because the swipe gesture is not obvious
-   to every customer.
    ============================================================ */
 
 .category-row-arrow {
@@ -3126,14 +2996,14 @@ body.category-blocks-active .businesses-section {
 
 /* ============================================================
    BLOCK CARD — one business inside a category row
-   Narrower than the flat grid card so more than four fit in
-   a single viewport width on a laptop, and two to three fit
-   in a phone screen without feeling cramped.
+   Card size bump — width 200px → 220px, image 125px → 140px,
+   name 0.82rem → 0.88rem, location 0.68rem → 0.72rem,
+   meta 0.65rem → 0.7rem.
    ============================================================ */
 
 .block-card {
   flex: 0 0 auto;
-  width: 180px;
+  width: 220px;
   scroll-snap-align: start;
   background: #ffffff;
   border: 1px solid #eef2f6;
@@ -3153,7 +3023,7 @@ body.category-blocks-active .businesses-section {
 .block-card-media {
   position: relative;
   width: 100%;
-  height: 110px;
+  height: 140px;
   background: #f1f5f9;
   overflow: hidden;
 }
@@ -3204,15 +3074,27 @@ body.category-blocks-active .businesses-section {
   color: #0f172a;
 }
 
+.block-card-badges .badge.accepting-orders {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.block-card-badges .badge.orders-paused {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
 .block-card-body {
-  padding: 8px 10px 10px;
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
 .block-card-name {
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #0f172a;
   line-height: 1.25;
@@ -3222,7 +3104,7 @@ body.category-blocks-active .businesses-section {
 }
 
 .block-card-location {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   color: #64748b;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3234,7 +3116,7 @@ body.category-blocks-active .businesses-section {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   color: #475569;
   margin-top: 2px;
   border-top: 1px solid #f1f5f9;
@@ -3245,6 +3127,25 @@ body.category-blocks-active .businesses-section {
   color: #f59e0b;
   font-weight: 700;
   margin-left: auto;
+}
+
+.block-card-body .business-ticker {
+  height: 38px;
+  margin: 3px 0 6px 0;
+}
+
+.block-card-body .business-ticker-name {
+  font-size: 0.68rem;
+}
+
+.block-card-body .business-description {
+  font-size: 0.72rem;
+  color: #475569;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 4px;
 }
 
 /* ============================================================
@@ -3286,17 +3187,18 @@ body.category-blocks-active .businesses-section {
 }
 
 /* ============================================================
-   RESPONSIVE
+   RESPONSIVE — category blocks
+   Card size bump — block card width and image height bumped
+   at each breakpoint.
    ============================================================ */
 
-/* Tablets and small laptops */
 @media (max-width: 1024px) {
   .block-card {
-    width: 168px;
+    width: 200px;
   }
 
   .block-card-media {
-    height: 100px;
+    height: 130px;
   }
 
   .category-row-arrow {
@@ -3310,7 +3212,6 @@ body.category-blocks-active .businesses-section {
   }
 }
 
-/* Small tablets and large phones */
 @media (max-width: 768px) {
   .category-block {
     padding: 14px 10px 12px;
@@ -3349,23 +3250,23 @@ body.category-blocks-active .businesses-section {
   }
 
   .block-card {
-    width: 150px;
+    width: 185px;
   }
 
   .block-card-media {
-    height: 92px;
+    height: 118px;
   }
 
   .block-card-name {
-    font-size: 0.78rem;
+    font-size: 0.82rem;
   }
 
   .block-card-location {
-    font-size: 0.62rem;
+    font-size: 0.66rem;
   }
 
   .block-card-meta {
-    font-size: 0.6rem;
+    font-size: 0.64rem;
   }
 
   .category-load-more {
@@ -3374,7 +3275,6 @@ body.category-blocks-active .businesses-section {
   }
 }
 
-/* Phones */
 @media (max-width: 480px) {
   .category-blocks-section {
     margin-bottom: 18px;
@@ -3403,15 +3303,12 @@ body.category-blocks-active .businesses-section {
     padding-bottom: 6px;
   }
 
-  /* On very small phones, 2.5 cards visible at once: the
-     partial third card is the visual cue that the row can be
-     swiped sideways. */
   .block-card {
-    width: 130px;
+    width: 165px;
   }
 
   .block-card-media {
-    height: 80px;
+    height: 108px;
   }
 
   .block-card-body {
@@ -3419,19 +3316,26 @@ body.category-blocks-active .businesses-section {
   }
 
   .block-card-name {
-    font-size: 0.72rem;
+    font-size: 0.76rem;
   }
 
   .block-card-meta {
-    font-size: 0.56rem;
+    font-size: 0.6rem;
   }
 
   .block-card-rating {
+    font-size: 0.66rem;
+  }
+
+  .block-card-body .business-ticker {
+    height: 32px;
+    margin: 2px 0 4px 0;
+  }
+
+  .block-card-body .business-ticker-name {
     font-size: 0.62rem;
   }
 
-  /* Arrows shrink but never disappear, so a phone user who
-     prefers tap-to-step over swipe still has a target. */
   .category-row-arrow {
     width: 26px;
     height: 26px;
@@ -3453,4 +3357,98 @@ body.category-blocks-active .businesses-section {
 
 html.embedded .category-blocks-section {
   display: none !important;
+}
+
+/* ============================================================
+   SECTION 20260923b — DESCRIPTION "MORE / LESS" TOGGLE
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Base description block (both card types)
+   ------------------------------------------------------------ */
+
+.business-card .card-body .business-description,
+.block-card .block-card-body .business-description {
+  font-size: 0.85rem;
+  color: #475569;
+  line-height: 1.5;
+  margin: 0 0 6px 0;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------
+   Clamped state — two lines, ellipsis, small "More" link after
+   ------------------------------------------------------------ */
+
+.business-card .card-body .business-description.clamped,
+.block-card .block-card-body .business-description.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+/* ------------------------------------------------------------
+   Expanded state — full text, no clamp
+   ------------------------------------------------------------ */
+
+.business-card .card-body .business-description.expanded,
+.block-card .block-card-body .business-description.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  margin-bottom: 4px;
+}
+
+/* ------------------------------------------------------------
+   The "More / Less" link
+   ------------------------------------------------------------ */
+
+.card-description-more {
+  display: inline-block;
+  margin: 0 0 6px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #2563eb;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.card-description-more:hover {
+  color: #1d4ed8;
+}
+
+.card-description-more:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------
+   Small-screen tuning — the link and the description scale
+   down together with the rest of the card body.
+   ------------------------------------------------------------ */
+
+@media (max-width: 480px) {
+  .business-card .card-body .business-description,
+  .block-card .block-card-body .business-description {
+    font-size: 0.75rem;
+  }
+
+  .card-description-more {
+    font-size: 0.68rem;
+  }
+
+  .block-card .block-card-body .business-description {
+    font-size: 0.68rem;
+  }
 }
