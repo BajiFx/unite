@@ -5,9 +5,9 @@
 //  Purpose:
 //   Renders the marketplace's business listing as a sequence of
 //   category blocks instead of one flat grid. Each category block
-//   shows up to 210 businesses of that category, split into
-//   three horizontal rows of 70 cards each. Every row is a
-//   swipeable / arrow-steppable carousel.
+//   shows up to 210 businesses of that category in ONE horizontal
+//   row of up to 210 cards. That row is swipeable / arrow-
+//   steppable on both desktop and mobile.
 //
 //  This file is additive. It owns exactly one DOM section
 //  (#categoryBlocksSection) and its own set of CSS classes.
@@ -34,81 +34,38 @@
 //      (50,000 businesses) off the page.
 //    - The category order itself is never re-sorted by the
 //      customer's chosen sort. The sort applies INSIDE each
-//      category's rows, so Health's highest-rated business is
+//      category's row, so Health's highest-rated business is
 //      still inside Health, not jumping above Education.
 //    - Empty categories are skipped silently.
 //
 //  Row mechanics:
-//    - ROWS_PER_CATEGORY  = 3
-//    - CARDS_PER_ROW      = 70
-//    - BUSINESSES_PER_CATEGORY = 3 × 70 = 210
-//    - Left/right arrow buttons step one card width per click.
+//    - ROWS_PER_CATEGORY  = 1
+//    - CARDS_PER_ROW      = 210
+//    - BUSINESSES_PER_CATEGORY = 1 × 210 = 210
+//    - A single left/right arrow pair steps one card width per
+//      click.
 //    - Arrow buttons hide when there is nothing more to scroll
 //      in that direction.
 //    - On phones the arrows remain but the customer can also
 //      swipe the row naturally because the scroller is a real
 //      overflow-x:auto container with scroll-snap.
 //
-//  Integration contract with index.js:
-//    window.renderCategoryBlocks(businesses, options)
-//      businesses — array of business objects. May be the
-//                   response of any query (default browse,
-//                   search, filter, sort, location).
-//      options    — { reset: boolean, sortMode: string }
-//                   reset === true  → wipe and re-render
-//                   reset === false → merge only
+//  Row-count revision (this revision):
+//   The previous revision split each category into THREE rows of
+//   70 cards each (3 × 70 = 210). This revision combines them
+//   into ONE row of 210 cards. The per-category cap is unchanged
+//   at 210. The visible effect is a single long horizontal
+//   scroller per category instead of three shorter ones. Every
+//   other behaviour — the append-only Load more, the arrow step,
+//   the resize observer, the alphabetical category order, the
+//   sort-inside-row, the empty-category skip, and the shared card
+//   renderer delegation — is preserved exactly as it was.
 //
-//  Fixes applied in previous revisions:
-//
-//   1. Category blocks no longer disappear when the customer
-//      clicks "Load more from every category". The old
-//      loadMoreCategoryBlocks() called renderSection(), which
-//      rebuilt the entire section from scratch. On a second
-//      click, every category's slice had already been consumed,
-//      so renderCategoryBlock() returned '' for every category
-//      and the section ended up containing only the footer
-//      button. loadMoreCategoryBlocks() is now an append path:
-//      it computes the next pass number for each category,
-//      renders just that pass, and inserts the resulting HTML
-//      after the last existing .category-block. Existing blocks
-//      are never removed or re-rendered.
-//
-//   2. renderCategoryBlock() used to read AND increment
-//      loadedPassesPerCategory on every render. Because
-//      renderSection() called it once per category per render,
-//      any second render of the same result set silently
-//      advanced every category by one pass. The function now
-//      takes an explicit passNumber argument and does not touch
-//      the shared counter at all. The counter is advanced only
-//      at the moment a pass is actually emitted by the append
-//      path.
-//
-//   3. renderSection() now resets loadedPassesPerCategory before
-//      it renders. This is the "fresh" path used on initial
-//      render and whenever the sort mode changes.
-//
-//   4. renderCategoryBlocks() now compares the incoming sortMode
-//      against the sort mode from the previous render. If it
-//      changed, the counters are reset so the first pass under
-//      the new sort is the correct first pass.
-//
-//   5. A new helper, renderCategoryBlocksHtmlForPass(), returns
-//      the concatenated HTML for one pass across all categories.
-//      It is used by both the fresh path (renderSection) and the
-//      append path (loadMoreCategoryBlocks).
-//
-//   6. A new helper, appendSection(), inserts a freshly-rendered
-//      batch of category blocks after the last existing
-//      .category-block and before the .category-blocks-footer.
-//      The footer button stays at the bottom of the section.
-//
-//   7. Four crash-hardening fixes are kept: extractCategoryNames()
-//      coerces c.name to a string before trimming;
-//      sortBusinessesWithinCategory() and renderBlockCard() guard
-//      numeric comparisons with Number.isFinite; renderCategoryRow()
-//      includes a per-render counter in the row id so two
-//      categories whose names slugify to the same string cannot
-//      collide.
+//   Only two constants changed:
+//     ROWS_PER_CATEGORY  3 → 1
+//     CARDS_PER_ROW     70 → 210
+//   BUSINESSES_PER_CATEGORY stays at 210 because it is still
+//   ROWS_PER_CATEGORY * CARDS_PER_ROW.
 //
 //  Section 20260923 — Shared card renderer delegation
 //
@@ -119,9 +76,8 @@
 //   description block. It also had its own image fallback that
 //   diverged from the flat card.
 //
-//   This revision replaces renderBlockCard() with a thin
-//   delegation to window.renderBusinessCardShared() defined in
-//   index.js:
+//   This file delegates to window.renderBusinessCardShared()
+//   defined in index.js:
 //
 //     window.renderBusinessCardShared(business, { size: 'block' })
 //
@@ -139,12 +95,6 @@
 //   local renderBlockCardFallback() runs instead. The fallback
 //   renders the same information set with locally-scoped markup
 //   so a customer never sees an empty card.
-//
-//   Nothing else changed: config, state, grouping, alphabetical
-//   category order, sort-inside-rows, the 3×70=210 cap, the arrow
-//   step logic, the delegated listeners, the resize observer, the
-//   hide/show helpers, the escape helpers, and every window.*
-//   export are byte-for-byte identical to the previous revision.
 // ============================================================
 
 (function () {
@@ -152,11 +102,16 @@
 
     // ============================================================
     //  CONFIGURATION
+    //
+    //  ONE row per category, up to 210 cards in that row.
+    //  The per-category cap is unchanged at 210; only the way
+    //  those 210 are laid out has changed (one row instead of
+    //  three).
     // ============================================================
 
-    const ROWS_PER_CATEGORY = 3;
-    const CARDS_PER_ROW = 70;
-    const BUSINESSES_PER_CATEGORY = ROWS_PER_CATEGORY * CARDS_PER_ROW; // 210
+    const ROWS_PER_CATEGORY = 1;
+    const CARDS_PER_ROW = 210;
+    const BUSINESSES_PER_CATEGORY = ROWS_PER_CATEGORY * CARDS_PER_ROW; // still 210
 
     // ============================================================
     //  STATE
@@ -478,7 +433,10 @@
         // Sort the slice internally by the current sort mode.
         const sortedSlice = sortBusinessesWithinCategory(slice, currentSortMode);
 
-        // Split the slice into 3 rows of up to 70 cards each.
+        // ONE row per category. The loop below runs exactly once
+        // because ROWS_PER_CATEGORY is 1. It is kept as a loop so
+        // the file continues to support a multi-row layout if the
+        // constant is ever raised again.
         const rowsHtml = [];
         for (let r = 0; r < ROWS_PER_CATEGORY; r += 1) {
             const rowSlice = sortedSlice.slice(r * CARDS_PER_ROW, (r + 1) * CARDS_PER_ROW);
@@ -934,5 +892,5 @@
 
     window.renderCategoryBlocks = renderCategoryBlocks;
 
-    console.log('✅ Category blocks JS loaded (3 rows × 70 cards per category, 210 per category per pass, alphabetical fixed order, sort inside rows, append-only Load more, shared card renderer with "What You Sell" ticker)');
+    console.log('✅ Category blocks JS loaded (1 row × 210 cards per category, 210 per category per pass, alphabetical fixed order, sort inside row, append-only Load more, shared card renderer with "What You Sell" ticker)');
 })();
