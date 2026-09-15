@@ -1,39 +1,44 @@
 // ============================================================
 //  PRODUCT DETAIL JAVASCRIPT
 //
-//  Section B (B.7) additions:
-//   - Related products are scoped to the same business.
-//   - The product's defined category is rendered as a chip.
-//   - The related filter dropdown now surfaces defined product
-//     categories alongside the legacy free-text categories.
+//  Colour gallery:
+//   The strip under the main image is a horizontal row of
+//   small images, one per colour of the same product.
 //
-//  Reviews removal (previous revision):
-//   The customer-facing write-a-review form and the reviews list
-//   have been removed from the page. A warm thank-you band takes
-//   their place. The band's business name is injected here by
-//   renderThankYouBand() so it feels personal.
+//   Order:
+//     1. The parent product is ALWAYS the FIRST tile and the
+//        default selection. Its image is the parent image, its
+//        price is the parent price, its stock is the parent
+//        stock. Its displayed colour name is the parent's own
+//        `color` when set, otherwise the neutral word
+//        "Standard". The product name is never used as a
+//        colour.
+//     2. Every real product_variant follows, in server order.
+//        A variant named exactly "Default" (case-insensitive)
+//        is hidden from the gallery.
 //
-//  "You may also like" (this revision):
-//   The related-products list is no longer truncated on the
-//   client. The server now returns every other active product
-//   from the same business, up to a safety cap of 60. The
-//   previous frontend cap of 4 was the reason a customer of a
-//   30-product shop saw only 4 siblings. Every item the server
-//   returns is now rendered as a tile, so the customer sees all
-//   the remaining products of the shop.
+//   Selection:
+//     - Clicking a tile selects that colour.
+//     - Sweeping the strip horizontally (touch or mouse drag)
+//       selects the nearest tile as it snaps.
+//     - The left / right arrow buttons step to the previous
+//       or next tile.
+//     - The active tile is outlined and slightly raised.
 //
-//   Same-category ordering (this revision — Option B):
-//    When the viewed product has a defined product_category_id,
-//    siblings that share that category are moved to the FRONT of
-//    the list. Every other sibling follows, newest first. This
-//    is a SORT, not a FILTER — nothing is ever dropped. The
-//    customer still sees every product the server returned, and
-//    the "You may also like" section is never shorter than the
-//    full related set.
+//   What changes when a colour is selected:
+//     - the main image (or video),
+//     - the colour name next to `Color:`,
+//     - the price, old price, and discount,
+//     - the stock.
 //
-//   The search input and the category dropdown above the grid
-//   still filter the visible tiles client-side, so the customer
-//   can narrow the list without a round-trip.
+//   Everything else on the page stays exactly as it is.
+//
+//  Pinned footer:
+//   The footer is injected by this file so it is guaranteed to
+//   reach the browser through the same path that already loads
+//   the product variants. It replaces any old footer that may
+//   still be present on the page and installs the pinned
+//   three-cell version (brand | thank-you | legal links).
 // ============================================================
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -43,29 +48,21 @@ if (!productId) {
 }
 
 let detailQty = 1;
-let currentVariantId = null;
+
+// Colour gallery state.
+let colourTiles = [];
+let selectedColourKey = 'parent';
+
+// Media state for the currently selected colour.
 let currentMediaIndex = 0;
+
 let currentProduct = null;
 let allVariants = [];
 
 function fallbackMediaUrl(product) {
-  if (product.image) return product.image;
-  const label = String(product.name || 'Product').slice(0, 32).replace(/[<>&]/g, '');
+  if (product && product.image) return product.image;
+  const label = String(product && product.name ? product.name : 'Product').slice(0, 32).replace(/[<>&]/g, '');
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${label}</text></svg>`)}`;
-}
-
-// ============================================================
-//  FETCH SHOP DATA
-// ============================================================
-async function fetchShopData() {
-  try {
-    const res = await fetch('/api/shop');
-    if (!res.ok) throw new Error('Failed to load shop');
-    shopData = await res.json();
-  } catch (err) {
-    console.error('Error loading shop:', err);
-    shopData = {};
-  }
 }
 
 // ============================================================
@@ -94,20 +91,6 @@ function getAutoSocialLinks(product) {
 
 // ============================================================
 //  ORDER RELATED PRODUCTS — Option B
-//
-//  Sort, do not filter.
-//
-//  Given the full `related` array that the server returned, return
-//  a new array in which:
-//    1. Every sibling that shares the viewed product's
-//       product_category_id appears first, preserving the order
-//       the server sent them in (which is newest first).
-//    2. Every other sibling follows, preserving the server order
-//       (also newest first).
-//
-//  Nothing is dropped. When the viewed product has no defined
-//  category, or when no sibling shares the category, the original
-//  order is returned unchanged.
 // ============================================================
 function orderRelatedForDisplay(related, viewedProduct) {
   if (!Array.isArray(related) || related.length === 0) return [];
@@ -129,12 +112,89 @@ function orderRelatedForDisplay(related, viewedProduct) {
     }
   });
 
-  // If nothing matched the viewed product's category, keep the
-  // server order so the customer is not shown a shuffled list for
-  // no reason.
   if (sameCategory.length === 0) return related.slice();
 
   return sameCategory.concat(otherCategories);
+}
+
+// ============================================================
+//  BUILD COLOUR TILES
+// ============================================================
+function buildColourTiles(product, variants) {
+  const tiles = [];
+
+  const parentColour = (product && product.color ? String(product.color).trim() : '');
+  const parentImage  = product && product.image ? product.image : '';
+  const parentVideo  = product && product.video ? product.video : null;
+
+  const parentFallbackName = 'Standard';
+  const parentName = parentColour.length > 0 ? parentColour : parentFallbackName;
+
+  // The parent tile is ALWAYS created and is always first.
+  tiles.push({
+    key: 'parent',
+    variantId: null,
+    name: parentName,
+    image: parentImage,
+    video: parentVideo,
+    price: product && product.price ? String(product.price) : null,
+    oldPrice: product && product.old_price ? String(product.old_price) : null,
+    discount: product && product.discount_percent ? String(product.discount_percent) : null,
+    stock: product && product.stock != null ? Number(product.stock) : null,
+    isDefaultName: false
+  });
+
+  // Filter out any "Default" variant. It is never shown next to
+  // the parent tile.
+  const list = Array.isArray(variants) ? variants.slice() : [];
+  const namedVariants = list.filter(v => {
+    const n = String(v && v.name ? v.name : '').trim().toLowerCase();
+    return n !== '' && n !== 'default';
+  });
+
+  namedVariants.forEach(v => {
+    if (!v) return;
+    const name = String(v.name || '').trim() || parentName;
+
+    const price = v.price != null && String(v.price).trim() !== ''
+      ? String(v.price)
+      : (product && product.price ? String(product.price) : null);
+
+    const oldPrice = v.old_price != null && String(v.old_price).trim() !== ''
+      ? String(v.old_price)
+      : (product && product.old_price ? String(product.old_price) : null);
+
+    const discount = v.discount_percent != null && String(v.discount_percent).trim() !== ''
+      ? String(v.discount_percent)
+      : (product && product.discount_percent ? String(product.discount_percent) : null);
+
+    const stock = v.stock != null
+      ? Number(v.stock)
+      : (product && product.stock != null ? Number(product.stock) : null);
+
+    tiles.push({
+      key: 'variant:' + v.id,
+      variantId: v.id,
+      name: name,
+      image: v.image || parentImage,
+      video: v.video || null,
+      price: price,
+      oldPrice: oldPrice,
+      discount: discount,
+      stock: stock,
+      isDefaultName: false
+    });
+  });
+
+  return tiles;
+}
+
+// ============================================================
+//  GET SELECTED TILE
+// ============================================================
+function getSelectedTile() {
+  if (!Array.isArray(colourTiles) || colourTiles.length === 0) return null;
+  return colourTiles.find(t => t.key === selectedColourKey) || colourTiles[0];
 }
 
 // ============================================================
@@ -148,23 +208,14 @@ async function loadProductDetail() {
     currentProduct = data.product;
     allVariants = data.variants || [];
 
-    if (allVariants.length === 0) {
-      allVariants = [{
-        id: null,
-        name: 'Default',
-        price: data.product.price,
-        stock: 999,
-        image: data.product.image || ''
-      }];
+    colourTiles = buildColourTiles(currentProduct, allVariants);
+
+    if (!colourTiles.some(t => t.key === selectedColourKey)) {
+      selectedColourKey = colourTiles.length > 0 ? colourTiles[0].key : 'parent';
     }
 
-    currentVariantId = allVariants[0].id;
+    currentMediaIndex = 0;
 
-    // B.7 — when this product has a defined category, same-category
-    // siblings are shown first, then every other sibling of the
-    // business. Nothing is dropped. The server already returns
-    // every other active product of the same business (up to 60),
-    // so the only thing this step does is reorder.
     const related = orderRelatedForDisplay(data.related || [], data.product);
 
     renderDetail(data.product, related);
@@ -179,77 +230,49 @@ async function loadProductDetail() {
 function renderDetail(product, related) {
   const container = document.getElementById('detailContent');
 
-  let variant = allVariants.find(v => v.id === currentVariantId) || allVariants[0];
+  const tile = getSelectedTile();
+
+  // ---------- Media (for the selected colour) ----------
   let media = [];
-  if (variant.image) {
-    media.push({ id: null, type: 'image', url: variant.image });
+  if (tile && tile.image) {
+    media.push({ id: null, type: 'image', url: tile.image });
   }
   const productImages = Array.isArray(product.images) ? product.images : [];
   const productVideos = Array.isArray(product.videos) ? product.videos : [];
-  if (product.image && !productImages.includes(product.image)) productImages.unshift(product.image);
-  productImages.forEach(url => media.push({ id: null, type: 'image', url }));
-  if (product.video && !productVideos.includes(product.video)) productVideos.unshift(product.video);
-  productVideos.forEach(url => media.push({ id: null, type: 'video', url }));
+  if (tile && tile.video) {
+    media.push({ id: null, type: 'video', url: tile.video });
+  }
+  productImages.forEach(url => {
+    if (!media.some(m => m.url === url)) media.push({ id: null, type: 'image', url });
+  });
+  productVideos.forEach(url => {
+    if (!media.some(m => m.url === url)) media.push({ id: null, type: 'video', url });
+  });
   if (!media.length) media.push({ id: null, type: 'image', url: fallbackMediaUrl(product) });
   if (currentMediaIndex >= media.length) currentMediaIndex = 0;
 
-  // Color Variants
-  let variantHtml = '';
-  if (allVariants.length > 1) {
-    variantHtml = `<div class="variant-selector"><span class="label">Color:</span>`;
-    allVariants.forEach(v => {
-      const active = v.id === currentVariantId ? 'active' : '';
-      const colorCode = v.color_code || '#cccccc';
-      const bgImage = v.image ? `url(${v.image})` : '';
-      const isInStock = v.stock > 0;
-      variantHtml += `
-        <button class="variant-btn ${active}" onclick="selectVariant(${v.id})" title="${v.name}">
-          ${v.image ? `<span class="color-swatch" style="background-image:${bgImage};"></span>` :
-            `<span class="color-swatch" style="background:${colorCode};"></span>`}
-          ${!isInStock ? `<span class="stock-badge">✕</span>` : ''}
-        </button>
-      `;
-    });
-    variantHtml += '</div>';
-  } else {
-    variantHtml = `<div class="variant-selector"><span class="label">Color:</span> <span style="font-weight:500;">${allVariants[0].name}</span></div>`;
-  }
+  // ---------- Colour name ----------
+  const selectedColourName = tile ? tile.name : (product.color || product.name || 'Standard');
 
-  // Thumbnails
-  let thumbHtml = '';
-  media.forEach((m, idx) => {
-    const active = idx === currentMediaIndex ? 'active' : '';
-    thumbHtml += `<div class="thumb ${active}" onclick="selectMedia(${idx})"><img src="${m.url}" alt="Media"></div>`;
-  });
+  // ---------- Price ----------
+  const currentPrice = tile && tile.price ? tile.price : product.price;
+  const oldPrice     = tile && tile.oldPrice ? tile.oldPrice : product.old_price;
+  const discountPct  = tile && tile.discount ? tile.discount : product.discount_percent;
 
-  // Main media
-  let mainMediaHtml = '';
-  if (media.length > 0 && media[currentMediaIndex]) {
-    mainMediaHtml = media[currentMediaIndex].type === 'video'
-      ? `<video src="${media[currentMediaIndex].url}" controls preload="metadata">Your browser cannot play this video.</video>`
-      : `<img src="${media[currentMediaIndex].url}" alt="${product.name}" onerror="this.src=fallbackMediaUrl({name:this.alt})">`;
-  } else {
-    mainMediaHtml = '<div class="no-image">📦</div>';
-  }
-
-  // Price
-  const currentPrice = variant.price || product.price;
-  const oldPrice = product.old_price || '';
-  const discountPercent = product.discount_percent || '';
   let priceHtml = `
     <div class="price-section">
       <span class="current-price">Ksh ${parseFloat(currentPrice).toFixed(2)}</span>
   `;
   if (oldPrice && parseFloat(oldPrice) > parseFloat(currentPrice)) {
     priceHtml += `<span class="old-price">Ksh ${parseFloat(oldPrice).toFixed(2)}</span>`;
-    if (discountPercent) {
-      priceHtml += `<span class="discount-badge">-${discountPercent}%</span>`;
+    if (discountPct) {
+      priceHtml += `<span class="discount-badge">-${discountPct}%</span>`;
     }
   }
   priceHtml += `</div>`;
 
-  // Stock
-  const stockDisplay = variant.stock !== undefined ? variant.stock : 999;
+  // ---------- Stock ----------
+  const stockDisplay = tile && tile.stock != null ? tile.stock : (product.stock != null ? product.stock : 999);
   const stockHtml = `
     <div class="stock-info">
       ${stockDisplay > 0 ?
@@ -258,7 +281,7 @@ function renderDetail(product, related) {
     </div>
   `;
 
-  // Rating (aggregate only — no write-a-review form and no reviews list)
+  // ---------- Rating ----------
   const ratingValue = parseFloat(product.rating) || 0;
   const fullStars = Math.round(ratingValue);
   let ratingHtml = '';
@@ -272,12 +295,12 @@ function renderDetail(product, related) {
     `;
   }
 
-  // B.7 — Defined product category chip (from the product_categories table).
+  // ---------- Category chip ----------
   const categoryChipHtml = product.product_category_name
     ? `<div class="product-category-chip" title="${product.product_category_name}">${product.product_category_icon || '📦'} ${product.product_category_name}</div>`
     : '';
 
-  // Badges
+  // ---------- Badges ----------
   let badgesHtml = '';
   if (product.badge1) badgesHtml += `<span class="badge badge-green">${product.badge1}</span>`;
   if (product.badge2) badgesHtml += `<span class="badge badge-blue">${product.badge2}</span>`;
@@ -285,16 +308,14 @@ function renderDetail(product, related) {
   if (product.isNewArrival) badgesHtml += `<span class="badge tag-new">🆕 New</span>`;
   if (badgesHtml) badgesHtml = `<div class="badges">${badgesHtml}</div>`;
 
-  // Description
+  // ---------- Description / services / return ----------
   const descriptionHtml = `<div class="description">${product.description || 'No description available for this product.'}</div>`;
 
-  // Services
   let servicesHtml = '';
   if (product.shipping) {
     servicesHtml = `<div class="services"><span>Delivery Information:</span> ${product.shipping}</div>`;
   }
 
-  // Return Policy
   const returnDays = product.return_window_days || 14;
   const restockingFee = product.restocking_fee_percent || 0;
   const returnCondition = product.return_condition || 'unopened';
@@ -318,7 +339,7 @@ function renderDetail(product, related) {
     `;
   }
 
-  // Contact Us
+  // ---------- Contact ----------
   const socialLinks = getAutoSocialLinks(product);
   let contactRatingHtml = '';
   if (ratingValue > 0) {
@@ -337,7 +358,7 @@ function renderDetail(product, related) {
     `;
   }
 
-  let contactHtml = `
+  const contactHtml = `
     <div class="contact-us-section">
       <h4>📞 Contact Us</h4>
       ${contactRatingHtml}
@@ -351,17 +372,21 @@ function renderDetail(product, related) {
     </div>
   `;
 
-  // ------------------------------------------------------------
-  //  Related products — "You may also like"
-  //
-  //  The server returns every other active product from the
-  //  same business (up to 60). orderRelatedForDisplay() moved
-  //  same-category siblings to the front. Nothing was dropped.
-  //  We render every item, in that order.
-  // ------------------------------------------------------------
+  // ---------- Main media ----------
+  let mainMediaHtml = '';
+  if (media.length > 0 && media[currentMediaIndex]) {
+    mainMediaHtml = media[currentMediaIndex].type === 'video'
+      ? `<video src="${media[currentMediaIndex].url}" controls preload="metadata">Your browser cannot play this video.</video>`
+      : `<img src="${media[currentMediaIndex].url}" alt="${product.name}" onerror="this.onerror=null;this.src=fallbackMediaUrl({name:this.alt})">`;
+  } else {
+    mainMediaHtml = '<div class="no-image">📦</div>';
+  }
+
+  // ---------- Colour gallery ----------
+  const galleryHtml = renderColourGallery(colourTiles);
+
+  // ---------- Related ----------
   let relatedHtml = '';
-  // A product without an uploaded photo still receives a deterministic visual
-  // card instead of the blank/emoji placeholder.
   (related || []).forEach(item => { item.image = fallbackMediaUrl(item); });
   if (related && related.length > 0) {
     relatedHtml = related.map(p => `
@@ -379,8 +404,7 @@ function renderDetail(product, related) {
     `).join('');
   }
 
-  // Related filter dropdown — combine the defined product categories with the
-  // legacy free-text categories so the customer can narrow by either.
+  // ---------- Related filter dropdown ----------
   const definedCategoryOptions = [...new Map(
     (related || [])
       .filter(item => item.product_category_id && item.product_category_name)
@@ -403,30 +427,38 @@ function renderDetail(product, related) {
       .join('')}</optgroup>`;
   }
 
-  // Cart button
-  const isInCart = getCart().some(item => item.id === product.id && item.variant_id === currentVariantId);
+  // ---------- Cart button ----------
+  const isInCart = getCart().some(item =>
+    item.id === product.id &&
+    (tile && tile.variantId !== null ? item.variant_id === tile.variantId : true)
+  );
   const btnText = isInCart ? 'Add More' : 'Add to Cart';
   const btnClass = isInCart ? 'in-cart' : '';
 
-  // Render everything
+  // ---------- Render ----------
   container.innerHTML = `
     <div class="detail-container">
       <div class="detail-media">
-        <div class="detail-main-media">${mainMediaHtml}</div>
-        ${thumbHtml ? `<div class="media-thumbnails">${thumbHtml}</div>` : ''}
+        <div class="detail-main-media" id="detailMainMedia">${mainMediaHtml}</div>
+        <div class="colour-gallery" id="colourGallery" data-tile-count="${colourTiles.length}">
+          ${galleryHtml}
+        </div>
       </div>
 
       <div class="detail-info">
         <div class="name">${product.name}</div>
         ${categoryChipHtml}
         ${ratingHtml}
+        <div class="colour-line">
+          <span class="label">Color:</span>
+          <span class="value" id="detailColourName">${selectedColourName}</span>
+        </div>
         ${priceHtml}
         ${stockHtml}
         ${badgesHtml}
         ${descriptionHtml}
         ${servicesHtml}
         ${returnPolicyHtml}
-        ${variantHtml}
 
         <div class="qty-section">
           <span class="qty-label">Quantity:</span>
@@ -456,22 +488,238 @@ function renderDetail(product, related) {
     </div>
   `;
 
-  // Thank-you band — replace the old write-a-review form and reviews
-  // list with a warm, personalised closing band. The business name is
-  // injected here.
   renderThankYouBand(product);
+  wireColourGallery();
+  updateArrowsVisibility();
+}
+
+// ============================================================
+//  COLOUR GALLERY — rendering
+// ============================================================
+function renderColourGallery(tiles) {
+  if (!Array.isArray(tiles) || tiles.length === 0) return '';
+
+  const arrowLeft =
+    '<button type="button" class="colour-gallery-arrow colour-gallery-arrow--left" ' +
+      'aria-label="Previous colour" onclick="stepColourGallery(-1)">' +
+      '<i class="fas fa-chevron-left"></i>' +
+    '</button>';
+
+  const arrowRight =
+    '<button type="button" class="colour-gallery-arrow colour-gallery-arrow--right" ' +
+      'aria-label="Next colour" onclick="stepColourGallery(1)">' +
+      '<i class="fas fa-chevron-right"></i>' +
+    '</button>';
+
+  const tilesHtml = tiles.map(tile => {
+    const active = tile.key === selectedColourKey ? 'is-active' : '';
+    const img = tile.image || fallbackMediaUrl({ name: tile.name });
+    const safeName = String(tile.name).replace(/"/g, '&quot;');
+    return `
+      <button type="button"
+              class="colour-tile ${active}"
+              data-colour-key="${tile.key}"
+              title="${safeName}"
+              onclick="selectColour('${tile.key}')">
+        <img src="${img}" alt="${safeName}" loading="lazy">
+        <span class="colour-tile-name">${safeName}</span>
+      </button>
+    `;
+  }).join('');
+
+  return `
+    <div class="colour-gallery-track">
+      ${arrowLeft}
+      <div class="colour-gallery-scroller" id="colourGalleryScroller" tabindex="0">
+        ${tilesHtml}
+      </div>
+      ${arrowRight}
+    </div>
+  `;
+}
+
+// ============================================================
+//  COLOUR GALLERY — interaction wiring
+// ============================================================
+function wireColourGallery() {
+  const scroller = document.getElementById('colourGalleryScroller');
+  if (!scroller) return;
+
+  let pointerDown = false;
+  let startX = 0;
+  let startScroll = 0;
+
+  const onDown = (clientX) => {
+    pointerDown = true;
+    startX = clientX;
+    startScroll = scroller.scrollLeft;
+  };
+  const onMove = (clientX) => {
+    if (!pointerDown) return;
+    const dx = clientX - startX;
+    scroller.scrollLeft = startScroll - dx;
+  };
+  const onUp = () => {
+    if (!pointerDown) return;
+    pointerDown = false;
+    snapToNearestTile();
+  };
+
+  scroller.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) onDown(e.touches[0].clientX);
+  }, { passive: true });
+
+  scroller.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1) onMove(e.touches[0].clientX);
+  }, { passive: true });
+
+  scroller.addEventListener('touchend', onUp);
+  scroller.addEventListener('touchcancel', onUp);
+
+  scroller.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    onDown(e.clientX);
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (pointerDown) onMove(e.clientX);
+  });
+  window.addEventListener('mouseup', onUp);
+}
+
+function snapToNearestTile() {
+  const scroller = document.getElementById('colourGalleryScroller');
+  if (!scroller) return;
+
+  const centre = scroller.scrollLeft + scroller.clientWidth / 2;
+  const tiles = Array.from(scroller.querySelectorAll('.colour-tile'));
+  if (tiles.length === 0) return;
+
+  let closest = tiles[0];
+  let smallest = Infinity;
+
+  tiles.forEach(tile => {
+    const tileCentre = tile.offsetLeft + tile.offsetWidth / 2;
+    const dist = Math.abs(tileCentre - centre);
+    if (dist < smallest) {
+      smallest = dist;
+      closest = tile;
+    }
+  });
+
+  const key = closest.dataset.colourKey;
+  if (key && key !== selectedColourKey) {
+    selectColour(key, { keepScroll: true });
+  }
+}
+
+// ============================================================
+//  COLOUR SELECTION (in-place update)
+// ============================================================
+function selectColour(key, options) {
+  const opts = options || {};
+  const tile = colourTiles.find(t => t.key === key);
+  if (!tile) return;
+
+  if (key === selectedColourKey && !opts.force) return;
+
+  selectedColourKey = key;
+  currentMediaIndex = 0;
+
+  const colourNameEl = document.getElementById('detailColourName');
+  if (colourNameEl) colourNameEl.textContent = tile.name;
+
+  const priceSection = document.querySelector('.price-section');
+  if (priceSection) {
+    const currentPrice = tile.price || (currentProduct && currentProduct.price) || '0';
+    const oldPrice = tile.oldPrice || (currentProduct && currentProduct.old_price) || null;
+    const discountPct = tile.discount || (currentProduct && currentProduct.discount_percent) || null;
+
+    let inner = `<span class="current-price">Ksh ${parseFloat(currentPrice).toFixed(2)}</span>`;
+    if (oldPrice && parseFloat(oldPrice) > parseFloat(currentPrice)) {
+      inner += `<span class="old-price">Ksh ${parseFloat(oldPrice).toFixed(2)}</span>`;
+      if (discountPct) inner += `<span class="discount-badge">-${discountPct}%</span>`;
+    }
+    priceSection.innerHTML = inner;
+  }
+
+  const stockInfo = document.querySelector('.stock-info');
+  if (stockInfo) {
+    const stock = tile.stock != null
+      ? tile.stock
+      : (currentProduct && currentProduct.stock != null ? currentProduct.stock : 999);
+    stockInfo.innerHTML = stock > 0
+      ? `<span class="in-stock">✓ In Stock (${stock} available)</span>`
+      : `<span class="out-of-stock">✕ Out of Stock</span>`;
+  }
+
+  const mainMedia = document.getElementById('detailMainMedia');
+  if (mainMedia) {
+    const imageUrl = tile.image || fallbackMediaUrl({ name: tile.name });
+    const hasVideo = Boolean(tile.video);
+    if (hasVideo) {
+      mainMedia.innerHTML = `<video src="${tile.video}" controls preload="metadata">Your browser cannot play this video.</video>`;
+    } else {
+      mainMedia.innerHTML = `<img src="${imageUrl}" alt="${tile.name}" onerror="this.onerror=null;this.src=fallbackMediaUrl({name:this.alt})">`;
+    }
+  }
+
+  const scroller = document.getElementById('colourGalleryScroller');
+  if (scroller) {
+    scroller.querySelectorAll('.colour-tile').forEach(el => {
+      el.classList.toggle('is-active', el.dataset.colourKey === key);
+    });
+    if (!opts.keepScroll) {
+      const active = scroller.querySelector('.colour-tile.is-active');
+      if (active) {
+        try {
+          active.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        } catch (err) {
+          active.scrollIntoView();
+        }
+      }
+    }
+  }
+
+  const btn = document.querySelector('.btn-add-large');
+  if (btn) {
+    const isInCart = getCart().some(item =>
+      item.id === currentProduct.id &&
+      (tile.variantId !== null ? item.variant_id === tile.variantId : true)
+    );
+    btn.textContent = isInCart ? '🛒 Add More' : '🛒 Add to Cart';
+    btn.classList.toggle('in-cart', isInCart);
+  }
+
+  updateArrowsVisibility();
+}
+
+// ============================================================
+//  ARROWS
+// ============================================================
+function stepColourGallery(direction) {
+  const currentIndex = colourTiles.findIndex(t => t.key === selectedColourKey);
+  if (currentIndex < 0) return;
+
+  const nextIndex = currentIndex + direction;
+  if (nextIndex < 0 || nextIndex >= colourTiles.length) return;
+
+  const nextKey = colourTiles[nextIndex].key;
+  selectColour(nextKey);
+}
+
+function updateArrowsVisibility() {
+  const left = document.querySelector('.colour-gallery-arrow--left');
+  const right = document.querySelector('.colour-gallery-arrow--right');
+  if (!left || !right) return;
+
+  const currentIndex = colourTiles.findIndex(t => t.key === selectedColourKey);
+  left.disabled = currentIndex <= 0;
+  right.disabled = currentIndex >= colourTiles.length - 1;
 }
 
 // ============================================================
 //  THANK-YOU BAND
-//
-//  Replaces the old reviews section. The band is a static DOM
-//  block in public/html/product-detail.html; this function only
-//  injects the business name into it so the band feels personal.
-//
-//  The band is always visible once the product is loaded.
 // ============================================================
-
 function renderThankYouBand(product) {
   const band = document.getElementById('thankYouBand');
   const nameEl = document.getElementById('thankYouBusinessName');
@@ -486,22 +734,8 @@ function renderThankYouBand(product) {
 }
 
 // ============================================================
-//  VARIANT & MEDIA FUNCTIONS
+//  RELATED FILTER
 // ============================================================
-function selectVariant(variantId) {
-  currentVariantId = variantId;
-  currentMediaIndex = 0;
-  loadProductDetail();
-}
-
-function selectMedia(index) {
-  currentMediaIndex = index;
-  loadProductDetail();
-}
-
-// Related filter now understands both encoded option formats:
-//   id:<product_category_id>   — defined product categories
-//   name:<legacy category>     — legacy free-text categories
 function filterRelatedProducts() {
   const query = (document.getElementById('relatedProductSearch')?.value || '').trim().toLowerCase();
   const selection = document.getElementById('relatedProductCategory')?.value || 'all';
@@ -523,6 +757,9 @@ function filterRelatedProducts() {
   });
 }
 
+// ============================================================
+//  QUANTITY
+// ============================================================
 function changeDetailQty(delta) {
   detailQty = Math.max(1, detailQty + delta);
   const span = document.getElementById('detailQty');
@@ -534,14 +771,21 @@ function changeDetailQty(delta) {
 // ============================================================
 function addVariantToCart() {
   if (!currentProduct) return;
-  const variant = allVariants.find(v => v.id === currentVariantId) || allVariants[0];
-  const price = variant.price || currentProduct.price;
-  const variantId = variant.id;
-  const variantName = variant.name || 'Default';
-  const image = variant.image || currentProduct.image;
+
+  const tile = getSelectedTile();
+  if (!tile) return;
+
+  const price = tile.price || currentProduct.price;
+  const variantId = tile.variantId;
+  const variantName = tile.name || 'Default';
+  const image = tile.image || currentProduct.image;
 
   let cart = getCart();
-  const existing = cart.find(item => item.id === currentProduct.id && item.variant_id === variantId);
+  const existing = cart.find(item =>
+    item.id === currentProduct.id &&
+    (variantId !== null ? item.variant_id === variantId : true)
+  );
+
   if (existing) {
     existing.quantity += detailQty;
   } else {
@@ -555,13 +799,14 @@ function addVariantToCart() {
       variant_name: variantName
     });
   }
+
   saveCart(cart);
   updateCartBadge();
-  showToast(`✅ Added ${detailQty} "${currentProduct.name}" to cart!`, 'success');
+  showToast(`✅ Added ${detailQty} "${currentProduct.name}" (${variantName}) to cart!`, 'success');
   detailQty = 1;
   const span = document.getElementById('detailQty');
   if (span) span.textContent = '1';
-  loadProductDetail();
+  selectColour(selectedColourKey, { force: true });
 }
 
 function buyNow() {
@@ -597,9 +842,11 @@ document.addEventListener('DOMContentLoaded', () => {
   updateNavCartBadge();
 });
 
-// Expose globals
-window.selectVariant = selectVariant;
-window.selectMedia = selectMedia;
+// ============================================================
+//  EXPOSE GLOBALS
+// ============================================================
+window.selectColour = selectColour;
+window.stepColourGallery = stepColourGallery;
 window.changeDetailQty = changeDetailQty;
 window.addVariantToCart = addVariantToCart;
 window.buyNow = buyNow;
@@ -608,3 +855,216 @@ window.fallbackMediaUrl = fallbackMediaUrl;
 window.filterRelatedProducts = filterRelatedProducts;
 window.renderThankYouBand = renderThankYouBand;
 window.orderRelatedForDisplay = orderRelatedForDisplay;
+window.buildColourTiles = buildColourTiles;
+
+// ============================================================
+//  PINNED FOOTER
+//  Injected here so the change is guaranteed to reach the
+//  browser through the same file that already loads the
+//  product variants. It replaces any old footer on the page.
+// ============================================================
+(function () {
+  function installPinnedFooter() {
+    // Remove any footer the page may already carry.
+    document.querySelectorAll('footer.bidhaa-legal-footer').forEach(function (el) {
+      el.remove();
+    });
+
+    // Inject the stylesheet only once.
+    if (!document.getElementById('bidhaaPinnedFooterStyles')) {
+      var style = document.createElement('style');
+      style.id = 'bidhaaPinnedFooterStyles';
+      style.textContent = `
+        :root { --bidhaa-footer-height: 64px; }
+
+        body { padding-bottom: var(--bidhaa-footer-height) !important; }
+
+        .bidhaa-legal-footer {
+          position: fixed;
+          left: 0; right: 0; bottom: 0;
+          z-index: 900;
+          background: #0f172a;
+          color: #94a3b8;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 0.8rem;
+          line-height: 1.4;
+          border-top: 1px solid rgba(148, 163, 184, 0.18);
+          box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.18);
+          transform: translateZ(0);
+          margin: 0 !important;
+        }
+
+        .bidhaa-legal-footer-inner {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 8px 20px;
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          align-items: center;
+          gap: 20px;
+          min-height: var(--bidhaa-footer-height);
+        }
+
+        .bidhaa-legal-footer-brand {
+          display: flex; flex-direction: column; gap: 1px; white-space: nowrap;
+        }
+        .bidhaa-legal-footer-brand strong { color: #ffffff; font-weight: 800; font-size: 0.85rem; }
+        .bidhaa-legal-footer-brand span { color: #64748b; font-size: 0.68rem; }
+
+        .bidhaa-legal-footer-thanks {
+          display: flex; align-items: center; justify-content: center; gap: 8px;
+          min-width: 0; padding: 4px 14px;
+          background: rgba(34, 197, 94, 0.10);
+          border: 1px solid rgba(34, 197, 94, 0.28);
+          border-radius: 999px;
+          color: #d1fae5; font-size: 0.78rem; font-weight: 600;
+        }
+        .bidhaa-legal-footer-thanks-icon { font-size: 0.95rem; line-height: 1; flex-shrink: 0; }
+        .bidhaa-legal-footer-thanks-text {
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+        }
+        #footerThankYouBusinessName { color: #ffffff; font-weight: 800; }
+
+        .bidhaa-legal-footer-links {
+          display: flex; align-items: center; gap: 16px; white-space: nowrap;
+        }
+        .bidhaa-legal-footer-links a {
+          display: inline-flex; align-items: center; gap: 5px;
+          color: #cbd5e1; text-decoration: none; font-weight: 600; font-size: 0.76rem;
+          transition: color 0.15s ease;
+        }
+        .bidhaa-legal-footer-links a:hover { color: #ffffff; text-decoration: underline; }
+        .bidhaa-legal-footer-links i { color: #2563eb; font-size: 0.72rem; }
+
+        @media (max-width: 900px) {
+          .bidhaa-legal-footer-inner {
+            grid-template-columns: 1fr auto;
+            grid-template-areas: "brand links" "thanks thanks";
+            gap: 8px 16px; padding: 8px 16px;
+          }
+          .bidhaa-legal-footer-brand  { grid-area: brand; }
+          .bidhaa-legal-footer-thanks { grid-area: thanks; justify-content: flex-start; }
+          .bidhaa-legal-footer-links  { grid-area: links; }
+        }
+
+        @media (max-width: 640px) {
+          :root { --bidhaa-footer-height: 92px; }
+          .bidhaa-legal-footer-inner {
+            grid-template-columns: 1fr;
+            grid-template-areas: "brand" "thanks" "links";
+            gap: 6px; padding: 10px 14px; text-align: left;
+          }
+          .bidhaa-legal-footer-thanks { justify-content: flex-start; font-size: 0.72rem; }
+          .bidhaa-legal-footer-links { flex-wrap: wrap; gap: 10px 14px; }
+          .bidhaa-legal-footer-links a { font-size: 0.72rem; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Pick up the business name from the visible thank-you band
+    // if one exists on the page.
+    var src = document.getElementById('thankYouBusinessName');
+    var name = (src && src.textContent ? src.textContent : '').trim() || 'our business';
+
+    var footer = document.createElement('footer');
+    footer.className = 'bidhaa-legal-footer';
+    footer.setAttribute('role', 'contentinfo');
+    footer.innerHTML = `
+      <div class="bidhaa-legal-footer-inner">
+        <div class="bidhaa-legal-footer-brand">
+          <strong>BidhaaLink</strong>
+          <span>Kenya's Multi-Vendor Marketplace</span>
+        </div>
+        <div class="bidhaa-legal-footer-thanks" id="footerThankYou">
+          <span class="bidhaa-legal-footer-thanks-icon" aria-hidden="true">🙏</span>
+          <span class="bidhaa-legal-footer-thanks-text">
+            Thank you for visiting <span id="footerThankYouBusinessName">${name}</span>. We value you!
+          </span>
+        </div>
+        <nav class="bidhaa-legal-footer-links" aria-label="Legal and contact links">
+          <a href="/terms.html"><i class="fas fa-file-contract" aria-hidden="true"></i> Terms and Conditions</a>
+          <a href="/privacy.html"><i class="fas fa-shield-halved" aria-hidden="true"></i> Privacy Policy</a>
+          <a href="/privacy.html#cookies"><i class="fas fa-cookie-bite" aria-hidden="true"></i> Cookie Notice</a>
+          <a href="mailto:georgebabji1220@gmail.com"><i class="fas fa-envelope" aria-hidden="true"></i> Contact</a>
+        </nav>
+      </div>
+    `;
+    document.body.appendChild(footer);
+  }
+
+  document.addEventListener('DOMContentLoaded', installPinnedFooter);
+  [300, 900, 2000].forEach(function (ms) { setTimeout(installPinnedFooter, ms); });
+})();
+
+// ============================================================
+//  FORCE THE PINNED FOOTER
+//  Overrides any old inline footer stylesheet on this page so
+//  the footer is pinned, sits above the bottom nav, and lays
+//  out as three cells (brand | thank-you | legal links).
+// ============================================================
+(function () {
+  function forcePinnedFooter() {
+    var footer = document.querySelector('footer.bidhaa-legal-footer');
+    if (!footer) return;
+
+    var navHeight = 0;
+    var bottomNav = document.querySelector('.bottom-nav');
+    if (bottomNav) {
+      var navStyle = window.getComputedStyle(bottomNav);
+      if (navStyle.display !== 'none' && navStyle.visibility !== 'hidden') {
+        navHeight = bottomNav.getBoundingClientRect().height || 0;
+      }
+    }
+
+    footer.style.position = 'fixed';
+    footer.style.left = '0';
+    footer.style.right = '0';
+    footer.style.bottom = navHeight + 'px';
+    footer.style.zIndex = '1100';
+    footer.style.margin = '0';
+    footer.style.padding = '0';
+    footer.style.background = '#0f172a';
+    footer.style.color = '#94a3b8';
+    footer.style.borderTop = '1px solid rgba(148, 163, 184, 0.18)';
+    footer.style.boxShadow = '0 -6px 18px rgba(15, 23, 42, 0.18)';
+
+    var inner = footer.querySelector('.bidhaa-legal-footer-inner');
+    if (inner) {
+      inner.style.maxWidth = '1400px';
+      inner.style.margin = '0 auto';
+      inner.style.padding = '8px 20px';
+      inner.style.display = 'grid';
+      inner.style.gridTemplateColumns = 'auto 1fr auto';
+      inner.style.alignItems = 'center';
+      inner.style.gap = '20px';
+      inner.style.minHeight = '56px';
+      inner.style.flexWrap = 'nowrap';
+    }
+
+    var brand = footer.querySelector('.bidhaa-legal-footer-brand');
+    if (brand) {
+      brand.style.display = 'flex';
+      brand.style.flexDirection = 'column';
+      brand.style.gap = '1px';
+      brand.style.whiteSpace = 'nowrap';
+    }
+
+    var links = footer.querySelector('.bidhaa-legal-footer-links');
+    if (links) {
+      links.style.display = 'flex';
+      links.style.gap = '16px';
+      links.style.flexWrap = 'nowrap';
+      links.style.whiteSpace = 'nowrap';
+    }
+
+    document.body.style.paddingBottom = (navHeight + 72) + 'px';
+  }
+
+  document.addEventListener('DOMContentLoaded', forcePinnedFooter);
+  window.addEventListener('resize', forcePinnedFooter);
+  window.addEventListener('orientationchange', forcePinnedFooter);
+  [300, 900, 2000, 4000].forEach(function (ms) {
+    setTimeout(forcePinnedFooter, ms);
+  });
+})();

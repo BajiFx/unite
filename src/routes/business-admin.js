@@ -121,6 +121,43 @@
 //
 //   The column itself is created by
 //   migrations/sql/20260923-business-product-keywords.sql.
+//
+//  PHASE 1 — PRODUCT VARIANTS
+//   Product variants are now a first-class row managed by
+//   src/services/variantService.js. This file is the only writer.
+//
+//   What changed in this file:
+//     - Two new requires at the top:
+//         variantService, videoPosterService
+//     - POST /products and PUT /products/:id now delegate the
+//       variant save to variantService.saveVariantsForProduct().
+//       The old inline INSERT into product_variants has been
+//       removed because the service now owns the write, the
+//       validation, the soft-delete semantics, and the axis
+//       detection.
+//     - Variant media (variant_image_<index> and
+//       variant_video_<index>) is uploaded to Cloudinary before
+//       the service call, so each row carries its own URLs.
+//     - Video posters are extracted for any variant that carries
+//       a video, using videoPosterService.extractPoster(). A
+//       failure is soft and never blocks the save.
+//     - GET /products merges a variant summary into every row so
+//       the admin list can render the Image / Video badges and
+//       the variant-count label without a second request.
+//     - A new GET /products/:id/detail route returns the raw
+//       variant rows, which the admin edit form consumes to
+//       hydrate the "Add another colour / variant" section.
+//
+//   Phase 1 polish (this revision):
+//     - findDuplicateVariantName() runs before the service call
+//       on POST /products and PUT /products/:id so the admin
+//       gets a friendly per-row error instead of a generic
+//       "Unable to save" when two variants share a name.
+//     - VARIANT_MEDIA_FIELDS is generated from
+//       MAX_VARIANTS_FOR_MULTER so the multer field list can
+//       never drift from the service's own cap.
+//     - A 23505 fallback on the service call catches the race
+//       case and returns a 409 with the same friendly wording.
 // ============================================================
 
 const express = require('express');
@@ -131,6 +168,8 @@ const { authMiddleware, businessAdminOnly, getBusinessIdFromToken } = require('.
 const { upload } = require('../middleware/upload');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const { appendOrderStatus, logAdminActivity } = require('../services/orderService');
+const variantService = require('../services/variantService');
+const videoPosterService = require('../services/videoPosterService');
 const Business = require('../models/Business');
 const router = express.Router();
 
@@ -144,6 +183,26 @@ const LOCATION_FIELDS = ['continent', 'country', 'county', 'sub_county', 'ward',
 
 const MAX_ADS_PER_BUSINESS = 3;
 const AD_SLOT_RANGE = Array.from({ length: MAX_ADS_PER_BUSINESS }, (_, i) => i + 1);
+
+// ============================================================
+//  PHASE 1 — multer field list for variant media
+//
+//  variantService allows up to 60 variants per product
+//  (MAX_VARIANTS_PER_PRODUCT). Multer needs an explicit list of
+//  field names, so the previous fixed list of 10 silently
+//  dropped media for rows 11 and beyond.
+//
+//  The list is now generated from the same cap the service uses,
+//  so the two can never drift.
+// ============================================================
+
+const MAX_VARIANTS_FOR_MULTER = 60;
+
+const VARIANT_MEDIA_FIELDS = [];
+for (let i = 0; i < MAX_VARIANTS_FOR_MULTER; i += 1) {
+    VARIANT_MEDIA_FIELDS.push({ name: `variant_image_${i}`, maxCount: 1 });
+    VARIANT_MEDIA_FIELDS.push({ name: `variant_video_${i}`, maxCount: 1 });
+}
 
 // ============================================================
 //  Section 2D — Ad duration caps
@@ -343,6 +402,128 @@ function normaliseProductKeywords(raw) {
     }
 
     return { ok: true, keywords: cleaned, dropped, collapsed };
+}
+
+// ============================================================
+//  PHASE 1 — Product variants helpers
+//
+//  These helpers are used only by POST /products and
+//  PUT /products/:id. They:
+//    - parse the JSON string the client sends in `variants`
+//    - upload any variant-level media to Cloudinary, matching
+//      the field-name convention the client uses
+//      (variant_image_<index>, variant_video_<index>)
+//    - extract a poster for any variant that carries a video,
+//      with a soft fallback (a poster is never required)
+//
+//  They return the payload shape variantService expects.
+// ============================================================
+
+function parseVariantsPayload(raw) {
+    if (raw === undefined || raw === null || raw === '') return [];
+    if (Array.isArray(raw)) return raw;
+    try {
+        const parsed = JSON.parse(String(raw));
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+        return [];
+    }
+}
+
+async function uploadVariantMedia(businessId, variants, files) {
+    const media = files || {};
+
+    for (let i = 0; i < variants.length; i += 1) {
+        const variant = variants[i] || {};
+
+        const imageKey = `variant_image_${i}`;
+        const videoKey = `variant_video_${i}`;
+
+        if (media[imageKey] && media[imageKey][0]) {
+            try {
+                variant.image = await uploadToCloudinary(media[imageKey][0].path, {
+                    folder: `business_shop/${businessId}/variants`
+                });
+            } catch (err) {
+                console.error(`Variant ${i + 1} image upload error:`, err);
+            }
+        }
+
+        if (media[videoKey] && media[videoKey][0]) {
+            try {
+                variant.video = await uploadToCloudinary(media[videoKey][0].path, {
+                    folder: `business_shop/${businessId}/variants`,
+                    resource_type: 'video'
+                });
+            } catch (err) {
+                console.error(`Variant ${i + 1} video upload error:`, err);
+            }
+        }
+
+        // Extract a poster for any variant that has a video. This
+        // is soft: on failure the field stays null and the
+        // inheritance chain resolves to the parent or the
+        // placeholder downstream.
+        if (variant.video) {
+            try {
+                const result = await videoPosterService.extractPoster(variant.video);
+                if (result && result.ok && result.posterUrl) {
+                    variant.video_poster_url = result.posterUrl;
+                }
+            } catch (err) {
+                console.warn(`Variant ${i + 1} poster extraction skipped:`, err.message);
+            }
+        }
+
+        variants[i] = variant;
+    }
+
+    return variants;
+}
+
+// ============================================================
+//  PHASE 1 — duplicate-name pre-check
+//
+//  The database enforces uniqueness on
+//  (product_id, LOWER(BTRIM(name))) via a unique index. When a
+//  duplicate slips through (a race, or a client that skipped the
+//  client-side validator), Postgres raises 23505 and the service
+//  turns it into a generic "Unable to save product variants".
+//
+//  This helper runs before the service call, so the admin gets a
+//  message that names the exact row and the exact name. It is
+//  not a substitute for the DB index — it is a friendlier first
+//  line of defence.
+//
+//  Returns null when the payload is clean, or
+//  { row: <1-based index>, name: <string>, firstRow: <1-based> }
+//  when a duplicate is found.
+// ============================================================
+
+function findDuplicateVariantName(variants) {
+    if (!Array.isArray(variants) || variants.length < 2) return null;
+
+    const seen = new Map(); // normalised name -> first 1-based row index
+
+    for (let i = 0; i < variants.length; i += 1) {
+        const variant = variants[i] || {};
+        const raw = variant.name;
+        if (raw === undefined || raw === null) continue;
+
+        const trimmed = String(raw).trim();
+        if (trimmed === '') continue;
+
+        // Match the DB index exactly: case-insensitive,
+        // whitespace-collapsed inside the string.
+        const key = trimmed.toLowerCase().replace(/\s+/g, ' ');
+
+        if (seen.has(key)) {
+            return { row: i + 1, name: trimmed, firstRow: seen.get(key) };
+        }
+        seen.set(key, i + 1);
+    }
+
+    return null;
 }
 
 // ============================================================
@@ -1059,6 +1240,11 @@ router.get('/location', authMiddleware, businessAdminOnly, getBusinessIdFromToke
 // ============================================================
 //  GET BUSINESS PRODUCTS
 //  B.8 — Joined product category name returned with every product
+//
+//  PHASE 1 — the response now also carries a variant summary
+//  (variant_count, has_variant_image, has_variant_video) so the
+//  admin list can render the Image / Video badges and the
+//  variant-count label without a second request.
 // ============================================================
 
 router.get('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -1102,10 +1288,80 @@ router.get('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToke
         params.push(parseInt(limit), parseInt(offset));
 
         const result = await pool.query(query, params);
-        res.json(result.rows);
+
+        // PHASE 1 — merge the variant summary for each product.
+        const productIds = result.rows.map(row => row.id);
+        let variantSummary = {};
+        try {
+            variantSummary = await variantService.getVariantSummaryForProducts(productIds);
+        } catch (err) {
+            console.warn('Variant summary merge skipped:', err.message);
+        }
+
+        const enriched = result.rows.map(row => {
+            const summary = variantSummary[row.id] || {};
+            return {
+                ...row,
+                variant_count: summary.active_count || 0,
+                has_variant_image: summary.has_variant_image === true,
+                has_variant_video: summary.has_variant_video === true
+            };
+        });
+
+        res.json(enriched);
     } catch (err) {
         console.error('❌ Get business products error:', err);
         logError(err, 'Get business products');
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+//  PHASE 1 — GET PRODUCT DETAIL (for the admin edit form)
+//
+//  Returns the parent product row plus its raw variant rows.
+//  The raw rows carry every field the admin typed, without the
+//  inheritance applied, so the edit form shows exactly what was
+//  saved — not what the customer will inherit.
+// ============================================================
+
+router.get('/products/:id/detail', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
+    try {
+        const productId = parseInt(req.params.id, 10);
+        if (!Number.isInteger(productId)) {
+            return res.status(400).json({ error: 'Invalid product id' });
+        }
+
+        const productResult = await pool.query(
+            `SELECT p.*,
+                    pc.name AS product_category_name,
+                    pc.slug AS product_category_slug,
+                    pc.icon AS product_category_icon
+               FROM products p
+               LEFT JOIN product_categories pc ON pc.id = p.product_category_id
+              WHERE p.id = $1 AND p.business_id = $2`,
+            [productId, req.businessId]
+        );
+
+        if (productResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Product not found in your business' });
+        }
+
+        let variants = [];
+        try {
+            variants = await variantService.listRawVariants(productId);
+        } catch (err) {
+            console.warn('Unable to load product variants:', err.message);
+        }
+
+        res.json({
+            success: true,
+            product: productResult.rows[0],
+            variants
+        });
+    } catch (err) {
+        console.error('❌ Get product detail error:', err);
+        logError(err, 'Get product detail');
         res.status(500).json({ error: err.message });
     }
 });
@@ -1749,10 +2005,22 @@ router.delete('/ads/:id', authMiddleware, businessAdminOnly, getBusinessIdFromTo
 //  B.1 — product_category_id is required
 //  B.5 — Save blocked without a category
 //  B.8 — Joined name echoed back in the response
+//
+//  PHASE 1 — the variant save is delegated to
+//  variantService.saveVariantsForProduct(). The old inline
+//  INSERT into product_variants has been removed.
 // ============================================================
 
 router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
-    upload.fields([{ name: 'image', maxCount: 8 }, { name: 'video', maxCount: 4 }, { name: 'variantImages', maxCount: 20 }]),
+    upload.fields([
+        { name: 'image', maxCount: 8 },
+        { name: 'video', maxCount: 4 },
+        // PHASE 1 — one image and one video per variant row.
+        // The field list is generated from
+        // MAX_VARIANTS_FOR_MULTER so it can never drift from the
+        // service's own cap.
+        ...VARIANT_MEDIA_FIELDS
+    ]),
     [
         body('name').notEmpty().withMessage('Product name required'),
         body('price').notEmpty().withMessage('Price required'),
@@ -1837,22 +2105,67 @@ router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromTok
 
             const product = result.rows[0];
 
-            await logAdminActivity(req.userId, 'ADD_PRODUCT', { productId: product.id, businessId: req.businessId });
+            // PHASE 1 — save the variants through the service. Any
+            // variant-level media is uploaded first, then the
+            // service validates, writes, and detects the axis.
+            // A validation failure rolls the whole product creation
+            // back, because the product row was created without
+            // the variants it needs.
+            try {
+                const variants = parseVariantsPayload(req.body.variants);
 
-            if (req.body.variants) {
-                try {
-                    const variants = JSON.parse(req.body.variants);
-                    for (const v of variants) {
-                        await pool.query(
-                            `INSERT INTO product_variants (product_id, name, price, stock, color_code, image)
-                             VALUES ($1, $2, $3, $4, $5, $6)`,
-                            [product.id, v.name, v.price || null, v.stock || 0, v.color_code || null, v.image || null]
-                        );
-                    }
-                } catch (variantErr) {
-                    console.error('Error adding variants:', variantErr);
+                // Friendly duplicate-name check before we do any
+                // upload work. The DB unique index is still the
+                // ultimate guarantee, but this gives the admin a
+                // message that names the exact row.
+                const duplicate = findDuplicateVariantName(variants);
+                if (duplicate) {
+                    throw Object.assign(
+                        new Error(
+                            `Variant ${duplicate.row}: the name "${duplicate.name}" is already used by variant ${duplicate.firstRow}.`
+                        ),
+                        { row: duplicate.row, field: 'name' }
+                    );
                 }
+
+                if (variants.length > 0) {
+                    await uploadVariantMedia(req.businessId, variants, req.files);
+                }
+                await variantService.saveVariantsForProduct(product.id, variants);
+            } catch (variantErr) {
+                // Race case: two requests passed the pre-check but
+                // the DB unique index rejected the second one.
+                // Map 23505 to the same friendly wording.
+                if (variantErr && variantErr.code === '23505') {
+                    try {
+                        await pool.query('DELETE FROM products WHERE id = $1', [product.id]);
+                    } catch (cleanupErr) {
+                        console.error('Variant cleanup after 23505 failed:', cleanupErr);
+                    }
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Two variants in this product have the same name. Please rename one and try again.',
+                        field: 'name'
+                    });
+                }
+
+                console.error('❌ Variant save error on create:', variantErr);
+                // Remove the product we just created so the admin
+                // does not end up with a half-built row.
+                try {
+                    await pool.query('DELETE FROM products WHERE id = $1', [product.id]);
+                } catch (cleanupErr) {
+                    console.error('Variant cleanup after failure failed:', cleanupErr);
+                }
+                return res.status(variantErr.row ? 400 : 500).json({
+                    success: false,
+                    error: variantErr.message || 'Unable to save product variants',
+                    row: variantErr.row || null,
+                    field: variantErr.field || null
+                });
             }
+
+            await logAdminActivity(req.userId, 'ADD_PRODUCT', { productId: product.id, businessId: req.businessId });
 
             const enriched = await pool.query(`
                 SELECT p.*, pc.name AS product_category_name, pc.slug AS product_category_slug
@@ -1874,10 +2187,22 @@ router.post('/products', authMiddleware, businessAdminOnly, getBusinessIdFromTok
 //  UPDATE PRODUCT
 //  B.1 / B.5 — product_category_id is required and validated
 //  B.8 — Joined name echoed back
+//
+//  PHASE 1 — the variant save is delegated to
+//  variantService.saveVariantsForProduct(). The service marks
+//  the previous active variants inactive and re-activates the
+//  ones still in the payload, so the admin's new ordering and
+//  removals take effect in a single transaction.
 // ============================================================
 
 router.put('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
-    upload.fields([{ name: 'image', maxCount: 8 }, { name: 'video', maxCount: 4 }, { name: 'variantImages', maxCount: 20 }]),
+    upload.fields([
+        { name: 'image', maxCount: 8 },
+        { name: 'video', maxCount: 4 },
+        // PHASE 1 — same generated list as POST /products so the
+        // two handlers can never diverge.
+        ...VARIANT_MEDIA_FIELDS
+    ]),
     async (req, res) => {
         try {
             const productId = parseInt(req.params.id);
@@ -1991,6 +2316,50 @@ router.put('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdFrom
                 JSON.stringify(images), JSON.stringify(videos), productId, req.businessId
             ]);
 
+            // PHASE 1 — save the variants. The service handles
+            // activation and soft-deletion in one transaction.
+            if (req.body.variants !== undefined) {
+                try {
+                    const variants = parseVariantsPayload(req.body.variants);
+
+                    // Friendly duplicate-name check before the
+                    // service call, matching the behaviour on
+                    // create.
+                    const duplicate = findDuplicateVariantName(variants);
+                    if (duplicate) {
+                        throw Object.assign(
+                            new Error(
+                                `Variant ${duplicate.row}: the name "${duplicate.name}" is already used by variant ${duplicate.firstRow}.`
+                            ),
+                            { row: duplicate.row, field: 'name' }
+                        );
+                    }
+
+                    if (variants.length > 0) {
+                        await uploadVariantMedia(req.businessId, variants, req.files);
+                    }
+                    await variantService.saveVariantsForProduct(productId, variants);
+                } catch (variantErr) {
+                    // Race case: two requests passed the pre-check
+                    // but the DB unique index rejected the second.
+                    if (variantErr && variantErr.code === '23505') {
+                        return res.status(409).json({
+                            success: false,
+                            error: 'Two variants in this product have the same name. Please rename one and try again.',
+                            field: 'name'
+                        });
+                    }
+
+                    console.error('❌ Variant save error on update:', variantErr);
+                    return res.status(variantErr.row ? 400 : 500).json({
+                        success: false,
+                        error: variantErr.message || 'Unable to save product variants',
+                        row: variantErr.row || null,
+                        field: variantErr.field || null
+                    });
+                }
+            }
+
             await logAdminActivity(req.userId, 'UPDATE_PRODUCT', { productId, businessId: req.businessId });
 
             const enriched = await pool.query(`
@@ -2038,6 +2407,11 @@ router.delete('/products/:id', authMiddleware, businessAdminOnly, getBusinessIdF
 // ============================================================
 //  BATCH PRODUCT CREATE
 //  B.1 / B.5 — Each product needs a valid product_category_id
+//
+//  PHASE 1 — every batch-created product gets a single implicit
+//  "Default" variant, created by the same service used by the
+//  single-product paths. Batch upload has no per-row variant
+//  payload, so a Default variant is exactly what is expected.
 // ============================================================
 
 router.post('/products/batch', authMiddleware, businessAdminOnly, getBusinessIdFromToken, async (req, res) => {
@@ -2078,6 +2452,24 @@ router.post('/products/batch', authMiddleware, businessAdminOnly, getBusinessIdF
             created.push(result.rows[0]);
         }
         await client.query('COMMIT');
+
+        // PHASE 1 — after the transaction commits, create the
+        // implicit Default variant for each product through the
+        // service. This is best-effort: if it fails for one
+        // product, the batch is still returned and the affected
+        // product will simply have no variant, which the service's
+        // own defaults handle on the next edit.
+        for (const product of created) {
+            try {
+                await variantService.saveVariantsForProduct(product.id, []);
+            } catch (variantErr) {
+                console.warn(
+                    `Implicit Default variant skipped for product ${product.id}:`,
+                    variantErr.message
+                );
+            }
+        }
+
         res.status(201).json({ success: true, products: created });
     } catch (err) {
         await client.query('ROLLBACK');

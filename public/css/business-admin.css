@@ -1453,3 +1453,443 @@ html.embedded .sidebar { display: none !important; }
     font-size: 0.85rem;
   }
 }
+/* ============================================================
+   PHASE 1 — COLOUR VARIANTS (Colour section in product form)
+   Location: appended to public/css/business-admin.css
+
+   These rules style the colour variant section that Phase 1
+   introduced in the business admin product form:
+
+     - #baVariantsSection       → the outer wrapper
+     - #baVariantsRows          → the container the JS mounts
+     - .ba-variant-row          → one colour variant row
+     - .ba-variant-drag         → the drag handle
+     - .ba-variant-fields       → the grid of fields inside a row
+     - .ba-variant-field        → one labelled field
+     - .ba-variant-image        → the image file input
+     - .ba-variant-video        → the video file input
+     - .ba-variant-preview      → the small media preview
+     - .ba-variant-actions      → the remove button cell
+     - .ba-variant-remove       → the remove button
+     - .ba-variants-toolbar     → the Add + hint row
+     - .ba-variants-add-btn     → the "Add another colour" button
+     - .ba-variants-soft-hint   → the "a lot of colours" hint
+     - .ba-variants-status      → the shared status line
+
+   Layout (this revision):
+     The row is a three-by-two grid that reads top-to-bottom:
+
+       Row 1:  Colour name      | Stock override
+       Row 2:  Price override   | Old price
+       Row 3:  Image upload     | Video upload
+
+     The remove button floats at the top-right of the row.
+
+   Removed since the previous revision:
+     - .ba-variant-field--color and .ba-variant-color (the
+       colour-code picker has been removed: the row IS the
+       colour, so the name is what the admin types)
+     - The discount field grid slot (no discount on a variant)
+
+   Drag state:
+     - .ba-variant-row--dragging     → the row being dragged
+     - .ba-variant-row--drop-target  → the row being dropped onto
+
+   Validation state:
+     - .ba-variant-row--error        → the row with a problem
+     - .ba-variant-input--error      → the exact input with a problem
+
+   Everything here is scoped to the new class names, so nothing
+   above this block is affected.
+   ============================================================ */
+
+/* ---------- Outer wrapper ---------- */
+#baVariantsSection {
+  margin-top: 6px;
+  padding: 16px 18px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+/* ---------- Row container ---------- */
+#baVariantsRows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* ---------- One colour variant row ---------- */
+.ba-variant-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 56px 14px 40px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+              background-color 0.15s ease;
+}
+
+.ba-variant-row:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+}
+
+.ba-variant-row--dragging {
+  opacity: 0.6;
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.ba-variant-row--drop-target {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.ba-variant-row--error {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+/* ---------- Drag handle ---------- */
+.ba-variant-drag {
+  position: absolute;
+  left: 10px;
+  top: 16px;
+  width: 22px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  cursor: grab;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.ba-variant-drag:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.ba-variant-drag:active {
+  cursor: grabbing;
+}
+
+/* ---------- Fields grid ----------
+   Three rows of two columns.
+
+     Row 1:  name   | stock
+     Row 2:  price  | old price
+     Row 3:  image  | video
+
+   The grid uses explicit grid-area placement so the JS does
+   not need to change the DOM order of the fields.
+   ------------------------------------------------------------ */
+.ba-variant-fields {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+
+.ba-variant-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Explicit placement so the row reads top-to-bottom
+   regardless of the order the fields were added to the DOM. */
+.ba-variant-field--name      { grid-column: 1; grid-row: 1; }
+.ba-variant-field--stock     { grid-column: 2; grid-row: 1; }
+.ba-variant-field--price     { grid-column: 1; grid-row: 2; }
+.ba-variant-field--old-price { grid-column: 2; grid-row: 2; }
+.ba-variant-field--image     { grid-column: 1; grid-row: 3; }
+.ba-variant-field--video     { grid-column: 2; grid-row: 3; }
+
+.ba-variant-field label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0;
+}
+
+/* ---------- Inputs ---------- */
+.ba-variant-field input[type="text"],
+.ba-variant-field input[type="number"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ba-variant-field input[type="text"]:focus,
+.ba-variant-field input[type="number"]:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10);
+}
+
+.ba-variant-input--error {
+  border-color: #ef4444 !important;
+  background: #fef2f2 !important;
+}
+
+/* ---------- File inputs ---------- */
+.ba-variant-field--image input[type="file"],
+.ba-variant-field--video input[type="file"] {
+  width: 100%;
+  font-size: 0.72rem;
+  color: #475569;
+  padding: 4px 0;
+}
+
+.ba-variant-field--image input[type="file"]::file-selector-button,
+.ba-variant-field--video input[type="file"]::file-selector-button {
+  padding: 5px 10px;
+  margin-right: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #1e293b;
+  font-weight: 600;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.ba-variant-field--image input[type="file"]::file-selector-button:hover,
+.ba-variant-field--video input[type="file"]::file-selector-button:hover {
+  background: #e2e8f0;
+}
+
+/* ---------- Media preview ---------- */
+.ba-variant-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ba-variant-preview:empty {
+  display: none;
+}
+
+.ba-variant-preview-item {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.ba-variant-preview-item--new {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
+}
+
+.ba-variant-preview-item--broken {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.ba-variant-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ba-variant-preview-badge {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(15, 23, 42, 0.75);
+  color: #ffffff;
+  font-size: 0.55rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.ba-variant-preview-filename {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(15, 23, 42, 0.75);
+  color: #ffffff;
+  font-size: 0.5rem;
+  font-weight: 500;
+  padding: 1px 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Remove button cell ----------
+   Floats at the top-right of the row. Because the row has a
+   right padding of 56px, this cell does not overlap the
+   fields. The remove button itself is 30x30.
+   ------------------------------------------------------------ */
+.ba-variant-actions {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.ba-variant-remove {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #991b1b;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+              color 0.15s ease;
+}
+
+.ba-variant-remove:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #7f1d1d;
+}
+
+/* ---------- Toolbar (Add button + soft hint) ---------- */
+.ba-variants-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.ba-variants-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  background: #ffffff;
+  color: #1e40af;
+  border: 1.5px dashed #93c5fd;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+              color 0.15s ease;
+}
+
+.ba-variants-add-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.ba-variants-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ba-variants-soft-hint {
+  font-size: 0.72rem;
+  color: #92400e;
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+  border-radius: 6px;
+  padding: 6px 10px;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 200px;
+}
+
+.ba-variants-soft-hint i {
+  margin-right: 4px;
+}
+
+/* ---------- Shared status line ---------- */
+.ba-variants-status {
+  min-height: 18px;
+  margin-top: 10px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.ba-variants-status--error { color: #ef4444; font-weight: 600; }
+.ba-variants-status--success { color: #16a34a; font-weight: 600; }
+.ba-variants-status--info { color: #2563eb; font-weight: 500; }
+
+/* ---------- Responsive ----------
+   On narrower screens the grid drops to a single column and
+   the explicit placements are released so the fields stack in
+   DOM order: name, stock, price, old price, image, video.
+   ------------------------------------------------------------ */
+@media (max-width: 900px) {
+  .ba-variant-fields {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .ba-variant-field--name,
+  .ba-variant-field--stock,
+  .ba-variant-field--price,
+  .ba-variant-field--old-price,
+  .ba-variant-field--image,
+  .ba-variant-field--video {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  #baVariantsSection {
+    padding: 12px 12px 14px;
+  }
+
+  .ba-variant-row {
+    padding: 12px 46px 12px 36px;
+  }
+
+  .ba-variant-drag {
+    left: 8px;
+    top: 14px;
+  }
+
+  .ba-variant-actions {
+    top: 12px;
+    right: 10px;
+  }
+
+  .ba-variants-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ba-variants-add-btn {
+    justify-content: center;
+  }
+}

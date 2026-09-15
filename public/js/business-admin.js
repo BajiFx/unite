@@ -291,6 +291,7 @@ let deliverySettings = {
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🔐 Business Admin loading...');
+    mountVariantSection();
     verifyBusinessAccess();
 });
 
@@ -2499,21 +2500,36 @@ document.getElementById('productForm')?.addEventListener('submit', async functio
     }
 
     const formData = new FormData(this);
+        // Primary colour of the parent product. Sent as the `color` field.
+    const parentColor = (document.getElementById('pColor')?.value || '').trim();
+    formData.set('color', parentColor);
     const editId = document.getElementById('editProductId').value;
+    
     const url = editId ? `/api/business-admin/products/${editId}` : '/api/business-admin/products';
     const method = editId ? 'PUT' : 'POST';
 
     formData.set('product_category_id', categorySelect.value);
 
-    const variants = getVariantData();
-    if (variants.length > 0) {
-        formData.append('variants', JSON.stringify(variants));
-        variants.forEach(function(v) {
-            if (v.file) formData.append('variantImages', v.file);
-        });
+    const submitBtn = document.getElementById('productSubmitBtn');
+
+    // PHASE 1 — validate and read the variant payload from the
+    // shared module. The module owns the DOM; we only ask it for
+    // the data. The file inputs inside each row already carry
+    // their own name (variant_image_<index> / variant_video_<index>),
+    // so the browser submits them with the rest of the form.
+    if (window.BusinessAdminVariants) {
+        const check = window.BusinessAdminVariants.validate();
+        if (!check.ok) {
+            if (check.row) window.BusinessAdminVariants.showSectionStatus(check.message, 'error');
+            alert(check.message || 'Please fix the highlighted variant before saving.');
+            return;
+        }
+        const variants = window.BusinessAdminVariants.readPayload();
+        if (variants.length > 0) {
+            formData.append('variants', JSON.stringify(variants));
+        }
     }
 
-    const submitBtn = document.getElementById('productSubmitBtn');
     submitBtn.disabled = true;
     submitBtn.textContent = '⏳ Saving...';
 
@@ -2594,43 +2610,27 @@ async function submitProductBatch() {
 }
 
 // ============================================================
-//  VARIANT FUNCTIONS
+//  PHASE 1 — VARIANT INTEGRATION
+//
+//  The variant section is owned by public/js/business-admin-variants.js,
+//  which exposes window.BusinessAdminVariants. The helpers in this
+//  file do not touch the DOM directly. They only:
+//   - mount the section once
+//   - hand the loaded variants to it on edit
+//   - ask it for the payload on submit
+//   - clear it when the form is cancelled
 // ============================================================
 
-function addVariantRow(name, price, stock, colorCode) {
-    const container = document.getElementById('variantsContainer');
-    if (!container) return;
-    const row = document.createElement('div');
-    row.className = 'variant-row';
-    row.dataset.index = variantCounter++;
-    row.innerHTML = `
-        <input type="text" class="variant-name" placeholder="Color name" value="${name || ''}">
-        <input type="text" class="variant-price" placeholder="Price (optional)" value="${price || ''}">
-        <input type="number" class="variant-stock" placeholder="Stock" value="${stock || ''}">
-        <input type="color" class="variant-color-code" value="${colorCode || '#cccccc'}">
-        <input type="file" class="variant-image" accept="image/*">
-        <button type="button" class="remove-variant" onclick="this.closest('.variant-row').remove()">✕</button>
-    `;
-    container.appendChild(row);
-}
-
-function clearVariants() {
-    const container = document.getElementById('variantsContainer');
-    if (container) container.innerHTML = '';
-    variantCounter = 0;
-}
-
-function getVariantData() {
-    const variants = [];
-    document.querySelectorAll('.variant-row').forEach(function(row) {
-        const name = row.querySelector('.variant-name')?.value.trim();
-        const price = row.querySelector('.variant-price')?.value.trim();
-        const stock = row.querySelector('.variant-stock')?.value.trim();
-        const colorCode = row.querySelector('.variant-color-code')?.value || '#cccccc';
-        const file = row.querySelector('.variant-image')?.files?.[0] || null;
-        if (name) variants.push({ name, price, stock, colorCode, file });
-    });
-    return variants;
+function mountVariantSection() {
+    if (!window.BusinessAdminVariants) {
+        console.warn('⚠️ BusinessAdminVariants not loaded — variant section will be empty.');
+        return;
+    }
+    try {
+        window.BusinessAdminVariants.mount('#baVariantsRows');
+    } catch (err) {
+        console.error('Variant section mount failed:', err);
+    }
 }
 
 async function editProduct(id) {
@@ -2648,6 +2648,7 @@ async function editProduct(id) {
             pPrice: product.price || '',
             pOldPrice: product.old_price || '',
             pDiscount: product.discount_percent || '',
+            pColor: product.color || '',
             pStock: product.stock || 0,
             pContact: product.contact || '+254700000000',
             pRating: product.rating || '',
@@ -2658,6 +2659,13 @@ async function editProduct(id) {
             pFlashSale: product.isFlashSale || false,
             pNewArrival: product.isNewArrival || false
         };
+
+                Object.keys(fields).forEach(function(key) {
+            const el = document.getElementById(key);
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = fields[key];
+            else el.value = fields[key];
+        });
 
         Object.keys(fields).forEach(function(key) {
             const el = document.getElementById(key);
@@ -2680,10 +2688,12 @@ async function editProduct(id) {
         }
         if (categorySearch) categorySearch.value = '';
 
-        clearVariants();
-        variants.forEach(function(v) {
-            addVariantRow(v.name, v.price || '', v.stock || '', v.color_code || '#cccccc');
-        });
+        // PHASE 1 — hand the raw variant rows to the shared module.
+        // The module renders the rows, keeps their ids for in-place
+        // updates, and shows the existing media as a preview.
+        if (window.BusinessAdminVariants) {
+            window.BusinessAdminVariants.loadFromVariants(variants);
+        }
 
         const submitBtn = document.getElementById('productSubmitBtn');
         if (submitBtn) submitBtn.textContent = '💾 Update Product';
@@ -2708,7 +2718,13 @@ function cancelEditProduct() {
     if (submitBtn) submitBtn.textContent = '➕ Add Product';
     const cancelBtn = document.getElementById('cancelEditBtn');
     if (cancelBtn) cancelBtn.style.display = 'none';
-    clearVariants();
+
+    // PHASE 1 — reset the variant section back to a single empty
+    // "Default" row so the form is ready for the next new product.
+    if (window.BusinessAdminVariants) {
+        window.BusinessAdminVariants.clear();
+    }
+
     loadProducts();
 }
 

@@ -31,9 +31,23 @@
 //   sees the same-category-first order even if the server ever
 //   returns unsorted data.
 //
-//   Nothing else in this file was touched. The marketplace list,
-//   the variants batch, the review endpoints, the wishlist, and
-//   the create/update/delete handlers are all unchanged.
+//  PHASE 1 / PHASE 2 — Product variants and the two-axis detail
+//   The `GET /:id/detail` handler now:
+//     - resolves variants through variantService.listActiveVariants()
+//       so the inheritance chain (variant → parent) is applied in
+//       one place and every variant carries media_kind;
+//     - returns an `axis` object from variantService.getAxis() so
+//       the client can label the vertical counter and the vertical
+//       hints without guessing from the variant names;
+//     - keeps the existing `product`, `related`, and `reviews`
+//       shapes unchanged, so the frontend needs no other change.
+//
+//   The `GET /` handler now attaches a resolved `thumbnail_url` and
+//   `thumbnail_kind` to each product, using the same fallback chain
+//   that businesses.js uses in GET /:slug/products, so both listing
+//   surfaces stay consistent.
+//
+//   Every other route and helper is preserved byte-for-byte.
 // ============================================================
 
 const express = require('express');
@@ -45,11 +59,36 @@ const { upload } = require('../middleware/upload');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const { cacheMiddleware } = require('../../redis');
 const { logAdminActivity } = require('../services/orderService');
+// Phase 1 / Phase 2 — variant resolution for the product detail
+// page and the general product listing. The service owns every
+// read from product_variants, so no route in this file queries
+// that table directly except the batch endpoint that already
+// existed.
+const variantService = require('../services/variantService');
 const router = express.Router();
+
+// ============================================================
+//  Small helper — deterministic fallback image
+//
+//  Used when a product has no image of its own and no variant
+//  provides one either. This keeps the response shape consistent
+//  and never sends a null image to the client.
+// ============================================================
+
+function productFallbackImage(name) {
+  const label = String(name || 'Product').slice(0, 32).replace(/[<>&]/g, '');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${label}</text></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
 
 // ============================================================
 //  GET ALL PRODUCTS (Public - with business filter)
 //  B.8 — joined product category name/slug/icon
+//
+//  PHASE 1 / PHASE 2 — each product now carries a resolved
+//  thumbnail_url and thumbnail_kind. Variants are resolved through
+//  variantService so the inheritance chain is applied consistently
+//  with every other listing surface.
 // ============================================================
 
 router.get('/', cacheMiddleware(60), async (req, res) => {
@@ -110,19 +149,59 @@ router.get('/', cacheMiddleware(60), async (req, res) => {
     const products = [];
     for (const product of result.rows) {
       try {
-        const variantsResult = await pool.query(
-          'SELECT * FROM product_variants WHERE product_id = $1 ORDER BY id',
-          [product.id]
-        );
-        const variants = variantsResult.rows || [];
-
-        let firstImage = null;
-        if (variants.length > 0 && variants[0].image) {
-          firstImage = variants[0].image;
-        } else if (product.image) {
-          firstImage = product.image;
+        // Phase 1 — resolve variants through the service so the
+        // inheritance chain and media_kind are consistent with
+        // the shop page and the detail page.
+        let variants = [];
+        try {
+          variants = await variantService.listActiveVariants(product.id);
+        } catch (variantErr) {
+          console.warn(
+            `Unable to load variants for product ${product.id}:`,
+            variantErr.message
+          );
         }
 
+        // Resolve the grid thumbnail. Chain: variant media →
+        // parent image → parent video poster → fallback SVG.
+        const firstVariantWithImage = variants.find(v => v.image);
+        const firstVariantWithVideo = variants.find(v => v.video_poster_url || v.video);
+
+        let thumbnailUrl = null;
+        let thumbnailKind = 'placeholder';
+
+        if (product.image) {
+          thumbnailUrl = product.image;
+          thumbnailKind = 'image';
+        } else if (product.video_poster_url) {
+          thumbnailUrl = product.video_poster_url;
+          thumbnailKind = 'video';
+        } else if (firstVariantWithImage && firstVariantWithImage.image) {
+          thumbnailUrl = firstVariantWithImage.image;
+          thumbnailKind = 'image';
+        } else if (firstVariantWithVideo && firstVariantWithVideo.video_poster_url) {
+          thumbnailUrl = firstVariantWithVideo.video_poster_url;
+          thumbnailKind = 'video';
+        }
+
+        if (!thumbnailUrl) {
+          thumbnailUrl = productFallbackImage(product.name);
+          thumbnailKind = 'placeholder';
+        }
+
+        // media_kind describes the product as a whole.
+        let mediaKind = 'placeholder';
+        const anyImage = variants.some(v => v.image) || Boolean(product.image);
+        const anyVideo = variants.some(v => v.video) || Boolean(product.video);
+        if (anyImage && anyVideo) mediaKind = 'mixed';
+        else if (anyVideo) mediaKind = 'video';
+        else if (anyImage) mediaKind = 'image';
+
+        // Preserve the older total-stock calculation so nothing
+        // downstream changes behaviour. The service already
+        // resolved stock per variant through the inheritance
+        // chain, so the sum is the same as it always was when
+        // variants had their own stock.
         let totalStock = 0;
         variants.forEach(v => { totalStock += parseInt(v.stock) || 0; });
 
@@ -135,16 +214,23 @@ router.get('/', cacheMiddleware(60), async (req, res) => {
         products.push({
           ...product,
           variants: variants,
-          image: firstImage || product.image || null,
+          image: thumbnailUrl,
+          thumbnail_url: thumbnailUrl,
+          thumbnail_kind: thumbnailKind,
+          media_kind: mediaKind,
           stock: totalStock || parseInt(product.stock) || 0,
           business: business
         });
       } catch (variantErr) {
         console.error('Error fetching variants for product:', product.id, variantErr);
+        const fallbackUrl = product.image || productFallbackImage(product.name);
         products.push({
           ...product,
           variants: [],
-          image: product.image || null,
+          image: fallbackUrl,
+          thumbnail_url: fallbackUrl,
+          thumbnail_kind: product.image ? 'image' : 'placeholder',
+          media_kind: product.image ? 'image' : 'placeholder',
           stock: parseInt(product.stock) || 0
         });
       }
@@ -162,6 +248,10 @@ router.get('/', cacheMiddleware(60), async (req, res) => {
 
 // ============================================================
 //  GET ALL VARIANTS (Batch)
+//
+//  Kept as-is. This endpoint predates Phase 1 and is preserved
+//  byte-for-byte. New callers use the per-product resolution
+//  in GET /:id/detail instead.
 // ============================================================
 
 router.get('/variants/batch', async (req, res) => {
@@ -190,10 +280,11 @@ router.get('/variants/batch', async (req, res) => {
 //   siblings are sorted FIRST, then every other sibling follows.
 //   Inside each group, newest first (created_at DESC).
 //
-//   This gives the frontend the exact array it needs to render
-//   "You may also like" without a second request, and the
-//   frontend's orderRelatedForDisplay() is a no-op when the
-//   server already sent the array in the right order.
+//  PHASE 1 / PHASE 2:
+//   - variants are resolved through variantService so the
+//     inheritance chain and media_kind are applied in one place;
+//   - an `axis` object is returned so the client can label the
+//     vertical counter and the vertical hints.
 // ============================================================
 
 router.get('/:id/detail', async (req, res) => {
@@ -227,11 +318,37 @@ router.get('/:id/detail', async (req, res) => {
 
     const product = productResult.rows[0];
 
-    const variantsResult = await pool.query(
-      'SELECT * FROM product_variants WHERE product_id = $1 ORDER BY id',
-      [id]
-    );
-    const variants = variantsResult.rows || [];
+    // Phase 1 — resolve variants through the service. The service
+    // applies the inheritance chain (variant → parent) and sets
+    // media_kind on every variant, so the client never walks the
+    // chain itself. On failure, fall back to a direct read so the
+    // page still renders.
+    let variants = [];
+    try {
+      variants = await variantService.listActiveVariants(id);
+    } catch (variantErr) {
+      console.warn('Variant resolution failed, falling back to raw rows:', variantErr.message);
+      try {
+        const fallback = await pool.query(
+          'SELECT * FROM product_variants WHERE product_id = $1 AND is_active = TRUE ORDER BY display_order ASC, id ASC',
+          [id]
+        );
+        variants = fallback.rows || [];
+      } catch (fallbackErr) {
+        variants = [];
+      }
+    }
+
+    // Phase 2 — axis metadata for the vertical counter and hints.
+    // When the product has one variant, count is 1 and the client
+    // hides the vertical hints. When the variant table is missing
+    // entirely, the service returns a safe default.
+    let axis = { kind: null, label: null, count: variants.length };
+    try {
+      axis = await variantService.getAxis(id);
+    } catch (axisErr) {
+      console.warn('Axis resolution failed, using default:', axisErr.message);
+    }
 
     const reviewsResult = await pool.query(`
       SELECT pr.*, c.name AS customer_name
@@ -279,22 +396,41 @@ router.get('/:id/detail', async (req, res) => {
 
     const related = [];
     for (const rel of relatedResult.rows) {
-      const vRes = await pool.query(
-        'SELECT image FROM product_variants WHERE product_id = $1 LIMIT 1',
-        [rel.id]
-      );
-      const variant = vRes.rows[0] || null;
+      // Phase 1 — use the service so the image resolution follows
+      // the inheritance chain. A variant that carries no image of
+      // its own now correctly falls back to the product image,
+      // instead of overriding it with null.
+      let relatedImage = rel.image || null;
+      try {
+        const relVariants = await variantService.listActiveVariants(rel.id);
+        const firstWithImage = relVariants.find(v => v.image);
+        if (firstWithImage && firstWithImage.image) {
+          relatedImage = firstWithImage.image;
+        }
+      } catch (relVariantErr) {
+        // Fall back to the raw read used previously.
+        try {
+          const vRes = await pool.query(
+            'SELECT image FROM product_variants WHERE product_id = $1 LIMIT 1',
+            [rel.id]
+          );
+          const variant = vRes.rows[0] || null;
+          if (variant?.image) relatedImage = variant.image;
+        } catch (rawErr) {
+          // Keep the product image.
+        }
+      }
+
       related.push({
         ...rel,
-        // A variant may exist without its own image. In that case retain the
-        // product's main image instead of replacing it with null.
-        image: variant?.image || rel.image || null
+        image: relatedImage
       });
     }
 
     res.json({
       product,
       variants,
+      axis,
       reviews,
       related
     });
@@ -307,6 +443,13 @@ router.get('/:id/detail', async (req, res) => {
 // ============================================================
 //  CREATE PRODUCT (Business Admin only)
 //  B.1 / B.5 — product_category_id is required and validated
+//
+//  NOTE: The business-admin product creation flow in
+//  src/routes/business-admin.js is the one the admin panel uses.
+//  This endpoint is kept for backward compatibility and is
+//  preserved byte-for-byte. The variant save still uses the
+//  legacy inline INSERT, because this endpoint is not on the
+//  Phase 1 code path.
 // ============================================================
 
 router.post('/', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
@@ -421,6 +564,11 @@ router.post('/', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
 // ============================================================
 //  UPDATE PRODUCT (Business Admin only)
 //  B.1 / B.5 — product_category_id is required and validated
+//
+//  NOTE: Same as the create handler above — the business-admin
+//  flow in src/routes/business-admin.js is the one the admin panel
+//  uses. This endpoint is kept for backward compatibility and is
+//  preserved byte-for-byte.
 // ============================================================
 
 router.put('/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
@@ -567,6 +715,9 @@ router.delete('/:id', authMiddleware, businessAdminOnly, getBusinessIdFromToken,
       return res.status(404).json({ error: 'Product not found in your business' });
     }
 
+    // product_variants has ON DELETE CASCADE, so the variants are
+    // already gone. The explicit DELETE is kept for safety on
+    // databases where the cascade has not been applied.
     await pool.query('DELETE FROM product_variants WHERE product_id = $1', [id]);
 
     await logAdminActivity(req.userId, 'DELETE_PRODUCT', { productId: id, businessId: req.businessId });

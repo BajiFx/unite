@@ -808,7 +808,11 @@
               <div><label>Price (Ksh) *</label><input type="text" id="pPrice" name="price" required></div>
               <div><label>Old Price (Ksh)</label><input type="text" id="pOldPrice" name="old_price" placeholder="e.g., 799"></div>
               <div><label>Discount (%)</label><input type="text" id="pDiscount" name="discount_percent" placeholder="e.g., 20"></div>
-
+              <div>
+                <label>Color</label>
+                <input type="text" id="pColor" name="color" placeholder="e.g., Navy Blue" maxlength="80">
+                <small>The primary colour of this product. Shown first to the customer on the product page.</small>
+              </div>
               <div class="full">
                 <label>Product Category *</label>
                 <input type="search" id="pProductCategorySearch" placeholder="Search product categories..." autocomplete="off" oninput="filterProductCategoryOptions()">
@@ -819,6 +823,11 @@
               </div>
 
               <div><label>Stock</label><input type="number" id="pStock" name="stock" placeholder="0" value="0"></div>
+              <div>
+                <label>Color</label>
+                <input type="text" id="pColor" name="color" placeholder="e.g. Red" maxlength="80" autocomplete="off">
+                <small style="font-size:0.6rem; color:#94a3b8; display:block; margin-top:2px;">The primary colour of this product. Shown first in the colour strip on the customer page.</small>
+              </div>
               <div><label>Contact</label><input type="text" id="pContact" name="contact" value="+254700000000"></div>
               <div><label>Rating</label><input type="text" id="pRating" name="rating" placeholder="e.g., 4.5"></div>
               <div><label>Badge 1</label><input type="text" id="pBadge1" name="badge1" placeholder="Brand Official"></div>
@@ -831,10 +840,35 @@
               </div>
               <div><label>Images</label><input type="file" id="pImage" name="image" accept="image/*" multiple><small>Choose several colours or angles.</small></div>
               <div><label>Videos</label><input type="file" id="pVideo" name="video" accept="video/*" multiple><small>Choose one or more videos.</small></div>
-              <div class="full">
-                <label>Color Variants</label>
-                <div id="variantsContainer"></div>
-                <button type="button" class="btn-secondary" onclick="addVariantRow()">➕ Add Color Variant</button>
+              <div class="full" id="baVariantsSection">
+                <label style="font-weight:700; font-size:0.9rem; display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                  <i class="fas fa-palette" style="color:#2563eb;"></i>
+                  Add different colour of the similar product
+                  <span style="font-weight:400; font-size:0.72rem; color:#64748b;">
+                    (optional — one row per additional colour)
+                  </span>
+                </label>
+                <p style="font-size:0.72rem; color:#64748b; margin:0 0 10px 0; line-height:1.5;">
+                  The product's primary colour is set in the <strong>Color</strong> field above.
+                  Add one row here for each <em>additional</em> colour of the same product.
+                  Each row can carry its own image, video, price, and stock.
+                  Drag the handle on the left to reorder. The primary colour is always shown first
+                  to the customer, followed by these additional colours.
+                </p>
+
+                <div id="baVariantsRows"></div>
+
+                <div class="ba-variants-toolbar">
+                  <button type="button" class="ba-variants-add-btn" id="baVariantsAddBtn">
+                    <i class="fas fa-plus"></i> Add another colour
+                  </button>
+                  <div class="ba-variants-soft-hint" id="baVariantsSoftHint" style="display:none;">
+                    <i class="fas fa-info-circle"></i>
+                    That is a lot of colours. Consider trimming the list so customers can pick quickly.
+                  </div>
+                </div>
+
+                <div class="ba-variants-status" id="baVariantsStatus"></div>
               </div>
             </div>
             <button type="submit" class="btn-save" id="productSubmitBtn">➕ Add Product</button>
@@ -1013,9 +1047,6 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
               <button type="button" class="btn-save" onclick="saveAdjustedBusinessPin()" style="background:#2563eb;">
                 <i class="fas fa-check"></i> Yes, this is correct
-              </button>
-              <button type="button" class="btn-secondary" onclick="document.getElementById('businessLocationMap').scrollIntoView({behavior:'smooth'})">
-                <i class="fas fa-map-pin"></i> Adjust the pin
               </button>
             </div>
           </div>
@@ -2056,6 +2087,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script src="/js/cookie-auth-client.js"></script>
+<script src="/js/business-admin-variants.js"></script>
 <script src="/js/business-admin.js"></script>
 <script src="/js/ad-management.js"></script>
 

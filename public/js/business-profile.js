@@ -1515,4 +1515,121 @@ window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
 window.renderThankYouBand = renderThankYouBand;
 window.renderHeroSearchTagChip = renderHeroSearchTagChip;
 
+// Mirror the thank-you business name into the footer band
+// whenever the page sets the main thank-you band.
+(function () {
+  function mirror() {
+    var src = document.getElementById('thankYouBusinessName');
+    var dst = document.getElementById('footerThankYouBusinessName');
+    if (!src || !dst) return;
+    var name = (src.textContent || '').trim();
+    if (name) dst.textContent = name;
+  }
+  document.addEventListener('DOMContentLoaded', mirror);
+  [300, 900, 2000].forEach(function (ms) { setTimeout(mirror, ms); });
+})();
+
 console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed, dead review code removed, CARTO tile provider active, business product category dropdown fixed)');
+
+// ============================================================
+//  OFFSET THE PINNED FOOTER ABOVE THE BOTTOM NAV
+//  On pages that carry a `.bottom-nav`, lift the pinned footer
+//  so it sits above the nav, and increase the body padding so
+//  page content is not covered.
+// ============================================================
+(function () {
+  function offsetFooterAboveBottomNav() {
+    var footer = document.querySelector('footer.bidhaa-legal-footer');
+    var bottomNav = document.querySelector('.bottom-nav');
+    if (!footer || !bottomNav) return;
+
+    // Skip if the bottom nav is hidden (e.g. in embedded mode).
+    var navStyle = window.getComputedStyle(bottomNav);
+    if (navStyle.display === 'none' || navStyle.visibility === 'hidden') return;
+
+    var navHeight = bottomNav.getBoundingClientRect().height || 64;
+
+    footer.style.bottom = navHeight + 'px';
+    document.body.style.paddingBottom = (navHeight + 64) + 'px';
+  }
+
+  document.addEventListener('DOMContentLoaded', offsetFooterAboveBottomNav);
+  window.addEventListener('resize', offsetFooterAboveBottomNav);
+  window.addEventListener('orientationchange', offsetFooterAboveBottomNav);
+  [300, 1200, 2000].forEach(function (ms) {
+    setTimeout(offsetFooterAboveBottomNav, ms);
+  });
+})();
+
+// ============================================================
+//  FORCE THE PINNED FOOTER
+//  The old business-profile.html still carries the old inline
+//  footer stylesheet. This block overrides it from JS so the
+//  footer is pinned, sits above the bottom nav, and lays out
+//  as three cells (brand | thank-you | legal links).
+// ============================================================
+(function () {
+  function forcePinnedFooter() {
+    var footer = document.querySelector('footer.bidhaa-legal-footer');
+    if (!footer) return;
+
+    var navHeight = 0;
+    var bottomNav = document.querySelector('.bottom-nav');
+    if (bottomNav) {
+      var navStyle = window.getComputedStyle(bottomNav);
+      if (navStyle.display !== 'none' && navStyle.visibility !== 'hidden') {
+        navHeight = bottomNav.getBoundingClientRect().height || 0;
+      }
+    }
+
+    footer.style.position = 'fixed';
+    footer.style.left = '0';
+    footer.style.right = '0';
+    footer.style.bottom = navHeight + 'px';
+    footer.style.zIndex = '1100';
+    footer.style.margin = '0';
+    footer.style.padding = '0';
+    footer.style.background = '#0f172a';
+    footer.style.color = '#94a3b8';
+    footer.style.borderTop = '1px solid rgba(148, 163, 184, 0.18)';
+    footer.style.boxShadow = '0 -6px 18px rgba(15, 23, 42, 0.18)';
+
+    var inner = footer.querySelector('.bidhaa-legal-footer-inner');
+    if (inner) {
+      inner.style.maxWidth = '1400px';
+      inner.style.margin = '0 auto';
+      inner.style.padding = '8px 20px';
+      inner.style.display = 'grid';
+      inner.style.gridTemplateColumns = 'auto 1fr auto';
+      inner.style.alignItems = 'center';
+      inner.style.gap = '20px';
+      inner.style.minHeight = '56px';
+      inner.style.flexWrap = 'nowrap';
+    }
+
+    var brand = footer.querySelector('.bidhaa-legal-footer-brand');
+    if (brand) {
+      brand.style.display = 'flex';
+      brand.style.flexDirection = 'column';
+      brand.style.gap = '1px';
+      brand.style.whiteSpace = 'nowrap';
+    }
+
+    var links = footer.querySelector('.bidhaa-legal-footer-links');
+    if (links) {
+      links.style.display = 'flex';
+      links.style.gap = '16px';
+      links.style.flexWrap = 'nowrap';
+      links.style.whiteSpace = 'nowrap';
+    }
+
+    document.body.style.paddingBottom = (navHeight + 72) + 'px';
+  }
+
+  document.addEventListener('DOMContentLoaded', forcePinnedFooter);
+  window.addEventListener('resize', forcePinnedFooter);
+  window.addEventListener('orientationchange', forcePinnedFooter);
+  [300, 900, 2000, 4000].forEach(function (ms) {
+    setTimeout(forcePinnedFooter, ms);
+  });
+})();

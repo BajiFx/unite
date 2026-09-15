@@ -33,7 +33,21 @@
 //   GET /api/products and GET /api/products/:id/detail, so the
 //   three views stay consistent.
 //
-//  Everything else in this file is byte-for-byte unchanged.
+//  PHASE 1 / PHASE 2 — Product variants and the three-tab filter
+//   The `GET /:slug/products` handler now:
+//     - honours a `tab` query parameter with values
+//       all | image | video, applying the filter in SQL so it
+//       composes with search, category, product_category_id,
+//       and pagination;
+//     - resolves variants for every product through
+//       variantService.listActiveVariants(), so the inheritance
+//       chain (variant → parent) is applied in one place;
+//     - returns a resolved thumbnail_url, a thumbnail_kind, and a
+//       media_kind per product so the customer card never walks
+//       the chain itself.
+//
+//   Every other route and helper in this file is preserved
+//   byte-for-byte.
 // ============================================================
 
 const express = require('express');
@@ -42,6 +56,11 @@ const { pool, logError } = require('../config/database');
 const { authMiddleware } = require('../middleware/auth');
 const Business = require('../models/Business');
 const Customer = require('../models/Customer');
+// Phase 1 / Phase 2 — variant resolution for the shop page and
+// the product detail page. The service owns every read from
+// product_variants, so no route in this file queries that table
+// directly.
+const variantService = require('../services/variantService');
 const router = express.Router();
 
 function productFallbackImage(name) {
@@ -1667,26 +1686,45 @@ router.post('/:slug/calculate-delivery', async (req, res) => {
 // ============================================================
 //  GET BUSINESS PRODUCTS (Public)
 //
-//  Business product categories (this revision):
-//   The query now joins product_categories and returns
+//  Business product categories (previous revision):
+//   The query joins product_categories and returns
 //   product_category_name, product_category_slug, and
-//   product_category_icon alongside each product. The join was
-//   missing, which meant the frontend could not build the
-//   "defined product categories" dropdown on the business
-//   profile page. The join now matches the one already used by
-//   GET /api/products and GET /api/products/:id/detail, so the
-//   three views stay consistent.
+//   product_category_icon alongside each product.
+//
+//  PHASE 1 / PHASE 2:
+//   - The route now honours a `tab` query parameter with values
+//     all | image | video. The filter is applied in SQL so it
+//     composes correctly with search, category, product_category_id,
+//     and pagination.
+//       all   → every product of the business
+//       image → products where the parent has an image, or any
+//               active variant has an image
+//       video → products where the parent has a video, or any
+//               active variant has a video
+//     A mixed product appears in all three tabs.
+//   - Variant rows are resolved through variantService so the
+//     inheritance chain (variant → parent) is applied in one place
+//     and every variant carries media_kind.
+//   - Each product carries a resolved thumbnail_url, a
+//     thumbnail_kind, and a media_kind, so the client never walks
+//     the chain itself.
 // ============================================================
 router.get('/:slug/products', async (req, res) => {
     try {
         const { slug } = req.params;
         const { search, category, product_category_id } = req.query;
+
+        // Phase 2 — the three-tab media filter. Anything other than
+        // the two known values falls back to 'all'.
+        const rawTab = String(req.query.tab || 'all').toLowerCase();
+        const tab = (rawTab === 'image' || rawTab === 'video') ? rawTab : 'all';
+
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 100);
         const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
         const offset = (page - 1) * limit;
 
         const businessResult = await pool.query(
-            'SELECT id, online_orders_enabled FROM businesses WHERE slug = $1 AND is_active = true',
+            'SELECT id, online_orders_enabled, heroImage, logo FROM businesses WHERE slug = $1 AND is_active = true',
             [slug]
         );
 
@@ -1696,6 +1734,40 @@ router.get('/:slug/products', async (req, res) => {
 
         const businessId = businessResult.rows[0].id;
         const onlineOrdersEnabled = businessResult.rows[0].online_orders_enabled !== false;
+
+        // Phase 2 — the media filter. The subquery answers a single
+        // question: does any active variant of this product carry
+        // the media the tab is asking for? The parent check is
+        // separate because a product can have a parent image or
+        // video and no variant media at all.
+        let mediaFilterClause = '';
+        if (tab === 'image') {
+            mediaFilterClause = `
+                AND (
+                    (p.image IS NOT NULL AND BTRIM(p.image) <> '')
+                    OR EXISTS (
+                        SELECT 1 FROM product_variants pv
+                        WHERE pv.product_id = p.id
+                          AND pv.is_active = TRUE
+                          AND pv.image IS NOT NULL
+                          AND BTRIM(pv.image) <> ''
+                    )
+                )
+            `;
+        } else if (tab === 'video') {
+            mediaFilterClause = `
+                AND (
+                    (p.video IS NOT NULL AND BTRIM(p.video) <> '')
+                    OR EXISTS (
+                        SELECT 1 FROM product_variants pv
+                        WHERE pv.product_id = p.id
+                          AND pv.is_active = TRUE
+                          AND pv.video IS NOT NULL
+                          AND BTRIM(pv.video) <> ''
+                    )
+                )
+            `;
+        }
 
         let query = `
             SELECT p.*,
@@ -1727,42 +1799,150 @@ router.get('/:slug/products', async (req, res) => {
             paramIndex++;
         }
 
+        // Phase 2 — append the media filter. It has no parameters of
+        // its own, so the parameter indexes above are unaffected.
+        query += mediaFilterClause;
+
         query += ` ORDER BY p.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(parseInt(limit), parseInt(offset));
 
         const result = await pool.query(query, params);
-        const countResult = await pool.query(
-            'SELECT COUNT(*)::int AS total FROM products WHERE business_id = $1 AND is_active = true',
-            [businessId]
-        );
 
+        // Count query mirrors the same filters so pagination is
+        // honest when a tab is active.
+        let countQuery = `
+            SELECT COUNT(*)::int AS total
+            FROM products p
+            WHERE p.business_id = $1 AND p.is_active = true
+        `;
+        const countParams = [businessId];
+        let countIndex = 2;
+
+        if (search) {
+            countQuery += ` AND (p.name ILIKE $${countIndex} OR p.description ILIKE $${countIndex})`;
+            countParams.push(`%${search}%`);
+            countIndex++;
+        }
+        if (category && category !== 'all') {
+            countQuery += ` AND p.category = $${countIndex}`;
+            countParams.push(category);
+            countIndex++;
+        }
+        if (product_category_id) {
+            countQuery += ` AND p.product_category_id = $${countIndex}`;
+            countParams.push(parseInt(product_category_id, 10));
+            countIndex++;
+        }
+        // The media filter has no parameters, so it is safe to
+        // append directly to the count query.
+        countQuery += mediaFilterClause;
+
+        const countResult = await pool.query(countQuery, countParams);
+        const total = countResult.rows[0].total || 0;
+
+        // Phase 1 / Phase 2 — resolve each product's variants
+        // through the service. The service applies the inheritance
+        // chain (variant → parent) and sets media_kind on every
+        // variant, so the client never walks the chain itself.
+        const businessHero = businessResult.rows[0].heroImage || businessResult.rows[0].logo || null;
         const products = [];
+
         for (const product of result.rows) {
-            const variantsResult = await pool.query(
-                'SELECT * FROM product_variants WHERE product_id = $1 ORDER BY id',
-                [product.id]
-            );
-            const firstVariantWithImage = variantsResult.rows.find(variant => variant.image);
+            let variants = [];
+            try {
+                variants = await variantService.listActiveVariants(product.id);
+            } catch (variantErr) {
+                console.warn(
+                    `Unable to load variants for product ${product.id}:`,
+                    variantErr.message
+                );
+            }
+
+            // Resolve the grid thumbnail for this product using the
+            // same fallback chain the detail page will use.
+            const firstVariantWithImage = variants.find(v => v.image);
+            const firstVariantWithVideo = variants.find(v => v.video_poster_url || v.video);
+
+            let thumbnailUrl = null;
+            let thumbnailKind = 'placeholder';
+
+            if (tab === 'image') {
+                if (firstVariantWithImage && firstVariantWithImage.image) {
+                    thumbnailUrl = firstVariantWithImage.image;
+                    thumbnailKind = 'image';
+                } else if (product.image) {
+                    thumbnailUrl = product.image;
+                    thumbnailKind = 'image';
+                } else if (businessHero) {
+                    thumbnailUrl = businessHero;
+                    thumbnailKind = 'image';
+                }
+            } else if (tab === 'video') {
+                if (firstVariantWithVideo && (firstVariantWithVideo.video_poster_url || firstVariantWithVideo.video)) {
+                    thumbnailUrl = firstVariantWithVideo.video_poster_url || firstVariantWithVideo.video;
+                    thumbnailKind = 'video';
+                } else if (product.video_poster_url || product.video) {
+                    thumbnailUrl = product.video_poster_url || product.video;
+                    thumbnailKind = 'video';
+                } else if (businessHero) {
+                    thumbnailUrl = businessHero;
+                    thumbnailKind = 'image';
+                }
+            } else {
+                if (product.image) {
+                    thumbnailUrl = product.image;
+                    thumbnailKind = 'image';
+                } else if (product.video_poster_url) {
+                    thumbnailUrl = product.video_poster_url;
+                    thumbnailKind = 'video';
+                } else if (firstVariantWithImage && firstVariantWithImage.image) {
+                    thumbnailUrl = firstVariantWithImage.image;
+                    thumbnailKind = 'image';
+                } else if (firstVariantWithVideo && firstVariantWithVideo.video_poster_url) {
+                    thumbnailUrl = firstVariantWithVideo.video_poster_url;
+                    thumbnailKind = 'video';
+                } else if (businessHero) {
+                    thumbnailUrl = businessHero;
+                    thumbnailKind = 'image';
+                }
+            }
+
+            if (!thumbnailUrl) {
+                thumbnailUrl = productFallbackImage(product.name);
+                thumbnailKind = 'placeholder';
+            }
+
+            // media_kind describes the product as a whole.
+            let mediaKind = 'placeholder';
+            const anyImage = variants.some(v => v.image) || Boolean(product.image);
+            const anyVideo = variants.some(v => v.video) || Boolean(product.video);
+            if (anyImage && anyVideo) mediaKind = 'mixed';
+            else if (anyVideo) mediaKind = 'video';
+            else if (anyImage) mediaKind = 'image';
+
             products.push({
                 ...product,
-                variants: variantsResult.rows || [],
-                image: product.image || firstVariantWithImage?.image || productFallbackImage(product.name),
+                variants,
+                thumbnail_url: thumbnailUrl,
+                thumbnail_kind: thumbnailKind,
+                media_kind: mediaKind,
                 online_orders_enabled: onlineOrdersEnabled
             });
         }
 
         res.json({
-            products: products,
+            products,
             business: {
                 id: businessId,
                 slug: slug,
                 online_orders_enabled: onlineOrdersEnabled
             },
+            tab,
             pagination: {
                 page,
                 limit,
-                total: countResult.rows[0].total,
-                pages: Math.ceil(countResult.rows[0].total / limit)
+                total,
+                pages: Math.ceil(total / limit)
             }
         });
     } catch (err) {
