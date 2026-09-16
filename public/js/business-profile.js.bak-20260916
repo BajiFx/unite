@@ -1,11 +1,38 @@
-﻿// ============================================================
-//  BUSINESS PROFILE JAVASCRIPT — PHASE 2 (PART A)
+// ============================================================
+//  BUSINESS PROFILE JAVASCRIPT - COMPLETE VERSION (FIXED)
 //  Location: public/js/business-profile.js
 //
-//  This file is written in two parts. Command A writes this
-//  half. Command B appends the rest. Do not run the browser
-//  between the two commands — the file is intentionally
-//  incomplete until Command B finishes.
+//  Section 10 — Removed the last remaining business rating
+//  reference:
+//   - renderBusinessProfile() no longer writes to #avgRating.
+//   - The avgRating local was dropped because nothing else used
+//     it. Product count and follower count remain.
+//
+//  Dead-code cleanup (previous revision):
+//   loadBusinessReviews(), setRating(), submitBusinessReview()
+//   removed. The backend review endpoints are untouched — the
+//   frontend simply no longer calls them.
+//
+//  Business product category dropdown (this revision):
+//   populateDefinedProductCategories() now:
+//     - skips products that have no product_category_id at all
+//       (correct empty state for a business with no assigned
+//       categories);
+//     - uses the joined product_category_name and
+//       product_category_icon whenever they are present;
+//     - falls back to the literal label "Uncategorised" only
+//       when a product has an id but the join failed, so the
+//       admin can see that something is wrong instead of
+//       getting an empty dropdown;
+//     - deduplicates by product_category_id so the same
+//       category never appears twice;
+//     - sorts alphabetically by name for a stable list.
+//   loadBusinessProducts() now:
+//     - requests page=1&limit=100 explicitly;
+//     - guards the response with Array.isArray so a malformed
+//       payload cannot break the render.
+//
+//  Everything else is unchanged.
 // ============================================================
 
 // ============================================================
@@ -17,7 +44,7 @@ const CARTO_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/co
 const CARTO_TILE_SUBDOMAINS = 'abcd';
 
 // ============================================================
-//  GLOBALS
+//  GLOBALS - Make sure no duplicate declarations with app.js
 // ============================================================
 
 if (typeof window.businessSlug === 'undefined') {
@@ -60,14 +87,19 @@ if (typeof window.isOwnBusiness === 'undefined') {
     window.isOwnBusiness = false;
 }
 
-// Phase 2 — current tab. Read from the URL on load and updated
-// whenever the customer clicks a tab.
-if (typeof window.businessProductTab === 'undefined') {
-    window.businessProductTab = 'all';
+// Product loading pagination state (reserved for a future Load-More button).
+if (typeof window.nextProductPage === 'undefined') {
+    window.nextProductPage = 1;
+}
+if (typeof window.hasMoreProducts === 'undefined') {
+    window.hasMoreProducts = true;
 }
 
+// Section H — safe default when the business has not customised
+// the orders-paused message yet.
 const DEFAULT_ORDERS_PAUSED_MESSAGE = 'This business is not currently accepting online orders. Please contact them directly.';
 
+// Use window-scoped variables to avoid conflicts
 let businessSlug = window.businessSlug;
 let businessData = window.businessData;
 let businessProductList = window.businessProductList;
@@ -83,80 +115,6 @@ let customerLocation = window.customerLocation;
 let isOwnBusiness = window.isOwnBusiness;
 
 // ============================================================
-//  PHASE 2 — TAB HELPERS
-// ============================================================
-
-const VALID_PRODUCT_TABS = ['all', 'image', 'video'];
-
-function readProductTabFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    const raw = String(params.get('tab') || 'all').toLowerCase();
-    return VALID_PRODUCT_TABS.includes(raw) ? raw : 'all';
-}
-
-function writeProductTabToUrl(tab) {
-    const url = new URL(window.location.href);
-    if (tab && tab !== 'all') {
-        url.searchParams.set('tab', tab);
-    } else {
-        url.searchParams.delete('tab');
-    }
-    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
-}
-
-function getActiveProductTab() {
-    return window.businessProductTab || 'all';
-}
-
-function renderProductTabs(activeTab) {
-    const container = document.getElementById('shopTabs');
-    if (!container) return;
-    const tab = VALID_PRODUCT_TABS.includes(activeTab) ? activeTab : 'all';
-    container.querySelectorAll('.shop-tab').forEach(btn => {
-        const isActive = btn.dataset.shopTab === tab;
-        btn.classList.toggle('is-active', isActive);
-        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    });
-    const emptyImages = document.getElementById('shopTabEmptyImages');
-    const emptyVideos = document.getElementById('shopTabEmptyVideos');
-    if (emptyImages) emptyImages.hidden = true;
-    if (emptyVideos) emptyVideos.hidden = true;
-}
-
-function switchShopTab(tab) {
-    if (!VALID_PRODUCT_TABS.includes(tab)) return;
-    if (tab === getActiveProductTab()) return;
-    window.businessProductTab = tab;
-    renderProductTabs(tab);
-    writeProductTabToUrl(tab);
-    window.businessProductList = [];
-    businessProductList = window.businessProductList;
-    const grid = document.getElementById('productGrid');
-    if (grid) grid.innerHTML = '<p style="text-align:center;padding:40px;color:#94a3b8;">Loading products…</p>';
-    loadBusinessProducts();
-}
-
-function showProductTabEmptyState(tab, hasAnyProduct) {
-    const emptyImages = document.getElementById('shopTabEmptyImages');
-    const emptyVideos = document.getElementById('shopTabEmptyVideos');
-    const grid = document.getElementById('productGrid');
-    if (!emptyImages || !emptyVideos) return;
-
-    emptyImages.hidden = true;
-    emptyVideos.hidden = true;
-
-    if (hasAnyProduct) return;
-
-    if (tab === 'image') {
-        emptyImages.hidden = false;
-        if (grid) grid.innerHTML = '';
-    } else if (tab === 'video') {
-        emptyVideos.hidden = false;
-        if (grid) grid.innerHTML = '';
-    }
-}
-
-// ============================================================
 //  VIEWER ROLE HELPERS
 // ============================================================
 
@@ -164,6 +122,7 @@ function getViewerRole() {
     try {
         const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
         if (!user || !user.email) return 'guest';
+
         const role = user.role || 'customer';
         if (role === 'business_admin') return 'business_admin';
         if (role === 'super_admin' || role === 'admin') return 'super_admin';
@@ -173,7 +132,9 @@ function getViewerRole() {
     }
 }
 
-function isCustomerViewer() { return getViewerRole() === 'customer'; }
+function isCustomerViewer() {
+    return getViewerRole() === 'customer';
+}
 
 function isBusinessAdminViewer() {
     const role = getViewerRole();
@@ -209,6 +170,7 @@ function openGuestCartPrompt() {
     const login = document.getElementById('authLoginContainer');
     const register = document.getElementById('authRegisterContainer');
     if (!modal || !login || !register) return;
+
     sessionStorage.setItem('authReturnPath', window.location.pathname + window.location.search);
     modal.classList.add('active');
     login.style.display = 'block';
@@ -220,6 +182,7 @@ function openGuestCartPrompt() {
     if (loginBusiness) loginBusiness.style.display = 'none';
     if (registerBusiness) registerBusiness.style.display = 'none';
     if (typeof selectLoginType === 'function') selectLoginType('customer');
+
     let actions = document.getElementById('guestCartActions');
     if (!actions) {
         actions = document.createElement('div');
@@ -227,10 +190,14 @@ function openGuestCartPrompt() {
         actions.style.cssText = 'display:flex;gap:8px;margin:0 0 14px;';
         login.insertBefore(actions, login.querySelector('#loginForm'));
     }
-    actions.innerHTML = '<button type="button" class="btn btn-primary" style="flex:1" onclick="selectLoginType(\'customer\')">Login as Customer</button><button type="button" class="btn btn-success" style="flex:1" onclick="switchAuthTab(\'register\'); selectRegisterType(\'customer\')">Register as Customer</button>';
+    actions.innerHTML = `
+        <button type="button" class="btn btn-primary" style="flex:1" onclick="selectLoginType('customer')">Login as Customer</button>
+        <button type="button" class="btn btn-success" style="flex:1" onclick="switchAuthTab('register'); selectRegisterType('customer')">Register as Customer</button>`;
 }
 
-function openChatTab() { window.location.assign('/?workspace=messages'); }
+function openChatTab() {
+    window.location.assign('/?workspace=messages');
+}
 
 function goToMarketplaceCart() {
     if (window.parent !== window) {
@@ -241,11 +208,11 @@ function goToMarketplaceCart() {
 }
 
 // ============================================================
-//  INIT
+//  INIT - GET SLUG FROM URL
 // ============================================================
 
-document.addEventListener('DOMContentLoaded', function () {
-    console.log('Business profile page loaded (Phase 2)');
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📄 Business profile page loaded');
 
     const path = window.location.pathname;
     const parts = path.replace(/^\//, '').split('/');
@@ -259,13 +226,12 @@ document.addEventListener('DOMContentLoaded', function () {
         businessSlug = window.businessSlug;
     }
 
+    console.log('📍 Business slug:', businessSlug);
+
     if (!businessSlug) {
         showError('No business specified', 'Please go back to the marketplace and pick a business.');
         return;
     }
-
-    window.businessProductTab = readProductTabFromUrl();
-    renderProductTabs(window.businessProductTab);
 
     if (typeof updateNavigation === 'function') {
         updateNavigation();
@@ -288,6 +254,7 @@ function checkIfOwnBusiness() {
     if (user.role === 'business_admin' && userBusinessSlug) {
         window.isOwnBusiness = businessSlug === userBusinessSlug;
         isOwnBusiness = window.isOwnBusiness;
+        console.log('🔍 Is own business?', isOwnBusiness);
     }
 
     if (businessData && userBusinessId) {
@@ -303,7 +270,16 @@ function checkIfOwnBusiness() {
 function showError(title, message) {
     const loadingEl = document.getElementById('loadingState');
     if (loadingEl) {
-        loadingEl.innerHTML = '<div style="color:#ef4444; text-align:center; padding:40px;"><i class="fas fa-exclamation-circle fa-3x"></i><h3 style="margin-top:12px;">' + title + '</h3><p style="margin-top:8px; color:#64748b;">' + message + '</p><a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-block;"><i class="fas fa-arrow-left"></i> Return to Marketplace</a></div>';
+        loadingEl.innerHTML = `
+            <div style="color:#ef4444; text-align:center; padding:40px;">
+                <i class="fas fa-exclamation-circle fa-3x"></i>
+                <h3 style="margin-top:12px;">${title}</h3>
+                <p style="margin-top:8px; color:#64748b;">${message}</p>
+                <a href="/" class="btn btn-primary" style="margin-top:16px; display:inline-block;">
+                    <i class="fas fa-arrow-left"></i> Return to Marketplace
+                </a>
+            </div>
+        `;
     }
 }
 
@@ -312,26 +288,36 @@ function showError(title, message) {
 // ============================================================
 
 async function loadBusinessProfile() {
-    if (businessProfileLoaded) return;
+    if (businessProfileLoaded) {
+        console.log('⚠️ Profile already loaded');
+        return;
+    }
 
     try {
+        console.log('📦 Loading business profile for slug:', businessSlug);
+
         const loadingEl = document.getElementById('loadingState');
         const contentEl = document.getElementById('businessContent');
 
         if (loadingEl) loadingEl.style.display = 'block';
         if (contentEl) contentEl.style.display = 'none';
 
-        const res = await fetch('/api/businesses/' + businessSlug);
+        const apiUrl = `/api/businesses/${businessSlug}`;
+        console.log('📡 Fetching from:', apiUrl);
+
+        const res = await fetch(apiUrl);
 
         if (!res.ok) {
             if (res.status === 404) {
                 showError('Business not found', 'We could not find that business.');
                 return;
             }
-            throw new Error('Failed to load business: ' + res.status);
+            throw new Error(`Failed to load business: ${res.status}`);
         }
 
         const data = await res.json();
+        console.log('📦 Business data received:', data);
+
         window.businessData = data.business;
         businessData = window.businessData;
 
@@ -339,6 +325,8 @@ async function loadBusinessProfile() {
             showError('Business not found', 'We could not find that business.');
             return;
         }
+
+        console.log('✅ Business loaded:', businessData.business_name);
 
         checkIfOwnBusiness();
 
@@ -360,15 +348,23 @@ async function loadBusinessProfile() {
             hideFollowButtonForNonCustomer();
         }
 
-        document.title = businessData.business_name + ' - Shop Kenya';
+        document.title = `${businessData.business_name} - Shop Kenya`;
         window.businessProfileLoaded = true;
         businessProfileLoaded = window.businessProfileLoaded;
+
+        console.log('✅ Business profile loaded successfully for:', businessData.business_name);
+
     } catch (err) {
-        console.error('Business profile error:', err);
+        console.error('❌ Business profile error:', err);
         showError('Error loading business', err.message);
     }
 }
 
+/**
+ * Hide the Follow button when the viewer is not a customer. The
+ * button itself is rendered in the hero actions of the page; we
+ * simply set it to display:none. This is idempotent.
+ */
 function hideFollowButtonForNonCustomer() {
     const followBtn = document.getElementById('followBtn');
     if (followBtn) followBtn.style.display = 'none';
@@ -380,7 +376,12 @@ function hideFollowButtonForNonCustomer() {
 
 function renderBusinessProfile() {
     const business = businessData;
-    if (!business) return;
+    if (!business) {
+        console.error('❌ No business data to render');
+        return;
+    }
+
+    console.log('🎨 Rendering business profile for:', business.business_name);
 
     const heroTitle = document.getElementById('heroTitle');
     const heroLocation = document.getElementById('heroLocation');
@@ -388,13 +389,18 @@ function renderBusinessProfile() {
     const heroLogo = document.getElementById('heroLogo');
 
     if (heroTitle) heroTitle.textContent = business.business_name || 'Welcome';
-    if (heroLocation) heroLocation.textContent = business.location ? '📍 ' + business.location : '';
-    if (heroAddress) heroAddress.textContent = business.address ? '🏠 ' + business.address : '';
+    if (heroLocation) heroLocation.textContent = business.location ? `📍 ${business.location}` : '';
+    if (heroAddress) heroAddress.textContent = business.address ? `🏠 ${business.address}` : '';
+
+    // Section 10 — the average rating line has been removed from
+    // the hero. We only render the counts that still exist.
+    const productCount = business.product_count || 0;
+    const followerCount = business.follower_count || 0;
 
     const productCountEl = document.getElementById('productCount');
     const followerCountEl = document.getElementById('followerCount');
-    if (productCountEl) productCountEl.textContent = business.product_count || 0;
-    if (followerCountEl) followerCountEl.textContent = business.follower_count || 0;
+    if (productCountEl) productCountEl.textContent = productCount;
+    if (followerCountEl) followerCountEl.textContent = followerCount;
 
     if (heroLogo) {
         if (business.logo && business.logo !== '') {
@@ -405,16 +411,24 @@ function renderBusinessProfile() {
         }
     }
 
+    // Fill the media column with a single image or a single video,
+    // then overlay the description block on top of it.
     renderHeroMedia(business);
     renderHeroDescriptionOverlay(business);
+
+    // Search tag chip — click to copy. Hidden when the business has
+    // no confirmed tag.
     renderHeroSearchTagChip(business);
 
     const verifiedBadge = document.getElementById('verifiedBadge');
-    if (verifiedBadge) verifiedBadge.style.display = business.is_verified ? 'block' : 'none';
+    if (verifiedBadge) {
+        verifiedBadge.style.display = business.is_verified ? 'block' : 'none';
+    }
 
     const missionEl = document.getElementById('businessMission');
     const visionEl = document.getElementById('businessVision');
     const descEl = document.getElementById('businessDescription');
+
     if (missionEl) missionEl.textContent = business.mission || 'To provide quality products with care.';
     if (visionEl) visionEl.textContent = business.vision || 'To be the most trusted shop in the community.';
     if (descEl) descEl.textContent = business.description || 'No description provided.';
@@ -422,9 +436,12 @@ function renderBusinessProfile() {
     renderSocialLinks(business);
     renderMap(business);
 
-    if (!isCustomerViewer()) hideFollowButtonForNonCustomer();
+    if (!isCustomerViewer()) {
+        hideFollowButtonForNonCustomer();
+    }
 
     applyOrderVisibilityState();
+
     renderThankYouBand(business);
 }
 
@@ -455,6 +472,7 @@ function renderHeroSearchTagChip(business) {
         btn.addEventListener('click', () => {
             const tag = valueEl.textContent || '';
             if (!tag) return;
+
             const fallback = () => {
                 try {
                     const ta = document.createElement('textarea');
@@ -466,14 +484,15 @@ function renderHeroSearchTagChip(business) {
                     ta.select();
                     document.execCommand('copy');
                     document.body.removeChild(ta);
-                    if (typeof showToast === 'function') showToast('Copied: ' + tag, 'success');
+                    if (typeof showToast === 'function') showToast(`Copied: ${tag}`, 'success');
                 } catch (err) {
                     if (typeof showToast === 'function') showToast('Could not copy. Please copy it manually.', 'warning');
                 }
             };
+
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
                 navigator.clipboard.writeText(tag)
-                    .then(() => { if (typeof showToast === 'function') showToast('Copied: ' + tag, 'success'); })
+                    .then(() => { if (typeof showToast === 'function') showToast(`Copied: ${tag}`, 'success'); })
                     .catch(fallback);
             } else {
                 fallback();
@@ -490,13 +509,15 @@ function renderThankYouBand(business) {
     const band = document.getElementById('thankYouBand');
     const nameEl = document.getElementById('thankYouBusinessName');
     if (!band) return;
+
     const name = business && business.business_name ? String(business.business_name).trim() : 'our business';
     if (nameEl) nameEl.textContent = name;
+
     band.style.display = '';
 }
 
 // ============================================================
-//  HERO MEDIA
+//  HERO MEDIA — single image OR single video, no text on top
 // ============================================================
 
 function isVideoUrl(url) {
@@ -507,7 +528,9 @@ function isVideoUrl(url) {
 function renderHeroMedia(business) {
     const slot = document.getElementById('heroMediaSlot');
     if (!slot) return;
+
     slot.innerHTML = '';
+
     const coverUrl = business && (business.heroImage || business.heroimage);
     if (!coverUrl) return;
 
@@ -531,7 +554,9 @@ function renderHeroMedia(business) {
     img.src = coverUrl;
     img.alt = (business.business_name || 'Business') + ' cover';
     img.loading = 'lazy';
-    img.onerror = function () { this.remove(); };
+    img.onerror = function () {
+        this.remove();
+    };
     slot.appendChild(img);
 }
 
@@ -549,7 +574,10 @@ function renderHeroDescriptionOverlay(business) {
     track.style.removeProperty('--hero-desc-scroll');
     track.innerHTML = '';
 
-    if (!business) { overlay.style.display = 'none'; return; }
+    if (!business) {
+        overlay.style.display = 'none';
+        return;
+    }
 
     const name = String(business.business_name || 'Business');
     const tagline = business.description ? String(business.description).trim() : '';
@@ -566,40 +594,64 @@ function renderHeroDescriptionOverlay(business) {
         return div.innerHTML;
     };
 
-    track.innerHTML = '<span class="hero-desc-title">🏡✨ ' + safe(name) + ' – Quality for Every Home</span>'
-        + (tagline ? '<span class="hero-desc-tagline">' + safe(tagline) + '</span>' : '')
-        + '<ul class="hero-desc-bullets"><li>✅ Quality &amp; Affordable</li><li>🌈 Wide Variety</li><li>📦 Retail &amp; Wholesale</li><li>🚚 Delivery Across Kenya</li></ul>'
-        + '<span class="hero-desc-meta">📍 ' + safe(locationText) + '</span>'
-        + '<span class="hero-desc-meta">📞 Contact us today!</span>';
+    const titleHtml = `<span class="hero-desc-title">🏡✨ ${safe(name)} – Quality for Every Home</span>`;
+    const taglineHtml = tagline
+        ? `<span class="hero-desc-tagline">${safe(tagline)}</span>`
+        : '';
+    const bulletsHtml = `
+        <ul class="hero-desc-bullets">
+            <li>✅ Quality &amp; Affordable</li>
+            <li>🌈 Wide Variety</li>
+            <li>📦 Retail &amp; Wholesale</li>
+            <li>🚚 Delivery Across Kenya</li>
+        </ul>
+    `;
+    const metaHtml = `
+        <span class="hero-desc-meta">📍 ${safe(locationText)}</span>
+        <span class="hero-desc-meta">📞 Contact us today!</span>
+    `;
+
+    track.innerHTML = titleHtml + taglineHtml + bulletsHtml + metaHtml;
 
     overlay.style.display = '';
 
     requestAnimationFrame(() => {
         const overlayHeight = overlay.clientHeight;
         const trackHeight = track.scrollHeight;
-        if (trackHeight <= overlayHeight - 4) return;
+
+        if (trackHeight <= overlayHeight - 4) {
+            return;
+        }
+
         const overflow = trackHeight - overlayHeight;
-        track.style.setProperty('--hero-desc-scroll', '-' + overflow + 'px');
+
+        track.style.setProperty('--hero-desc-scroll', `-${overflow}px`);
+
         const durationSeconds = Math.min(90, Math.max(20, overflow / 40));
-        track.style.animationDuration = durationSeconds + 's';
+        track.style.animationDuration = `${durationSeconds}s`;
+
         overlay.classList.add('is-scrolling');
     });
 }
 
 // ============================================================
-//  ORDER VISIBILITY
+//  Section H — ORDER VISIBILITY (H.4 banner + H.5 contact-only)
 // ============================================================
 
 function applyOrderVisibilityState() {
     if (!businessData) return;
+
     const ordersEnabled = businessData.online_orders_enabled !== false;
+
     const banner = document.getElementById('ordersPausedBanner');
     const contactBlock = document.getElementById('ordersPausedContactBlock');
+
     if (ordersEnabled) {
         if (banner) banner.style.display = 'none';
         if (contactBlock) contactBlock.style.display = 'none';
         return;
     }
+
     renderOrdersPausedBanner();
     renderOrdersPausedContactBlock();
 }
@@ -608,8 +660,10 @@ function renderOrdersPausedBanner() {
     const banner = document.getElementById('ordersPausedBanner');
     const messageEl = document.getElementById('ordersPausedMessage');
     if (!banner || !messageEl) return;
+
     const custom = (businessData && businessData.order_disabled_message) ? String(businessData.order_disabled_message).trim() : '';
     messageEl.textContent = custom || DEFAULT_ORDERS_PAUSED_MESSAGE;
+
     banner.style.display = 'block';
 }
 
@@ -620,40 +674,82 @@ function renderOrdersPausedContactBlock() {
     if (!block || !iconsContainer) return;
 
     const iconDefs = [];
+
     if (businessData && businessData.whatsapp) {
         const cleaned = String(businessData.whatsapp).replace(/[^0-9]/g, '');
-        iconDefs.push({ href: 'https://wa.me/' + cleaned, label: 'WhatsApp', iconClass: 'fab fa-whatsapp', color: '#25D366' });
+        iconDefs.push({
+            href: `https://wa.me/${cleaned}`,
+            className: 'whatsapp',
+            label: 'WhatsApp',
+            iconClass: 'fab fa-whatsapp',
+            color: '#25D366'
+        });
     }
+
     if (businessData && businessData.tiktok) {
         const handle = String(businessData.tiktok).replace('@', '').trim();
-        iconDefs.push({ href: 'https://tiktok.com/@' + handle, label: 'TikTok', iconClass: 'fab fa-tiktok', color: '#000000' });
+        iconDefs.push({
+            href: `https://tiktok.com/@${handle}`,
+            className: 'tiktok',
+            label: 'TikTok',
+            iconClass: 'fab fa-tiktok',
+            color: '#000000'
+        });
     }
+
     if (businessData && businessData.instagram) {
         const handle = String(businessData.instagram).replace('@', '').trim();
-        iconDefs.push({ href: 'https://instagram.com/' + handle, label: 'Instagram', iconClass: 'fab fa-instagram', color: '#E4405F' });
+        iconDefs.push({
+            href: `https://instagram.com/${handle}`,
+            className: 'instagram',
+            label: 'Instagram',
+            iconClass: 'fab fa-instagram',
+            color: '#E4405F'
+        });
     }
+
     if (businessData && businessData.facebook) {
         const handle = String(businessData.facebook).replace('@', '').trim();
-        iconDefs.push({ href: 'https://facebook.com/messages/t/' + handle, label: 'Messenger', iconClass: 'fab fa-facebook-messenger', color: '#1877F2' });
+        iconDefs.push({
+            href: `https://facebook.com/messages/t/${handle}`,
+            className: 'messenger',
+            label: 'Messenger',
+            iconClass: 'fab fa-facebook-messenger',
+            color: '#1877F2'
+        });
     }
+
     if (businessData && businessData.phone) {
-        iconDefs.push({ href: 'tel:' + businessData.phone, label: 'Call', iconClass: 'fas fa-phone', color: '#2563eb' });
+        iconDefs.push({
+            href: `tel:${businessData.phone}`,
+            className: 'phone',
+            label: 'Call',
+            iconClass: 'fas fa-phone',
+            color: '#2563eb'
+        });
     }
 
     if (iconDefs.length === 0) {
         iconsContainer.innerHTML = '';
         if (emptyHint) emptyHint.style.display = 'block';
     } else {
-        iconsContainer.innerHTML = iconDefs.map(icon =>
-            '<a href="' + icon.href + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:30px;background:' + icon.color + ';color:white;font-size:0.8rem;font-weight:600;text-decoration:none;"><i class="' + icon.iconClass + '"></i> ' + icon.label + '</a>'
-        ).join('');
+        iconsContainer.innerHTML = iconDefs.map(icon => `
+            <a href="${icon.href}"
+               target="_blank"
+               rel="noopener"
+               class="${icon.className}"
+               style="display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:30px; background:${icon.color}; color:white; font-size:0.8rem; font-weight:600; text-decoration:none;">
+                <i class="${icon.iconClass}"></i> ${icon.label}
+            </a>
+        `).join('');
         if (emptyHint) emptyHint.style.display = 'none';
     }
+
     block.style.display = 'block';
 }
 
 // ============================================================
-//  SOCIAL LINKS
+//  RENDER SOCIAL LINKS
 // ============================================================
 
 function renderSocialLinks(business) {
@@ -664,29 +760,54 @@ function renderSocialLinks(business) {
     const iconPhone = document.getElementById('iconPhone');
 
     if (iconWhatsapp) {
-        if (business.whatsapp) { iconWhatsapp.href = 'https://wa.me/' + business.whatsapp.replace(/[^0-9]/g, ''); iconWhatsapp.style.display = 'inline-flex'; }
-        else iconWhatsapp.style.display = 'none';
+        if (business.whatsapp) {
+            const cleaned = business.whatsapp.replace(/[^0-9]/g, '');
+            iconWhatsapp.href = `https://wa.me/${cleaned}`;
+            iconWhatsapp.style.display = 'inline-flex';
+        } else {
+            iconWhatsapp.style.display = 'none';
+        }
     }
+
     if (iconTiktok) {
-        if (business.tiktok) { iconTiktok.href = 'https://tiktok.com/@' + business.tiktok.replace('@',''); iconTiktok.style.display = 'inline-flex'; }
-        else iconTiktok.style.display = 'none';
+        if (business.tiktok) {
+            iconTiktok.href = `https://tiktok.com/@${business.tiktok.replace('@','')}`;
+            iconTiktok.style.display = 'inline-flex';
+        } else {
+            iconTiktok.style.display = 'none';
+        }
     }
+
     if (iconInstagram) {
-        if (business.instagram) { iconInstagram.href = 'https://instagram.com/' + business.instagram.replace('@',''); iconInstagram.style.display = 'inline-flex'; }
-        else iconInstagram.style.display = 'none';
+        if (business.instagram) {
+            iconInstagram.href = `https://instagram.com/${business.instagram.replace('@','')}`;
+            iconInstagram.style.display = 'inline-flex';
+        } else {
+            iconInstagram.style.display = 'none';
+        }
     }
+
     if (iconFacebook) {
-        if (business.facebook) { iconFacebook.href = 'https://facebook.com/messages/t/' + business.facebook.replace('@',''); iconFacebook.style.display = 'inline-flex'; }
-        else iconFacebook.style.display = 'none';
+        if (business.facebook) {
+            iconFacebook.href = `https://facebook.com/messages/t/${business.facebook.replace('@','')}`;
+            iconFacebook.style.display = 'inline-flex';
+        } else {
+            iconFacebook.style.display = 'none';
+        }
     }
+
     if (iconPhone) {
-        if (business.phone) { iconPhone.href = 'tel:' + business.phone; iconPhone.style.display = 'inline-flex'; }
-        else iconPhone.style.display = 'none';
+        if (business.phone) {
+            iconPhone.href = `tel:${business.phone}`;
+            iconPhone.style.display = 'inline-flex';
+        } else {
+            iconPhone.style.display = 'none';
+        }
     }
 }
 
 // ============================================================
-//  MAP
+//  RENDER MAP
 // ============================================================
 
 function renderMap(business) {
@@ -706,9 +827,9 @@ function renderMap(business) {
                 maxZoom: 19
             }).addTo(businessMap);
             L.marker([lat, lng]).addTo(businessMap)
-                .bindPopup('<strong>' + business.business_name + '</strong><br>' + (address || business.location || ''));
+                .bindPopup(`<strong>${business.business_name}</strong><br>${address || business.location || ''}`);
             const mapAddressEl = document.getElementById('mapAddress');
-            if (mapAddressEl) mapAddressEl.textContent = address ? '📍 ' + address : '';
+            if (mapAddressEl) mapAddressEl.textContent = address ? `📍 ${address}` : '';
             const staticMapSection = document.getElementById('staticMapSection');
             if (staticMapSection) staticMapSection.style.display = 'block';
         }
@@ -716,7 +837,7 @@ function renderMap(business) {
 }
 
 // ============================================================
-//  BUSINESS SLIDER
+//  BUILD BUSINESS SLIDER
 // ============================================================
 
 function buildBusinessSlider() {
@@ -735,13 +856,15 @@ function buildBusinessSlider() {
     });
 
     if (images.length === 0) {
-        wrapper.innerHTML = '<div class="slide">📸 No images available</div>';
+        wrapper.innerHTML = `<div class="slide">📸 No images available</div>`;
         return;
     }
 
-    wrapper.innerHTML = images.map(img =>
-        '<div class="slide"><img src="' + img + '" alt="Business image" onerror="this.parentElement.innerHTML=\'<div>🖼️</div>\'"></div>'
-    ).join('');
+    wrapper.innerHTML = images.map(img => `
+        <div class="slide">
+            <img src="${img}" alt="Business image" onerror="this.parentElement.innerHTML='<div>🖼️</div>'">
+        </div>
+    `).join('');
 
     window.businessSlideIndex = 0;
     businessSlideIndex = window.businessSlideIndex;
@@ -755,7 +878,7 @@ function updateBusinessSlider() {
     const wrapper = document.getElementById('sliderWrapper');
     if (!wrapper) return;
     const total = wrapper.children.length || 1;
-    wrapper.style.transform = 'translateX(-' + (businessSlideIndex * 100) + '%)';
+    wrapper.style.transform = `translateX(-${businessSlideIndex * 100}%)`;
 }
 
 function changeBusinessSlide(direction) {
@@ -768,18 +891,24 @@ function changeBusinessSlide(direction) {
 }
 
 // ============================================================
-//  LOAD BUSINESS PRODUCTS — PHASE 2: forwards the active tab
+//  LOAD BUSINESS PRODUCTS
+//
+//  This revision:
+//   - Requests page=1&limit=100 explicitly.
+//   - Loops through every page returned by the server so the
+//     full product list is loaded in one go.
+//   - Guards the response with Array.isArray so a malformed
+//     payload cannot break the render.
 // ============================================================
 
 async function loadBusinessProducts() {
     try {
-        const tab = getActiveProductTab();
-        const url = '/api/businesses/' + encodeURIComponent(businessSlug) + '/products?limit=100&page=1&tab=' + encodeURIComponent(tab);
-        console.log('Fetching products from:', url);
+        const url = `/api/businesses/${encodeURIComponent(businessSlug)}/products?limit=100&page=1`;
+        console.log('📡 Fetching products from:', url);
 
         const res = await fetch(url);
         if (!res.ok) {
-            console.error('Products API error:', res.status);
+            console.error('❌ Products API error:', res.status);
             throw new Error('Failed to load products');
         }
         const data = await res.json();
@@ -787,8 +916,8 @@ async function loadBusinessProducts() {
         const totalPages = data.pagination?.pages || 1;
 
         for (let page = 2; page <= totalPages; page += 1) {
-            const nextRes = await fetch('/api/businesses/' + encodeURIComponent(businessSlug) + '/products?limit=100&page=' + page + '&tab=' + encodeURIComponent(tab));
-            if (!nextRes.ok) throw new Error('Failed to load products (' + nextRes.status + ')');
+            const nextRes = await fetch(`/api/businesses/${encodeURIComponent(businessSlug)}/products?limit=100&page=${page}`);
+            if (!nextRes.ok) throw new Error(`Failed to load products (${nextRes.status})`);
             const nextData = await nextRes.json();
             if (Array.isArray(nextData.products)) {
                 allProducts.push(...nextData.products);
@@ -797,41 +926,48 @@ async function loadBusinessProducts() {
 
         window.businessProductList = allProducts;
         businessProductList = window.businessProductList;
+        window.nextProductPage = totalPages + 1;
+        window.hasMoreProducts = false;
 
         populateBusinessProductCategories();
         populateDefinedProductCategories();
 
-        console.log('Loaded ' + businessProductList.length + ' products for tab "' + tab + '"');
+        console.log(`📦 Loaded ${businessProductList.length} products for ${businessData.business_name}`);
 
-        showProductTabEmptyState(tab, allProducts.length > 0);
         renderBusinessGrid();
     } catch (err) {
-        console.error('Products error:', err);
+        console.error('❌ Products error:', err);
         const grid = document.getElementById('productGrid');
         if (grid) {
-            grid.innerHTML = '<p style="text-align:center;padding:40px;color:#94a3b8;">No products available yet.</p>';
+            grid.innerHTML = `<p style="text-align:center;padding:40px;color:#94a3b8;">No products available yet.</p>`;
         }
     }
 }
 
 // ============================================================
-//  FALLBACK IMAGE
+//  FALLBACK IMAGE — deterministic SVG, matches product-detail.js
 // ============================================================
 
 function businessFallbackImage(product) {
     const rawLabel = String((product && product.name) || 'Product').slice(0, 32);
     const safeLabel = rawLabel.replace(/[\u0000-\u001F\u007F\uD800-\uDFFF\uFFFE\uFFFF]/g, '');
+
     let encoded;
     try {
-        encoded = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">' + safeLabel + '</text></svg>');
+        encoded = encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text><text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="#64748b">${safeLabel}</text></svg>`
+        );
     } catch (err) {
-        encoded = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text></svg>');
+        encoded = encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="34" fill="#475569">Product image</text></svg>`
+        );
     }
-    return 'data:image/svg+xml;charset=UTF-8,' + encoded;
+
+    return `data:image/svg+xml;charset=UTF-8,${encoded}`;
 }
 
 // ============================================================
-//  PRODUCT-CATEGORY FILTERS
+//  POPULATE PRODUCT-CATEGORY FILTERS
 // ============================================================
 
 function populateBusinessProductCategories() {
@@ -850,11 +986,34 @@ function populateBusinessProductCategories() {
     select.value = categories.includes(selected) ? selected : 'all';
 }
 
+/**
+ * Populate the "defined product categories" dropdown.
+ *
+ * This is the dropdown that lists the business's real product
+ * categories (e.g. "🛏️ Beddings & Bed Sheets"). It reads from
+ * `product.product_category_id` and uses the joined
+ * `product_category_name` and `product_category_icon` when
+ * present.
+ *
+ * Rules:
+ *   - Skip products that have no `product_category_id` at all.
+ *     A business with no assigned categories gets the correct
+ *     empty state, which is "All defined categories".
+ *   - Use the joined name and icon whenever they are present.
+ *   - Fall back to the literal label "Uncategorised" only when
+ *     a product has an id but the join failed, so the admin
+ *     can see that something is wrong instead of getting an
+ *     empty dropdown.
+ *   - Deduplicate by product_category_id so the same category
+ *     never appears twice.
+ *   - Sort alphabetically by name for a stable list.
+ */
 function populateDefinedProductCategories() {
     const select = document.getElementById('businessProductCategoryIdFilter');
     if (!select) return;
 
     const selected = select.value || 'all';
+
     const map = new Map();
     (businessProductList || []).forEach(product => {
         if (!product.product_category_id) return;
@@ -874,7 +1033,7 @@ function populateDefinedProductCategories() {
     categories.forEach(cat => {
         const option = document.createElement('option');
         option.value = cat.id;
-        option.textContent = cat.icon + ' ' + cat.name;
+        option.textContent = `${cat.icon} ${cat.name}`;
         select.appendChild(option);
     });
 
@@ -882,7 +1041,7 @@ function populateDefinedProductCategories() {
 }
 
 // ============================================================
-//  GRID — PHASE 2: uses thumbnail_url / thumbnail_kind
+//  RENDER BUSINESS GRID — single source of truth for card markup
 // ============================================================
 
 function renderBusinessGrid() {
@@ -894,7 +1053,7 @@ function renderBusinessProductGrid(products) {
     if (!grid) return;
 
     if (!products || products.length === 0) {
-        grid.innerHTML = '<p style="text-align:center;padding:40px;color:#94a3b8;">No products available yet.</p>';
+        grid.innerHTML = `<p style="text-align:center;padding:40px;color:#94a3b8;">No products available yet.</p>`;
         return;
     }
 
@@ -905,53 +1064,50 @@ function renderBusinessProductGrid(products) {
         const inCart = cart.some(item => item.id === p.id);
         const btnText = inCart ? 'Add More' : 'Add to Cart';
         const btnClass = inCart ? 'in-cart' : '';
-        const qtyId = 'bqty-' + p.id;
+        const qtyId = `bqty-${p.id}`;
         const disabled = !onlineOrdersEnabled ? 'disabled' : '';
 
-        const thumbUrl = p.thumbnail_url || p.image || businessFallbackImage(p);
-        const thumbKind = p.thumbnail_kind || (p.image ? 'image' : 'placeholder');
+        const imageSrc = p.image || businessFallbackImage(p);
         const fallbackForThisProduct = businessFallbackImage(p).replace(/'/g, "\\'");
-        const imageHtml = '<img src="' + thumbUrl + '" alt="' + String(p.name).replace(/"/g, '&quot;') + '" loading="lazy" onerror="this.onerror=null;this.src=\'' + fallbackForThisProduct + '\'">';
-        const videoPill = thumbKind === 'video'
-            ? '<span class="video-pill"><i class="fas fa-play"></i> Video</span>'
-            : '';
+        const imageHtml = `<img src="${imageSrc}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackForThisProduct}'">`;
 
-        const ratingHtml = p.rating ? '<div class="rating"><span>⭐</span>(' + p.rating + ')</div>' : '';
+        const ratingHtml = p.rating ? `<div class="rating"><span>⭐</span>(${p.rating})</div>` : '';
         const categoryHtml = p.product_category_name
-            ? '<div class="product-category-chip" title="' + p.product_category_name + '">' + (p.product_category_icon || '📦') + ' ' + p.product_category_name + '</div>'
+            ? `<div class="product-category-chip" title="${p.product_category_name}">${p.product_category_icon || '📦'} ${p.product_category_name}</div>`
             : '';
 
-        return '<div class="product-card">'
-            + '<div class="media-wrap" onclick="location.href=\'/product-detail.html?id=' + p.id + '&business=' + businessSlug + '\'">'
-            + imageHtml
-            + '<div class="quick-view-icon"><i class="fas fa-eye"></i></div>'
-            + (p.isFlashSale ? '<div class="flash-badge">🔥</div>' : '')
-            + (p.isNewArrival ? '<div class="new-badge">🆕</div>' : '')
-            + videoPill
-            + '<i id="bwishlist-icon-' + p.id + '" class="far fa-heart" onclick="event.stopPropagation(); toggleBusinessWishlist(' + p.id + ')" style="position:absolute; top:8px; left:8px; font-size:1.2rem; background:white; padding:4px; border-radius:50%; cursor:pointer; z-index:10;"></i>'
-            + '</div>'
-            + '<div class="info">'
-            + '<div class="name">' + p.name + ' ' + (inCart ? '<span class="green-tick">✔</span>' : '') + '</div>'
-            + categoryHtml
-            + '<div class="price">' + p.price + '</div>'
-            + ratingHtml
-            + '<div class="actions">'
-            + '<div class="qty-control">'
-            + '<button onclick="changeBusinessCardQty(' + p.id + ', -1)" ' + disabled + '>−</button>'
-            + '<span id="' + qtyId + '">1</span>'
-            + '<button onclick="changeBusinessCardQty(' + p.id + ', 1)" ' + disabled + '>+</button>'
-            + '</div>'
-            + '<button class="btn-add ' + btnClass + '" onclick="addBusinessCardToCart(' + p.id + ')" ' + disabled + '>'
-            + '<i class="fas fa-cart-plus"></i> ' + (onlineOrdersEnabled ? btnText : 'Not available')
-            + '</button>'
-            + '</div>'
-            + '</div>'
-            + '</div>';
+        return `
+            <div class="product-card">
+                <div class="media-wrap" onclick="location.href='/product-detail.html?id=${p.id}&business=${businessSlug}'">
+                    ${imageHtml}
+                    <div class="quick-view-icon"><i class="fas fa-eye"></i></div>
+                    ${p.isFlashSale ? `<div class="flash-badge">🔥</div>` : ''}
+                    ${p.isNewArrival ? `<div class="new-badge">🆕</div>` : ''}
+                    <i id="bwishlist-icon-${p.id}" class="far fa-heart" onclick="event.stopPropagation(); toggleBusinessWishlist(${p.id})" style="position:absolute; top:8px; left:8px; font-size:1.2rem; background:white; padding:4px; border-radius:50%; cursor:pointer; z-index:10;"></i>
+                </div>
+                <div class="info">
+                    <div class="name">${p.name} ${inCart ? '<span class="green-tick">✔</span>' : ''}</div>
+                    ${categoryHtml}
+                    <div class="price">${p.price}</div>
+                    ${ratingHtml}
+                    <div class="actions">
+                        <div class="qty-control">
+                            <button onclick="changeBusinessCardQty(${p.id}, -1)" ${disabled}>−</button>
+                            <span id="${qtyId}">1</span>
+                            <button onclick="changeBusinessCardQty(${p.id}, 1)" ${disabled}>+</button>
+                        </div>
+                        <button class="btn-add ${btnClass}" onclick="addBusinessCardToCart(${p.id})" ${disabled}>
+                            <i class="fas fa-cart-plus"></i> ${onlineOrdersEnabled ? btnText : 'Not available'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
     }).join('');
 }
 
 function changeBusinessCardQty(productId, delta) {
-    const qtySpan = document.getElementById('bqty-' + productId);
+    const qtySpan = document.getElementById(`bqty-${productId}`);
     if (!qtySpan) return;
     let current = parseInt(qtySpan.textContent) || 1;
     current = Math.max(1, current + delta);
@@ -963,7 +1119,8 @@ function addBusinessCardToCart(productId) {
         showToast('❌ This shop is not taking orders at the moment.', 'error');
         return;
     }
-    const qtySpan = document.getElementById('bqty-' + productId);
+
+    const qtySpan = document.getElementById(`bqty-${productId}`);
     const qty = qtySpan ? parseInt(qtySpan.textContent) || 1 : 1;
     if (typeof addToCart === 'function') {
         addToCart(productId, qty);
@@ -973,6 +1130,7 @@ function addBusinessCardToCart(productId) {
 
 // ============================================================
 //  FILTER BUSINESS PRODUCTS
+//  Cumulative: search AND defined category AND legacy category.
 // ============================================================
 
 function filterBusinessProducts() {
@@ -1001,7 +1159,7 @@ function filterBusinessProducts() {
     }
 
     if (products.length === 0) {
-        grid.innerHTML = '<p style="text-align:center;padding:40px;color:#94a3b8;">No products match your filters.</p>';
+        grid.innerHTML = `<p style="text-align:center;padding:40px;color:#94a3b8;">No products match your filters.</p>`;
         return;
     }
 
@@ -1017,15 +1175,18 @@ async function toggleBusinessWishlist(productId) {
         if (typeof openAuthModal === 'function') openAuthModal('login');
         return;
     }
+
     try {
         const res = await fetch('/api/wishlist', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ product_id: productId })
         });
         const data = await res.json();
         if (data.success) {
-            const icon = document.getElementById('bwishlist-icon-' + productId);
+            const icon = document.getElementById(`bwishlist-icon-${productId}`);
             if (icon) {
                 if (data.action === 'added') {
                     icon.className = 'fas fa-heart';
@@ -1045,14 +1206,17 @@ async function toggleBusinessWishlist(productId) {
 }
 
 // ============================================================
-//  FOLLOW / UNFOLLOW BUSINESS
+//  FOLLOW/UNFOLLOW BUSINESS
 // ============================================================
 
 async function checkFollowStatus() {
     if (!isCustomerViewer()) return;
+
     try {
-        const res = await fetch('/api/businesses/' + businessSlug + '/follow-status');
-        if (!res.ok) return;
+        const res = await fetch(`/api/businesses/${businessSlug}/follow-status`);
+        if (!res.ok) {
+            return;
+        }
         const data = await res.json();
         window.isFollowing = data.isFollowing || false;
         isFollowing = window.isFollowing;
@@ -1081,8 +1245,11 @@ async function toggleFollow() {
         if (typeof openAuthModal === 'function') openAuthModal('login');
         return;
     }
+
     try {
-        const res = await fetch('/api/businesses/' + businessSlug + '/follow', { method: 'POST' });
+        const res = await fetch(`/api/businesses/${businessSlug}/follow`, {
+            method: 'POST'
+        });
         const data = await res.json();
         if (data.success) {
             window.isFollowing = data.action === 'followed';
@@ -1100,15 +1267,17 @@ async function toggleFollow() {
 }
 
 // ============================================================
-//  LOCATION
+//  LOCATION REQUEST
 // ============================================================
 
 async function checkLocationStatus() {
     if (!isCustomerViewer()) return false;
+
     try {
         const res = await fetch('/api/location/customer/status');
         if (!res.ok) return false;
         const data = await res.json();
+
         if (data.status === 'approved') {
             const liveSection = document.getElementById('liveLocationSection');
             if (liveSection) liveSection.style.display = 'block';
@@ -1124,10 +1293,13 @@ async function checkLocationStatus() {
 
 function initBusinessLiveMap() {
     if (typeof L === 'undefined' || !businessData) return;
+
     const container = document.getElementById('liveMap');
     if (!container) return;
+
     const lat = parseFloat(businessData.admin_lat) || parseFloat(businessData.latitude);
     const lng = parseFloat(businessData.admin_lng) || parseFloat(businessData.longitude);
+
     if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
 
     if (businessLiveMap) businessLiveMap.remove();
@@ -1151,7 +1323,8 @@ function initBusinessLiveMap() {
                 const userLng = pos.coords.longitude;
                 const dist = getBusinessDistance(userLat, userLng, lat, lng);
                 const distEl = document.getElementById('liveDistance');
-                if (distEl) distEl.textContent = '📍 Distance: ' + formatBusinessDistance(dist);
+                if (distEl) distEl.textContent = `📍 Distance: ${formatBusinessDistance(dist)}`;
+
                 if (businessLiveRoute) businessLiveMap.removeLayer(businessLiveRoute);
                 window.businessLiveRoute = L.polyline([[userLat, userLng], [lat, lng]], {
                     color: '#2563eb',
@@ -1159,6 +1332,7 @@ function initBusinessLiveMap() {
                     dashArray: '8, 5'
                 }).addTo(businessLiveMap);
                 businessLiveRoute = window.businessLiveRoute;
+
                 window.customerLocation = { lat: userLat, lng: userLng };
                 customerLocation = window.customerLocation;
             },
@@ -1172,11 +1346,11 @@ function initBusinessLiveMap() {
 
 function getBusinessDistance(lat1, lng1, lat2, lng2) {
     const R = 6371e3;
-    const p1 = lat1 * Math.PI / 180;
-    const p2 = lat2 * Math.PI / 180;
-    const dp = (lat2 - lat1) * Math.PI / 180;
-    const dl = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dp/2)**2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2)**2;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(Δφ/2)**2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2)**2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
@@ -1186,12 +1360,13 @@ function formatBusinessDistance(meters) {
 }
 
 // ============================================================
-//  CART BADGE
+//  UPDATE CART BADGE
 // ============================================================
 
 function updateCartBadge() {
     const cart = typeof getCart === 'function' ? getCart() : [];
     const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+
     const badges = document.querySelectorAll('#cartBadge, #navCartBadge, #navCartBadgeBP');
     badges.forEach(badge => {
         if (badge) {
@@ -1213,26 +1388,59 @@ function updateNavCartBadge() {
 //  SHOW TOAST
 // ============================================================
 
-function showToast(message, type) {
-    type = type || 'success';
+function showToast(message, type = 'success') {
     if (typeof window.showToast === 'function' && window.showToast !== showToast) {
         window.showToast(message, type);
         return;
     }
+
     const existing = document.querySelector('.toast-container');
     if (existing) existing.remove();
 
     const container = document.createElement('div');
     container.className = 'toast-container';
-    container.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99999;max-width:400px;width:100%;';
+    container.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 99999;
+        max-width: 400px;
+        width: 100%;
+    `;
 
     const toast = document.createElement('div');
-    const typeMap = { success: '#22c55e', error: '#ef4444', warning: '#f59e0b', info: '#2563eb' };
-    const iconMap = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    const typeMap = {
+        success: '#22c55e',
+        error: '#ef4444',
+        warning: '#f59e0b',
+        info: '#2563eb'
+    };
+    const iconMap = {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: 'ℹ️'
+    };
     const bgColor = typeMap[type] || '#2563eb';
 
-    toast.className = 'toast ' + type;
-    toast.style.cssText = 'background:' + bgColor + ';color:white;padding:14px 20px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.15);font-size:0.9rem;font-weight:500;display:flex;align-items:center;gap:12px;animation:slideIn 0.3s ease;margin-bottom:8px;transform:translateX(0);transition:transform 0.3s;word-break:break-word;';
+    toast.className = `toast ${type}`;
+    toast.style.cssText = `
+        background: ${bgColor};
+        color: white;
+        padding: 14px 20px;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        font-size: 0.9rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        animation: slideIn 0.3s ease;
+        margin-bottom: 8px;
+        transform: translateX(0);
+        transition: transform 0.3s;
+        word-break: break-word;
+    `;
 
     const icon = document.createElement('span');
     icon.innerHTML = iconMap[type] || 'ℹ️';
@@ -1245,7 +1453,17 @@ function showToast(message, type) {
 
     const closeBtn = document.createElement('button');
     closeBtn.innerHTML = '✕';
-    closeBtn.style.cssText = 'background:none;border:none;color:white;font-size:1rem;cursor:pointer;margin-left:auto;opacity:0.7;transition:opacity 0.2s;flex-shrink:0;';
+    closeBtn.style.cssText = `
+        background: none;
+        border: none;
+        color: white;
+        font-size: 1rem;
+        cursor: pointer;
+        margin-left: auto;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+        flex-shrink: 0;
+    `;
 
     toast.appendChild(icon);
     toast.appendChild(text);
@@ -1266,11 +1484,6 @@ function showToast(message, type) {
 // ============================================================
 
 window.logout = logout;
-window.switchShopTab = switchShopTab;
-window.renderProductTabs = renderProductTabs;
-window.readProductTabFromUrl = readProductTabFromUrl;
-window.writeProductTabToUrl = writeProductTabToUrl;
-window.getActiveProductTab = getActiveProductTab;
 
 window.changeBusinessCardQty = changeBusinessCardQty;
 window.addBusinessCardToCart = addBusinessCardToCart;
@@ -1298,40 +1511,68 @@ window.renderOrdersPausedContactBlock = renderOrdersPausedContactBlock;
 
 window.renderHeroMedia = renderHeroMedia;
 window.renderHeroDescriptionOverlay = renderHeroDescriptionOverlay;
+
 window.renderThankYouBand = renderThankYouBand;
 window.renderHeroSearchTagChip = renderHeroSearchTagChip;
 
-console.log('✅ Business Profile JS loaded successfully (Phase 2 — tabs wired, thumbnail_url used)');
+// Mirror the thank-you business name into the footer band
+// whenever the page sets the main thank-you band.
+(function () {
+  function mirror() {
+    var src = document.getElementById('thankYouBusinessName');
+    var dst = document.getElementById('footerThankYouBusinessName');
+    if (!src || !dst) return;
+    var name = (src.textContent || '').trim();
+    if (name) dst.textContent = name;
+  }
+  document.addEventListener('DOMContentLoaded', mirror);
+  [300, 900, 2000].forEach(function (ms) { setTimeout(mirror, ms); });
+})();
+
+console.log('✅ Business Profile JS loaded successfully (Section 10 — business rating reference removed, dead review code removed, CARTO tile provider active, business product category dropdown fixed)');
 
 // ============================================================
 //  OFFSET THE PINNED FOOTER ABOVE THE BOTTOM NAV
+//  On pages that carry a `.bottom-nav`, lift the pinned footer
+//  so it sits above the nav, and increase the body padding so
+//  page content is not covered.
 // ============================================================
-
 (function () {
   function offsetFooterAboveBottomNav() {
     var footer = document.querySelector('footer.bidhaa-legal-footer');
     var bottomNav = document.querySelector('.bottom-nav');
     if (!footer || !bottomNav) return;
+
+    // Skip if the bottom nav is hidden (e.g. in embedded mode).
     var navStyle = window.getComputedStyle(bottomNav);
     if (navStyle.display === 'none' || navStyle.visibility === 'hidden') return;
+
     var navHeight = bottomNav.getBoundingClientRect().height || 64;
+
     footer.style.bottom = navHeight + 'px';
     document.body.style.paddingBottom = (navHeight + 64) + 'px';
   }
+
   document.addEventListener('DOMContentLoaded', offsetFooterAboveBottomNav);
   window.addEventListener('resize', offsetFooterAboveBottomNav);
   window.addEventListener('orientationchange', offsetFooterAboveBottomNav);
-  [300, 1200, 2000].forEach(function (ms) { setTimeout(offsetFooterAboveBottomNav, ms); });
+  [300, 1200, 2000].forEach(function (ms) {
+    setTimeout(offsetFooterAboveBottomNav, ms);
+  });
 })();
 
 // ============================================================
 //  FORCE THE PINNED FOOTER
+//  The old business-profile.html still carries the old inline
+//  footer stylesheet. This block overrides it from JS so the
+//  footer is pinned, sits above the bottom nav, and lays out
+//  as three cells (brand | thank-you | legal links).
 // ============================================================
-
 (function () {
   function forcePinnedFooter() {
     var footer = document.querySelector('footer.bidhaa-legal-footer');
     if (!footer) return;
+
     var navHeight = 0;
     var bottomNav = document.querySelector('.bottom-nav');
     if (bottomNav) {
@@ -1340,6 +1581,7 @@ console.log('✅ Business Profile JS loaded successfully (Phase 2 — tabs wired
         navHeight = bottomNav.getBoundingClientRect().height || 0;
       }
     }
+
     footer.style.position = 'fixed';
     footer.style.left = '0';
     footer.style.right = '0';
@@ -1364,14 +1606,30 @@ console.log('✅ Business Profile JS loaded successfully (Phase 2 — tabs wired
       inner.style.minHeight = '56px';
       inner.style.flexWrap = 'nowrap';
     }
+
     var brand = footer.querySelector('.bidhaa-legal-footer-brand');
-    if (brand) { brand.style.display = 'flex'; brand.style.flexDirection = 'column'; brand.style.gap = '1px'; brand.style.whiteSpace = 'nowrap'; }
+    if (brand) {
+      brand.style.display = 'flex';
+      brand.style.flexDirection = 'column';
+      brand.style.gap = '1px';
+      brand.style.whiteSpace = 'nowrap';
+    }
+
     var links = footer.querySelector('.bidhaa-legal-footer-links');
-    if (links) { links.style.display = 'flex'; links.style.gap = '16px'; links.style.flexWrap = 'nowrap'; links.style.whiteSpace = 'nowrap'; }
+    if (links) {
+      links.style.display = 'flex';
+      links.style.gap = '16px';
+      links.style.flexWrap = 'nowrap';
+      links.style.whiteSpace = 'nowrap';
+    }
+
     document.body.style.paddingBottom = (navHeight + 72) + 'px';
   }
+
   document.addEventListener('DOMContentLoaded', forcePinnedFooter);
   window.addEventListener('resize', forcePinnedFooter);
   window.addEventListener('orientationchange', forcePinnedFooter);
-  [300, 900, 2000, 4000].forEach(function (ms) { setTimeout(forcePinnedFooter, ms); });
+  [300, 900, 2000, 4000].forEach(function (ms) {
+    setTimeout(forcePinnedFooter, ms);
+  });
 })();

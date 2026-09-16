@@ -1,5 +1,5 @@
-<!-- ============================================================
-     BUSINESS PROFILE — Section H customer-facing additions
+﻿<!-- ============================================================
+     BUSINESS PROFILE â€” Section H customer-facing additions
      Location: public/html/business-profile.html
 
      Section 10 changes (this revision):
@@ -8,8 +8,8 @@
       the business. Product count and follower count remain.
 
      Section H changes:
-      H.4 — banner shown when the business is not accepting orders
-      H.5 — contact-only container shown in place of cart buttons
+      H.4 â€” banner shown when the business is not accepting orders
+      H.5 â€” contact-only container shown in place of cart buttons
             when orders are off
 
      Section 6 changes:
@@ -48,16 +48,16 @@
 
      Hero redesign:
       The hero is a three-column band on desktop:
-        LEFT   — small column, logo only, plain background.
-        MIDDLE — writings panel: name, location, address, stats,
+        LEFT   â€” small column, logo only, plain background.
+        MIDDLE â€” writings panel: name, location, address, stats,
                  Shop Now, Follow, Verified badge, search tag chip.
-        RIGHT  — media panel: one image OR one video.
+        RIGHT  â€” media panel: one image OR one video.
                  The description block now rides ON TOP of the
                  media (title, tagline, bullets, location,
                  contact line) and scrolls slowly upward when the
                  text is longer than the frame.
       On phones the CSS reorders the three columns to
-        logo → media → writings.
+        logo â†’ media â†’ writings.
 
      Slider removal:
       The slider block that used to sit between the About card
@@ -85,7 +85,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
   <title>Business Profile - BidhaaLink</title>
-  <meta name="description" content="View business details, products, and reviews on BidhaaLink — Kenya's multi-vendor marketplace.">
+  <meta name="description" content="View business details, products, and reviews on BidhaaLink â€” Kenya's multi-vendor marketplace.">
 
   <!-- Main Global Styles -->
   <link rel="stylesheet" href="/style.css">
@@ -104,9 +104,9 @@
 <div class="header">
   <div class="header-left" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
     <a href="/" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; color:#16a34a; font-weight:800; font-size:1rem;">
-      🛍️ BidhaaLink
+      ðŸ›ï¸ BidhaaLink
     </a>
-    <span style="color:#94a3b8; font-weight:600;">·</span>
+    <span style="color:#94a3b8; font-weight:600;">Â·</span>
     <h1 style="font-size:0.95rem; font-weight:700; color:#0f172a; margin:0;">
       <span id="businessNameHeader">Business</span>
     </h1>
@@ -151,20 +151,20 @@
   <div id="businessContent" style="display:none;">
 
     <!-- ============================================================ -->
-    <!-- HERO — three-column band                                      -->
+    <!-- HERO â€” three-column band                                      -->
     <!--                                                              -->
     <!--  Desktop layout:                                              -->
     <!--    [ logo ]   [ writings panel ]   [ media + description ]    -->
     <!--                                                              -->
-    <!--  LEFT   — small, logo only, plain background                  -->
-    <!--  MIDDLE — name, location, address, stats, Shop Now, Follow    -->
-    <!--  RIGHT  — media column. The description block overlays        -->
+    <!--  LEFT   â€” small, logo only, plain background                  -->
+    <!--  MIDDLE â€” name, location, address, stats, Shop Now, Follow    -->
+    <!--  RIGHT  â€” media column. The description block overlays        -->
     <!--           the media and scrolls slowly upward when the        -->
     <!--           text is long.                                       -->
     <!--                                                              -->
-    <!--  Phones reorder to: logo → media → writings                   -->
+    <!--  Phones reorder to: logo â†’ media â†’ writings                   -->
     <!--                                                              -->
-    <!--  Section 10 — the average rating line has been removed.       -->
+    <!--  Section 10 â€” the average rating line has been removed.       -->
     <!-- ============================================================ -->
     <div class="business-hero" id="heroSection">
 
@@ -176,10 +176,10 @@
       <!-- MIDDLE: writings panel (plain, all the text) -->
       <div class="hero-col hero-col--info" id="heroColInfo">
         <h1 id="heroTitle" class="hero-title">Welcome</h1>
-        <p id="heroLocation" class="hero-meta-line">📍 Nairobi, Kenya</p>
+        <p id="heroLocation" class="hero-meta-line">ðŸ“ Nairobi, Kenya</p>
         <p id="heroAddress" class="hero-meta-line"></p>
 
-        <!-- Business Search Tag chip — click to copy. Hidden by
+        <!-- Business Search Tag chip â€” click to copy. Hidden by
              business-profile.js when the business has no
              confirmed tag. -->
         <div id="heroSearchTagChip" style="display:none; margin-top:6px;">
@@ -188,7 +188,7 @@
             id="heroSearchTagBtn"
             title="Click to copy this shop's search tag"
             style="display:inline-flex; align-items:center; gap:6px; padding:4px 12px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:20px; color:#f8fafc; font-size:0.72rem; font-weight:700; font-family:monospace; letter-spacing:0.03em; cursor:pointer; transition:background-color 0.2s ease;">
-            🔖 <span id="heroSearchTagValue"></span>
+            ðŸ”– <span id="heroSearchTagValue"></span>
           </button>
         </div>
 
@@ -207,7 +207,7 @@
         </div>
 
         <div class="verified-badge" id="verifiedBadge" style="display:none;">
-          <span class="badge">✅ Verified Business</span>
+          <span class="badge">âœ… Verified Business</span>
         </div>
       </div>
 
@@ -216,7 +216,7 @@
         <div class="hero-media-bg" aria-hidden="true"></div>
         <div class="hero-media-slot" id="heroMediaSlot"></div>
 
-        <!-- Description overlay — sits ON TOP of the cover photo or
+        <!-- Description overlay â€” sits ON TOP of the cover photo or
              video. business-profile.js fills the track and, when
              the text is taller than the frame, adds .is-scrolling
              so the CSS keyframe scrolls it slowly upward. -->
@@ -227,11 +227,11 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- H.4 — Orders paused banner                                   -->
+    <!-- H.4 â€” Orders paused banner                                   -->
     <!-- ============================================================ -->
     <div id="ordersPausedBanner" style="display:none; margin:12px 12px 0; padding:16px 20px; background:#fef2f2; border-radius:12px; border-left:5px solid #ef4444; box-shadow:0 2px 8px rgba(239,68,68,0.08);">
       <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-        <span style="font-size:1.6rem; line-height:1;">🔴</span>
+        <span style="font-size:1.6rem; line-height:1;">ðŸ”´</span>
         <div style="flex:1; min-width:200px;">
           <strong style="display:block; font-size:0.95rem; color:#991b1b; margin-bottom:4px;">
             This shop is not taking orders right now
@@ -244,7 +244,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- H.5 — Contact-only block                                     -->
+    <!-- H.5 â€” Contact-only block                                     -->
     <!-- ============================================================ -->
     <div id="ordersPausedContactBlock" style="display:none; margin:12px 12px; padding:20px; background:linear-gradient(135deg,#f0fdf4,#dcfce7); border-radius:14px; border:1px solid #86efac;">
       <h3 style="font-size:1rem; font-weight:800; color:#166534; margin:0 0 6px 0; display:flex; align-items:center; gap:8px;">
@@ -283,7 +283,7 @@
     <!-- ===== PRODUCTS SECTION ===== -->
     <div class="products-section" id="products">
       <div class="section-header">
-        <h2>📦 Our Products</h2>
+        <h2>ðŸ“¦ Our Products</h2>
         <div class="products-filters">
           <input type="text" id="businessSearchInput" placeholder="Search products..." onkeyup="filterBusinessProducts()">
           <select id="businessProductCategoryFilter" onchange="filterBusinessProducts()" aria-label="Filter products by legacy category">
@@ -294,12 +294,14 @@
           </select>
         </div>
       </div>
+      <div class="shop-tabs" id="shopTabs" role="tablist" aria-label="Filter products by media"><button type="button" class="shop-tab is-active" data-shop-tab="all" role="tab" aria-selected="true" onclick="switchShopTab('all')"><i class="fas fa-th"></i> All</button><button type="button" class="shop-tab" data-shop-tab="image" role="tab" aria-selected="false" onclick="switchShopTab('image')"><i class="fas fa-image"></i> Images</button><button type="button" class="shop-tab" data-shop-tab="video" role="tab" aria-selected="false" onclick="switchShopTab('video')"><i class="fas fa-video"></i> Videos</button></div>
+      <div class="shop-tab-empty" id="shopTabEmptyImages" hidden>This business has not uploaded any product images yet.</div><div class="shop-tab-empty" id="shopTabEmptyVideos" hidden>This business has not uploaded any product videos yet.</div>
       <div class="product-grid" id="productGrid"></div>
     </div>
 
     <!-- ===== CONTACT ===== -->
     <div class="contact-section" id="businessProfileContacts" style="display:none;">
-      <h3>📞 Contact Us</h3>
+      <h3>ðŸ“ž Contact Us</h3>
       <div class="contact-icons">
         <a id="iconWhatsapp" href="#" target="_blank" style="font-size:1.6rem; color:#25D366;"><i class="fab fa-whatsapp"></i></a>
         <a id="iconTiktok" href="#" target="_blank" style="font-size:1.6rem; color:#000;"><i class="fab fa-tiktok"></i></a>
@@ -319,7 +321,7 @@
     <!-- ============================================================ -->
     <div class="thank-you-band" id="thankYouBand" role="contentinfo">
       <div class="thank-you-band-inner">
-        <span class="thank-you-band-icon" aria-hidden="true">🙏</span>
+        <span class="thank-you-band-icon" aria-hidden="true">ðŸ™</span>
         <p class="thank-you-band-text">
           Thank you for visiting <span id="thankYouBusinessName">our business</span>. We value you!
         </p>
@@ -397,7 +399,7 @@
     <span class="close-modal" onclick="closeAuthModal()">&times;</span>
 
     <div id="authLoginContainer">
-      <h2 id="authLoginTitle">🔑 Login</h2>
+      <h2 id="authLoginTitle">ðŸ”‘ Login</h2>
       <div style="display:flex; gap:10px; margin-bottom:16px;">
         <button class="btn btn-primary" onclick="selectLoginType('customer')" id="loginTypeCustomer" style="flex:1; padding:10px; font-size:0.85rem;">
           <i class="fas fa-user"></i> Customer
@@ -419,7 +421,7 @@
         <button class="btn btn-primary" style="width:100%;" onclick="handleLogin()">Login</button>
         <div id="loginStatus" class="auth-status"></div>
         <p style="margin-top:8px; text-align:center; font-size:0.8rem;">
-          <a href="/reset-password.html" style="color:#2563eb;">🔑 Forgot Password?</a>
+          <a href="/reset-password.html" style="color:#2563eb;">ðŸ”‘ Forgot Password?</a>
         </p>
         <p style="margin-top:4px; text-align:center; font-size:0.8rem;">
           Don't have an account? <a href="#" onclick="switchAuthTab('register')">Register</a>
@@ -428,7 +430,7 @@
     </div>
 
     <div id="authRegisterContainer" style="display:none;">
-      <h2 id="authRegisterTitle">📝 Create Account</h2>
+      <h2 id="authRegisterTitle">ðŸ“ Create Account</h2>
       <div style="display:flex; gap:10px; margin-bottom:16px;">
         <button class="btn btn-success" onclick="selectRegisterType('customer')" id="registerTypeCustomer" style="flex:1; padding:10px; font-size:0.85rem;">
           <i class="fas fa-user"></i> Customer
@@ -439,7 +441,7 @@
       </div>
 
       <!-- ============================================================ -->
-      <!-- CUSTOMER REGISTRATION — Section 6 simplified form            -->
+      <!-- CUSTOMER REGISTRATION â€” Section 6 simplified form            -->
       <!-- ============================================================ -->
       <div id="customerRegisterForm">
         <div class="form-group">
@@ -470,7 +472,7 @@
         </div>
 
         <!-- ============================================================ -->
-        <!-- LEGAL ACCEPTANCE BLOCK — CUSTOMER REGISTER                   -->
+        <!-- LEGAL ACCEPTANCE BLOCK â€” CUSTOMER REGISTER                   -->
         <!-- ============================================================ -->
         <div class="auth-legal-block" style="margin:10px 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:0.78rem; line-height:1.5; color:#475569;">
           <label for="customerLegalAccept" style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
@@ -490,7 +492,7 @@
       </div>
 
       <!-- ============================================================ -->
-      <!-- BUSINESS REGISTRATION — Section 7 simplified form            -->
+      <!-- BUSINESS REGISTRATION â€” Section 7 simplified form            -->
       <!-- ============================================================ -->
       <div id="businessRegisterForm" style="display:none;">
 
@@ -504,14 +506,14 @@
           <select id="regBusinessPrimaryCategory"
                   aria-label="Business category"
                   style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem; background:white; cursor:pointer;">
-            <option value="">⏳ Loading categories...</option>
+            <option value="">â³ Loading categories...</option>
           </select>
           <small id="regBusinessCategoryHelp" style="font-size:0.6rem; color:#94a3b8; display:block; margin-top:4px;">
             Pick the category that best describes what your business sells.
           </small>
           <div id="businessCategoryError"
                style="display:none; font-size:0.7rem; color:#ef4444; margin-top:4px;">
-            ❌ Please select a business category.
+            âŒ Please select a business category.
           </div>
         </div>
 
@@ -545,7 +547,7 @@
         </div>
 
         <!-- ============================================================ -->
-        <!-- LEGAL ACCEPTANCE BLOCK — BUSINESS REGISTER                   -->
+        <!-- LEGAL ACCEPTANCE BLOCK â€” BUSINESS REGISTER                   -->
         <!-- ============================================================ -->
         <div class="auth-legal-block" style="margin:10px 0; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:0.78rem; line-height:1.5; color:#475569;">
           <label for="businessLegalAccept" style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
@@ -563,19 +565,19 @@
         <button class="btn btn-primary" style="width:100%;" onclick="handleBusinessRegister()">Create Business Account</button>
         <div id="businessRegisterStatus" class="auth-status"></div>
 
-        <!-- Success panel — hidden until index.js shows it after a
+        <!-- Success panel â€” hidden until index.js shows it after a
              successful registration. Displays the generated search
              tag and username. -->
         <div id="businessRegisterSuccess" style="display:none; margin-top:14px; padding:14px 16px; background:#f0fdf4; border-radius:10px; border:1px solid #86efac;">
           <strong style="display:block; color:#166534; font-size:0.9rem; margin-bottom:6px;">
-            ✅ Business registered!
+            âœ… Business registered!
           </strong>
           <p style="font-size:0.8rem; color:#14532d; margin:0 0 8px 0;">
             Your shop will be found by typing this search tag into the marketplace search:
           </p>
           <div id="businessRegisterSearchTagValue"
                style="padding:8px 12px; background:#ffffff; border:1px dashed #16a34a; border-radius:8px; font-family:monospace; font-weight:800; color:#14532d; font-size:0.95rem; letter-spacing:0.03em;">
-            —
+            â€”
           </div>
           <div id="businessRegisterUsernameValue"
                style="font-size:0.72rem; color:#64748b; margin-top:8px;">
@@ -637,8 +639,8 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <!-- ============================================================ -->
-<!-- LEGAL FOOTER — BidhaaLink                                     -->
-<!-- Terms · Privacy · Cookie Notice · Contact                     -->
+<!-- LEGAL FOOTER â€” BidhaaLink                                     -->
+<!-- Terms Â· Privacy Â· Cookie Notice Â· Contact                     -->
 <!-- Loads /js/legal.js at the end so the cookie banner also        -->
 <!-- appears on this page, unless the page already loads it.        -->
 <!-- ============================================================ -->
