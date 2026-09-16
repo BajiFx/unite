@@ -104,7 +104,7 @@
 <div class="header">
   <div class="header-left" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
     <a href="/" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; color:#16a34a; font-weight:800; font-size:1rem;">
-      🛍️ BidhaaLink
+      ðŸ›ï¸ BidhaaLink
     </a>
     <span style="color:#94a3b8; font-weight:600;">Â·</span>
     <h1 style="font-size:0.95rem; font-weight:700; color:#0f172a; margin:0;">
@@ -188,7 +188,7 @@
             id="heroSearchTagBtn"
             title="Click to copy this shop's search tag"
             style="display:inline-flex; align-items:center; gap:6px; padding:4px 12px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:20px; color:#f8fafc; font-size:0.72rem; font-weight:700; font-family:monospace; letter-spacing:0.03em; cursor:pointer; transition:background-color 0.2s ease;">
-            🔖 <span id="heroSearchTagValue"></span>
+            ðŸ”– <span id="heroSearchTagValue"></span>
           </button>
         </div>
 
@@ -231,7 +231,7 @@
     <!-- ============================================================ -->
     <div id="ordersPausedBanner" style="display:none; margin:12px 12px 0; padding:16px 20px; background:#fef2f2; border-radius:12px; border-left:5px solid #ef4444; box-shadow:0 2px 8px rgba(239,68,68,0.08);">
       <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-        <span style="font-size:1.6rem; line-height:1;">🔴</span>
+        <span style="font-size:1.6rem; line-height:1;">ðŸ”´</span>
         <div style="flex:1; min-width:200px;">
           <strong style="display:block; font-size:0.95rem; color:#991b1b; margin-bottom:4px;">
             This shop is not taking orders right now
@@ -283,7 +283,7 @@
     <!-- ===== PRODUCTS SECTION ===== -->
     <div class="products-section" id="products">
       <div class="section-header">
-        <h2>📦 Our Products</h2>
+        <h2>ðŸ“¦ Our Products</h2>
         <div class="products-filters">
           <input type="text" id="businessSearchInput" placeholder="Search products..." onkeyup="filterBusinessProducts()">
           <select id="businessProductCategoryFilter" onchange="filterBusinessProducts()" aria-label="Filter products by legacy category">
@@ -301,7 +301,7 @@
 
     <!-- ===== CONTACT ===== -->
     <div class="contact-section" id="businessProfileContacts" style="display:none;">
-      <h3>📞 Contact Us</h3>
+      <h3>ðŸ“ž Contact Us</h3>
       <div class="contact-icons">
         <a id="iconWhatsapp" href="#" target="_blank" style="font-size:1.6rem; color:#25D366;"><i class="fab fa-whatsapp"></i></a>
         <a id="iconTiktok" href="#" target="_blank" style="font-size:1.6rem; color:#000;"><i class="fab fa-tiktok"></i></a>
@@ -321,7 +321,7 @@
     <!-- ============================================================ -->
     <div class="thank-you-band" id="thankYouBand" role="contentinfo">
       <div class="thank-you-band-inner">
-        <span class="thank-you-band-icon" aria-hidden="true">🙏</span>
+        <span class="thank-you-band-icon" aria-hidden="true">ðŸ™</span>
         <p class="thank-you-band-text">
           Thank you for visiting <span id="thankYouBusinessName">our business</span>. We value you!
         </p>
@@ -399,7 +399,7 @@
     <span class="close-modal" onclick="closeAuthModal()">&times;</span>
 
     <div id="authLoginContainer">
-      <h2 id="authLoginTitle">🔑 Login</h2>
+      <h2 id="authLoginTitle">ðŸ”‘ Login</h2>
       <div style="display:flex; gap:10px; margin-bottom:16px;">
         <button class="btn btn-primary" onclick="selectLoginType('customer')" id="loginTypeCustomer" style="flex:1; padding:10px; font-size:0.85rem;">
           <i class="fas fa-user"></i> Customer
@@ -421,7 +421,7 @@
         <button class="btn btn-primary" style="width:100%;" onclick="handleLogin()">Login</button>
         <div id="loginStatus" class="auth-status"></div>
         <p style="margin-top:8px; text-align:center; font-size:0.8rem;">
-          <a href="/reset-password.html" style="color:#2563eb;">🔑 Forgot Password?</a>
+          <a href="/reset-password.html" style="color:#2563eb;">ðŸ”‘ Forgot Password?</a>
         </p>
         <p style="margin-top:4px; text-align:center; font-size:0.8rem;">
           Don't have an account? <a href="#" onclick="switchAuthTab('register')">Register</a>
