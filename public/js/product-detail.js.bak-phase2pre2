@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 //  PRODUCT DETAIL JAVASCRIPT
 //
 //  Colour gallery:
@@ -90,7 +90,7 @@ function getAutoSocialLinks(product) {
 }
 
 // ============================================================
-//  ORDER RELATED PRODUCTS \u{1F504}\u201D Option B
+//  ORDER RELATED PRODUCTS â€” Option B
 // ============================================================
 function orderRelatedForDisplay(related, viewedProduct) {
   if (!Array.isArray(related) || related.length === 0) return [];
@@ -192,85 +192,6 @@ function buildColourTiles(product, variants) {
 // ============================================================
 //  GET SELECTED TILE
 // ============================================================
-// ============================================================
-//  URL VARIANT SYNC  (Phase 2 completion)
-// ============================================================
-function readVariantFromUrl() {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const raw = String(params.get('variant') || '').trim();
-    if (!raw) return null;
-    const needle = raw.toLowerCase();
-    const tile = (colourTiles || []).find(t =>
-      String(t && t.name ? t.name : '').trim().toLowerCase() === needle
-    );
-    return tile ? tile.key : null;
-  } catch (err) {
-    return null;
-  }
-}
-
-function writeVariantToUrl(tile) {
-  if (!tile || !tile.name) return;
-  try {
-    const url = new URL(window.location.href);
-    url.searchParams.set('variant', String(tile.name));
-    window.history.replaceState({}, '', url.pathname + url.search + url.hash);
-  } catch (err) {
-    // Non-fatal.
-  }
-}
-
-// ============================================================
-//  MIXED-MEDIA TOGGLE  (Phase 2 completion)
-// ============================================================
-function renderMixedMediaToggle(tile) {
-  const mediaHost = document.getElementById('detailMainMedia');
-  if (!mediaHost) return;
-
-  const existing = document.getElementById('detailMediaToggle');
-  if (existing) existing.remove();
-
-  if (!tile) return;
-
-  const hasImage = Boolean(tile.image);
-  const hasVideo = Boolean(tile.video);
-
-  if (!(hasImage && hasVideo)) return;
-
-  const wrapper = document.createElement('div');
-  wrapper.id = 'detailMediaToggle';
-  wrapper.className = 'detail-media-toggle';
-  wrapper.innerHTML =
-    '<button type="button" data-kind="video" class="is-active">' +
-      '<i class="fas fa-video"></i> Video' +
-    '</button>' +
-    '<button type="button" data-kind="image">' +
-      '<i class="fas fa-image"></i> Image' +
-    '</button>';
-
-  wrapper.querySelectorAll('button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const kind = btn.dataset.kind;
-      wrapper.querySelectorAll('button').forEach(b =>
-        b.classList.toggle('is-active', b.dataset.kind === kind)
-      );
-
-      if (kind === 'video' && tile.video) {
-        mediaHost.innerHTML =
-          '<video src="' + tile.video + '" controls preload="metadata">' +
-          'Your browser cannot play this video.</video>';
-      } else if (kind === 'image') {
-        const url = tile.image || fallbackMediaUrl({ name: tile.name });
-        mediaHost.innerHTML =
-          '<img src="' + url + '" alt="' + tile.name + '" ' +
-          'onerror="this.onerror=null;this.src=fallbackMediaUrl({name:this.alt})">';
-      }
-    });
-  });
-
-  mediaHost.insertAdjacentElement('afterend', wrapper);
-}
 function getSelectedTile() {
   if (!Array.isArray(colourTiles) || colourTiles.length === 0) return null;
   return colourTiles.find(t => t.key === selectedColourKey) || colourTiles[0];
@@ -288,13 +209,6 @@ async function loadProductDetail() {
     allVariants = data.variants || [];
 
     colourTiles = buildColourTiles(currentProduct, allVariants);
-
-    (function () {
-      const urlKey = readVariantFromUrl();
-      if (urlKey && colourTiles.some(t => t.key === urlKey)) {
-        selectedColourKey = urlKey;
-      }
-    })();
 
     if (!colourTiles.some(t => t.key === selectedColourKey)) {
       selectedColourKey = colourTiles.length > 0 ? colourTiles[0].key : 'parent';
@@ -362,8 +276,8 @@ function renderDetail(product, related) {
   const stockHtml = `
     <div class="stock-info">
       ${stockDisplay > 0 ?
-        `<span class="in-stock">\u2705 In Stock (${stockDisplay} available)</span>` :
-        `<span class="out-of-stock">\u2212 Out of Stock</span>`}
+        `<span class="in-stock">âœ“ In Stock (${stockDisplay} available)</span>` :
+        `<span class="out-of-stock">âœ• Out of Stock</span>`}
     </div>
   `;
 
@@ -374,7 +288,7 @@ function renderDetail(product, related) {
   if (ratingValue > 0) {
     ratingHtml = `
       <div class="rating-section">
-        <span class="stars">${'\u{1F4E6}'.repeat(Math.min(fullStars, 5))}</span>
+        <span class="stars">${'â­'.repeat(Math.min(fullStars, 5))}</span>
         <span class="rating-text">${ratingValue.toFixed(1)}</span>
         <span class="review-count">(${product.review_count || 0} reviews)</span>
       </div>
@@ -383,15 +297,15 @@ function renderDetail(product, related) {
 
   // ---------- Category chip ----------
   const categoryChipHtml = product.product_category_name
-    ? `<div class="product-category-chip" title="${product.product_category_name}">${product.product_category_icon || '\u2705??'} ${product.product_category_name}</div>`
+    ? `<div class="product-category-chip" title="${product.product_category_name}">${product.product_category_icon || 'ðŸ“¦'} ${product.product_category_name}</div>`
     : '';
 
   // ---------- Badges ----------
   let badgesHtml = '';
   if (product.badge1) badgesHtml += `<span class="badge badge-green">${product.badge1}</span>`;
   if (product.badge2) badgesHtml += `<span class="badge badge-blue">${product.badge2}</span>`;
-  if (product.isFlashSale) badgesHtml += `<span class="badge tag-flash">\u{1F4DE}?\u201D?? Flash Sale</span>`;
-  if (product.isNewArrival) badgesHtml += `<span class="badge tag-new">\u{1F6D2}? New</span>`;
+  if (product.isFlashSale) badgesHtml += `<span class="badge tag-flash">ðŸ”¥ Flash Sale</span>`;
+  if (product.isNewArrival) badgesHtml += `<span class="badge tag-new">ðŸ†• New</span>`;
   if (badgesHtml) badgesHtml = `<div class="badges">${badgesHtml}</div>`;
 
   // ---------- Description / services / return ----------
@@ -411,7 +325,7 @@ function renderDetail(product, related) {
   if (returnEnabled) {
     returnPolicyHtml = `
       <div class="return-policy">
-        <strong>\u{1F4DE}?\u201D\u{1F4DE} Return Policy:</strong>
+        <strong>ðŸ”„ Return Policy:</strong>
         Returns accepted within ${returnDays} days of delivery.
         ${restockingFee > 0 ? `Restocking fee: ${restockingFee}%. ` : ''}
         Products must be in ${returnCondition} condition.
@@ -420,7 +334,7 @@ function renderDetail(product, related) {
   } else {
     returnPolicyHtml = `
       <div class="return-policy" style="background:linear-gradient(145deg, #fef2f2, #fee2e2); border-left-color:#ef4444; color:#991b1b;">
-        <strong>\u{1F4E6} Non-Returnable:</strong> This item is final sale and cannot be returned.
+        <strong>âŒ Non-Returnable:</strong> This item is final sale and cannot be returned.
       </div>
     `;
   }
@@ -431,7 +345,7 @@ function renderDetail(product, related) {
   if (ratingValue > 0) {
     contactRatingHtml = `
       <div class="product-rating-display">
-        <span class="stars">${'\u{1F4E6}'.repeat(Math.min(fullStars, 5))}</span>
+        <span class="stars">${'â­'.repeat(Math.min(fullStars, 5))}</span>
         <span class="rating-value">${ratingValue.toFixed(1)}</span>
         <span class="review-count">(${product.review_count || 0} reviews)</span>
       </div>
@@ -446,7 +360,7 @@ function renderDetail(product, related) {
 
   const contactHtml = `
     <div class="contact-us-section">
-      <h4>\u2705?? Contact Us</h4>
+      <h4>ðŸ“ž Contact Us</h4>
       ${contactRatingHtml}
       <div class="social-icons" style="margin-top:6px;">
         <a href="${socialLinks.whatsapp}" target="_blank" class="whatsapp"><i class="fab fa-whatsapp"></i> WhatsApp</a>
@@ -465,7 +379,7 @@ function renderDetail(product, related) {
       ? `<video src="${media[currentMediaIndex].url}" controls preload="metadata">Your browser cannot play this video.</video>`
       : `<img src="${media[currentMediaIndex].url}" alt="${product.name}" onerror="this.onerror=null;this.src=fallbackMediaUrl({name:this.alt})">`;
   } else {
-    mainMediaHtml = '<div class="no-image">\u2705??</div>';
+    mainMediaHtml = '<div class="no-image">ðŸ“¦</div>';
   }
 
   // ---------- Colour gallery ----------
@@ -481,7 +395,7 @@ function renderDetail(product, related) {
            data-category="${(p.category || '').toLowerCase()}"
            data-category-id="${p.product_category_id || ''}"
            onclick="location.href='/product-detail.html?id=${p.id}&business=${encodeURIComponent(product.business_slug || '')}'">
-        ${p.image ? `<img src="${p.image}" alt="${p.name}">` : `<div class="no-image">\u2705??</div>`}
+        ${p.image ? `<img src="${p.image}" alt="${p.name}">` : `<div class="no-image">ðŸ“¦</div>`}
         <div class="related-info">
           <div class="related-name">${p.name}</div>
           <div class="related-price">${p.price}</div>
@@ -549,14 +463,14 @@ function renderDetail(product, related) {
         <div class="qty-section">
           <span class="qty-label">Quantity:</span>
           <div class="qty-control">
-            <button onclick="changeDetailQty(-1)">\u2212</button>
+            <button onclick="changeDetailQty(-1)">âˆ’</button>
             <span id="detailQty">${detailQty}</span>
             <button onclick="changeDetailQty(1)">+</button>
           </div>
         </div>
 
         <div class="button-group">
-          <button class="btn-add-large ${btnClass}" onclick="addVariantToCart()">\u{1F6D2}? ${btnText}</button>
+          <button class="btn-add-large ${btnClass}" onclick="addVariantToCart()">ðŸ›’ ${btnText}</button>
           <button class="btn-buy-now" onclick="buyNow()">Buy Now</button>
         </div>
 
@@ -577,13 +491,10 @@ function renderDetail(product, related) {
   renderThankYouBand(product);
   wireColourGallery();
   updateArrowsVisibility();
-
-  if (typeof writeVariantToUrl === 'function') writeVariantToUrl(tile);
-  if (typeof renderMixedMediaToggle === 'function') renderMixedMediaToggle(tile);
 }
 
 // ============================================================
-//  COLOUR GALLERY \u{1F504}\u201D rendering
+//  COLOUR GALLERY â€” rendering
 // ============================================================
 function renderColourGallery(tiles) {
   if (!Array.isArray(tiles) || tiles.length === 0) return '';
@@ -591,13 +502,13 @@ function renderColourGallery(tiles) {
   const arrowLeft =
     '<button type="button" class="colour-gallery-arrow colour-gallery-arrow--left" ' +
       'aria-label="Previous colour" onclick="stepColourGallery(-1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-left"></i>' +
     '</button>';
 
   const arrowRight =
     '<button type="button" class="colour-gallery-arrow colour-gallery-arrow--right" ' +
       'aria-label="Next colour" onclick="stepColourGallery(1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-right"></i>' +
     '</button>';
 
   const tilesHtml = tiles.map(tile => {
@@ -628,7 +539,7 @@ function renderColourGallery(tiles) {
 }
 
 // ============================================================
-//  COLOUR GALLERY \u{1F504}\u201D interaction wiring
+//  COLOUR GALLERY â€” interaction wiring
 // ============================================================
 function wireColourGallery() {
   const scroller = document.getElementById('colourGalleryScroller');
@@ -737,8 +648,8 @@ function selectColour(key, options) {
       ? tile.stock
       : (currentProduct && currentProduct.stock != null ? currentProduct.stock : 999);
     stockInfo.innerHTML = stock > 0
-      ? `<span class="in-stock">\u2705 In Stock (${stock} available)</span>`
-      : `<span class="out-of-stock">\u2212 Out of Stock</span>`;
+      ? `<span class="in-stock">âœ“ In Stock (${stock} available)</span>`
+      : `<span class="out-of-stock">âœ• Out of Stock</span>`;
   }
 
   const mainMedia = document.getElementById('detailMainMedia');
@@ -775,14 +686,11 @@ function selectColour(key, options) {
       item.id === currentProduct.id &&
       (tile.variantId !== null ? item.variant_id === tile.variantId : true)
     );
-    btn.textContent = isInCart ? '\u{1F6D2}? Add More' : '\u{1F6D2}? Add to Cart';
+    btn.textContent = isInCart ? 'ðŸ›’ Add More' : 'ðŸ›’ Add to Cart';
     btn.classList.toggle('in-cart', isInCart);
   }
 
   updateArrowsVisibility();
-
-  if (typeof writeVariantToUrl === 'function') writeVariantToUrl(tile);
-  if (typeof renderMixedMediaToggle === 'function') renderMixedMediaToggle(tile);
 }
 
 // ============================================================
@@ -894,7 +802,7 @@ function addVariantToCart() {
 
   saveCart(cart);
   updateCartBadge();
-  showToast(`\u2212 Added ${detailQty} "${currentProduct.name}" (${variantName}) to cart!`, 'success');
+  showToast(`âœ… Added ${detailQty} "${currentProduct.name}" (${variantName}) to cart!`, 'success');
   detailQty = 1;
   const span = document.getElementById('detailQty');
   if (span) span.textContent = '1';
@@ -948,9 +856,6 @@ window.filterRelatedProducts = filterRelatedProducts;
 window.renderThankYouBand = renderThankYouBand;
 window.orderRelatedForDisplay = orderRelatedForDisplay;
 window.buildColourTiles = buildColourTiles;
-window.readVariantFromUrl = readVariantFromUrl;
-window.writeVariantToUrl = writeVariantToUrl;
-window.renderMixedMediaToggle = renderMixedMediaToggle;
 
 // ============================================================
 //  PINNED FOOTER
@@ -1072,7 +977,7 @@ window.renderMixedMediaToggle = renderMixedMediaToggle;
           <span>Kenya's Multi-Vendor Marketplace</span>
         </div>
         <div class="bidhaa-legal-footer-thanks" id="footerThankYou">
-          <span class="bidhaa-legal-footer-thanks-icon" aria-hidden="true">\u{1F6D2}</span>
+          <span class="bidhaa-legal-footer-thanks-icon" aria-hidden="true">ðŸ™</span>
           <span class="bidhaa-legal-footer-thanks-text">
             Thank you for visiting <span id="footerThankYouBusinessName">${name}</span>. We value you!
           </span>
@@ -1163,285 +1068,3 @@ window.renderMixedMediaToggle = renderMixedMediaToggle;
     setTimeout(forcePinnedFooter, ms);
   });
 })();
-/* ============================================================
-   PHASE 3 - BIG-MEDIA ARROWS AND SWIPE GESTURES
-   Pure additions. No existing function is modified.
-   ============================================================ */
-
-var bigMediaGestureState = {
-  locked: null,
-  startX: 0,
-  startY: 0,
-  pointerDown: false
-};
-
-var BIG_MEDIA_LOCK_PX = 12;
-var BIG_MEDIA_LOCK_RATIO = 1.2;
-var BIG_MEDIA_TRIGGER_PX = 60;
-
-function injectBigMediaArrows() {
-  var host = document.getElementById('detailMainMedia');
-  if (!host) return;
-  if (document.getElementById('detailBigArrows')) return;
-
-  var wrap = document.createElement('div');
-  wrap.id = 'detailBigArrows';
-  wrap.className = 'detail-big-arrows';
-  wrap.innerHTML =
-    '<button type="button" class="detail-big-arrow detail-big-arrow--up" ' +
-      'aria-label="Previous variant" onclick="stepVariantByDirection(-1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    '</button>' +
-    '<button type="button" class="detail-big-arrow detail-big-arrow--down" ' +
-      'aria-label="Next variant" onclick="stepVariantByDirection(1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    '</button>' +
-    '<button type="button" class="detail-big-arrow detail-big-arrow--left" ' +
-      'aria-label="Previous product" onclick="stepProductByDirection(-1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    '</button>' +
-    '<button type="button" class="detail-big-arrow detail-big-arrow--right" ' +
-      'aria-label="Next product" onclick="stepProductByDirection(1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    '</button>';
-
-  host.appendChild(wrap);
-  updateBigMediaArrows();
-}
-
-function updateBigMediaArrows() {
-  var up    = document.querySelector('.detail-big-arrow--up');
-  var down  = document.querySelector('.detail-big-arrow--down');
-  var left  = document.querySelector('.detail-big-arrow--left');
-  var right = document.querySelector('.detail-big-arrow--right');
-  if (!up || !down || !left || !right) return;
-
-  var verticalEnabled = Array.isArray(colourTiles) && colourTiles.length > 1;
-  var colourIdx = verticalEnabled
-    ? colourTiles.findIndex(function (t) { return t.key === selectedColourKey; })
-    : 0;
-  up.disabled   = !verticalEnabled || colourIdx <= 0;
-  down.disabled = !verticalEnabled || colourIdx >= colourTiles.length - 1;
-
-  var siblings = window.__productSwipeList || [];
-  var horizontalEnabled = siblings.length > 1;
-  var sibIdx = siblings.findIndex(function (p) {
-    return String(p.id) === String(productId);
-  });
-  left.disabled  = !horizontalEnabled || sibIdx <= 0;
-  right.disabled = !horizontalEnabled || sibIdx >= siblings.length - 1;
-}
-
-function stepVariantByDirection(direction) {
-  if (!Array.isArray(colourTiles) || colourTiles.length <= 1) return;
-  var idx = colourTiles.findIndex(function (t) { return t.key === selectedColourKey; });
-  if (idx < 0) return;
-  var nextIdx = idx + direction;
-  if (nextIdx < 0 || nextIdx >= colourTiles.length) return;
-  selectColour(colourTiles[nextIdx].key);
-}
-
-function stepProductByDirection(direction) {
-  var list = window.__productSwipeList || [];
-  if (!Array.isArray(list) || list.length <= 1) return;
-
-  var idx = list.findIndex(function (p) { return String(p.id) === String(productId); });
-  if (idx < 0) return;
-  var nextIdx = idx + direction;
-  if (nextIdx < 0 || nextIdx >= list.length) return;
-
-  var target = list[nextIdx];
-  if (!target || !target.id) return;
-
-  var url = new URL(window.location.href);
-  url.searchParams.set('id', target.id);
-  window.location.href = url.pathname + url.search + url.hash;
-}
-
-function wireBigMediaGestures() {
-  var host = document.getElementById('detailMainMedia');
-  if (!host || host.dataset.gesturesWired === '1') return;
-  host.dataset.gesturesWired = '1';
-
-  function reset() {
-    bigMediaGestureState.locked = null;
-    bigMediaGestureState.pointerDown = false;
-    bigMediaGestureState.startX = 0;
-    bigMediaGestureState.startY = 0;
-  }
-
-  function onStart(clientX, clientY) {
-    bigMediaGestureState.pointerDown = true;
-    bigMediaGestureState.locked = null;
-    bigMediaGestureState.startX = clientX;
-    bigMediaGestureState.startY = clientY;
-  }
-
-  function onMove(clientX, clientY, event) {
-    if (!bigMediaGestureState.pointerDown) return;
-
-    var dx = clientX - bigMediaGestureState.startX;
-    var dy = clientY - bigMediaGestureState.startY;
-    var absX = Math.abs(dx);
-    var absY = Math.abs(dy);
-
-    if (bigMediaGestureState.locked === null) {
-      if (absX >= BIG_MEDIA_LOCK_PX && absX > BIG_MEDIA_LOCK_RATIO * absY) {
-        bigMediaGestureState.locked = 'horizontal';
-      } else if (absY >= BIG_MEDIA_LOCK_PX && absY > BIG_MEDIA_LOCK_RATIO * absX) {
-        bigMediaGestureState.locked = 'vertical';
-      } else {
-        return;
-      }
-    }
-
-    if (event && typeof event.preventDefault === 'function') {
-      try { event.preventDefault(); } catch (e) { /* ignore */ }
-    }
-
-    if (bigMediaGestureState.locked === 'horizontal') {
-      if (absX >= BIG_MEDIA_TRIGGER_PX) {
-        stepProductByDirection(dx < 0 ? 1 : -1);
-        reset();
-      }
-    } else if (bigMediaGestureState.locked === 'vertical') {
-      if (absY >= BIG_MEDIA_TRIGGER_PX) {
-        stepVariantByDirection(dy > 0 ? 1 : -1);
-        reset();
-      }
-    }
-  }
-
-  function onEnd() { reset(); }
-
-  host.addEventListener('touchstart', function (e) {
-    if (e.touches.length !== 1) return;
-    onStart(e.touches[0].clientX, e.touches[0].clientY);
-  }, { passive: true });
-
-  host.addEventListener('touchmove', function (e) {
-    if (e.touches.length !== 1) return;
-    onMove(e.touches[0].clientX, e.touches[0].clientY, e);
-  }, { passive: false });
-
-  host.addEventListener('touchend', onEnd);
-  host.addEventListener('touchcancel', onEnd);
-
-  host.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return;
-    onStart(e.clientX, e.clientY);
-  });
-  window.addEventListener('mousemove', function (e) {
-    onMove(e.clientX, e.clientY, null);
-  });
-  window.addEventListener('mouseup', onEnd);
-}
-
-var _originalSelectColour = window.selectColour || selectColour;
-window.selectColour = function (key, options) {
-  _originalSelectColour(key, options);
-  if (typeof injectBigMediaArrows === 'function') injectBigMediaArrows();
-  if (typeof wireBigMediaGestures === 'function') wireBigMediaGestures();
-  if (typeof updateBigMediaArrows === 'function') updateBigMediaArrows();
-};
-
-var _originalLoadProductDetail = window.loadProductDetail || loadProductDetail;
-window.loadProductDetail = async function () {
-  await _originalLoadProductDetail();
-  injectBigMediaArrows();
-  wireBigMediaGestures();
-  updateBigMediaArrows();
-};
-
-var _originalLoadSiblingProducts = window.loadSiblingProducts;
-if (typeof _originalLoadSiblingProducts === 'function') {
-  window.loadSiblingProducts = async function () {
-    await _originalLoadSiblingProducts();
-    if (Array.isArray(window.siblingProducts)) {
-      window.__productSwipeList = window.siblingProducts;
-    }
-    updateBigMediaArrows();
-  };
-}
-
-window.injectBigMediaArrows = injectBigMediaArrows;
-window.updateBigMediaArrows = updateBigMediaArrows;
-window.stepVariantByDirection = stepVariantByDirection;
-window.stepProductByDirection = stepProductByDirection;
-window.wireBigMediaGestures = wireBigMediaGestures;
-
-/* ============================================================
-   PHASE 3b - sibling list loader (self-contained)
-   Fetches every product of the same shop and fills
-   window.__productSwipeList so the left/right arrows can step
-   through them. Does not depend on any Phase 2 export.
-   ============================================================ */
-
-async function ensureProductSwipeList() {
-  if (Array.isArray(window.__productSwipeList) && window.__productSwipeList.length > 0) {
-    return;
-  }
-
-  var slug = (currentProduct && currentProduct.business_slug) ? currentProduct.business_slug : null;
-  if (!slug) {
-    var fromUrl = new URLSearchParams(window.location.search).get('business');
-    if (fromUrl) slug = fromUrl;
-  }
-  if (!slug) {
-    window.__productSwipeList = [];
-    updateBigMediaArrows();
-    return;
-  }
-
-  try {
-    var all = [];
-    var page = 1;
-    var totalPages = 1;
-
-    while (page <= totalPages && page <= 20) {
-      var res = await fetch(
-        '/api/businesses/' + encodeURIComponent(slug) +
-        '/products?limit=100&page=' + page
-      );
-      if (!res.ok) break;
-      var data = await res.json();
-      if (Array.isArray(data.products)) { all = all.concat(data.products); }
-      totalPages = data.pagination && data.pagination.pages ? data.pagination.pages : page;
-      page += 1;
-    }
-
-    window.__productSwipeList = all;
-    window.siblingProducts = all;
-    if (typeof updateBigMediaArrows === 'function') updateBigMediaArrows();
-  } catch (err) {
-    console.warn('Sibling list fetch failed:', err.message);
-    window.__productSwipeList = [];
-    if (typeof updateBigMediaArrows === 'function') updateBigMediaArrows();
-  }
-}
-
-/* Kick off once the detail card is on screen. */
-(function () {
-  var started = false;
-  function tryStart() {
-    if (started) return;
-    if (!document.getElementById('detailMainMedia')) return;
-    started = true;
-    ensureProductSwipeList();
-  }
-  function boot() {
-    var tries = 0;
-    var timer = setInterval(function () {
-      tries += 1;
-      tryStart();
-      if (started || tries > 60) clearInterval(timer);
-    }, 100);
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
-})();
-
-window.ensureProductSwipeList = ensureProductSwipeList;

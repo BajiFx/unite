@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 //  PRODUCT DETAIL JAVASCRIPT
 //
 //  Colour gallery:
@@ -591,13 +591,13 @@ function renderColourGallery(tiles) {
   const arrowLeft =
     '<button type="button" class="colour-gallery-arrow colour-gallery-arrow--left" ' +
       'aria-label="Previous colour" onclick="stepColourGallery(-1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-left"></i>' +
     '</button>';
 
   const arrowRight =
     '<button type="button" class="colour-gallery-arrow colour-gallery-arrow--right" ' +
       'aria-label="Next colour" onclick="stepColourGallery(1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-right"></i>' +
     '</button>';
 
   const tilesHtml = tiles.map(tile => {
@@ -1190,19 +1190,19 @@ function injectBigMediaArrows() {
   wrap.innerHTML =
     '<button type="button" class="detail-big-arrow detail-big-arrow--up" ' +
       'aria-label="Previous variant" onclick="stepVariantByDirection(-1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-up"></i>' +
     '</button>' +
     '<button type="button" class="detail-big-arrow detail-big-arrow--down" ' +
       'aria-label="Next variant" onclick="stepVariantByDirection(1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-down"></i>' +
     '</button>' +
     '<button type="button" class="detail-big-arrow detail-big-arrow--left" ' +
       'aria-label="Previous product" onclick="stepProductByDirection(-1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-left"></i>' +
     '</button>' +
     '<button type="button" class="detail-big-arrow detail-big-arrow--right" ' +
       'aria-label="Next product" onclick="stepProductByDirection(1)">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<i class="fas fa-chevron-right"></i>' +
     '</button>';
 
   host.appendChild(wrap);
