@@ -86,6 +86,141 @@
   color: #94a3b8;
 }
 
+/* ------------------------------------------------------------------
+   Drag-to-swipe shell for the big product media.
+   The outer frame clips; the inner track is the only thing that
+   receives a transform while the finger is down. The track is
+   created by product-detail.js in a later change.
+   ------------------------------------------------------------------ */
+
+#detailMainMedia {
+  overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+
+#detailMainMediaTrack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  transition: none;
+}
+
+#detailMainMediaTrack img,
+#detailMainMediaTrack video {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* While the finger is dragging, hide the text selection caret
+   on any nested content. */
+#detailMainMedia.is-dragging,
+#detailMainMedia.is-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------
+   Drag-to-swipe shell for the big product media.
+   The outer frame clips; the inner track is the only thing that
+   receives a transform while the finger is down. The track is
+   created by product-detail.js in a later change.
+   ------------------------------------------------------------------ */
+
+#detailMainMedia {
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  position: relative;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: auto;
+}
+#detailMainMedia .detail-big-arrow {
+  touch-action: none;
+}
+
+#detailMainMediaTrack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  transition: none;
+}
+
+#detailMainMediaTrack img,
+#detailMainMediaTrack video {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* While the finger is dragging, hide the text selection caret
+   on any nested content. */
+#detailMainMedia.is-dragging,
+#detailMainMedia.is-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------
+   Drag-to-swipe shell for the big product media.
+   The outer frame clips; the inner track is the only thing that
+   receives a transform while the finger is down. The track is
+   created by product-detail.js in a later change.
+   ------------------------------------------------------------------ */
+
+#detailMainMedia {
+  overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+
+#detailMainMediaTrack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  transition: none;
+}
+
+#detailMainMediaTrack img,
+#detailMainMediaTrack video {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* While the finger is dragging, hide the text selection caret
+   on any nested content. */
+#detailMainMedia.is-dragging,
+#detailMainMedia.is-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .media-thumbnails {
   display: flex;
   gap: 8px;
