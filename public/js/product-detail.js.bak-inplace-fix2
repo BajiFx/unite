@@ -42,7 +42,7 @@
 // ============================================================
 
 const urlParams = new URLSearchParams(window.location.search);
-let productId = urlParams.get('id');
+const productId = urlParams.get('id');
 if (!productId) {
   document.getElementById('detailContent').innerHTML = '<p style="color:#ef4444;">Product ID missing.</p>';
 }
@@ -1447,7 +1447,7 @@ async function ensureProductSwipeList() {
 
 window.ensureProductSwipeList = ensureProductSwipeList;
 /* ============================================================
-   PHASE 3c ? in-place product swap
+   PHASE 3c — in-place product swap
    Replaces the full-page navigation with an in-place fetch and
    re-render. The URL is updated silently so the browser back
    button still walks the sibling list, and the arrows are
@@ -1461,7 +1461,6 @@ async function swapToProduct(targetId) {
     const data = await res.json();
 
     currentProduct = data.product;
-    productId = String(data.product.id);
     allVariants = data.variants || [];
     colourTiles = buildColourTiles(currentProduct, allVariants);
 

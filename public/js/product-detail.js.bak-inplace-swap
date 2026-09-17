@@ -42,7 +42,7 @@
 // ============================================================
 
 const urlParams = new URLSearchParams(window.location.search);
-let productId = urlParams.get('id');
+const productId = urlParams.get('id');
 if (!productId) {
   document.getElementById('detailContent').innerHTML = '<p style="color:#ef4444;">Product ID missing.</p>';
 }
@@ -1446,80 +1446,3 @@ async function ensureProductSwipeList() {
 })();
 
 window.ensureProductSwipeList = ensureProductSwipeList;
-/* ============================================================
-   PHASE 3c ? in-place product swap
-   Replaces the full-page navigation with an in-place fetch and
-   re-render. The URL is updated silently so the browser back
-   button still walks the sibling list, and the arrows are
-   re-wired after each swap.
-   ============================================================ */
-
-async function swapToProduct(targetId) {
-  try {
-    const res = await fetch('/api/products/' + encodeURIComponent(targetId) + '/detail');
-    if (!res.ok) throw new Error('Failed to load product ' + targetId);
-    const data = await res.json();
-
-    currentProduct = data.product;
-    productId = String(data.product.id);
-    allVariants = data.variants || [];
-    colourTiles = buildColourTiles(currentProduct, allVariants);
-
-    // Default selection: parent (Standard) unless the URL asks for
-    // a specific variant name.
-    const url = new URL(window.location.href);
-    const requestedVariantName = url.searchParams.get('variant');
-    let initialKey = 'parent';
-
-    if (requestedVariantName) {
-      const needle = String(requestedVariantName).toLowerCase();
-      const match = colourTiles.find(t =>
-        String(t.name || '').trim().toLowerCase() === needle
-      );
-      if (match) initialKey = match.key;
-    }
-
-    selectedColourKey = initialKey;
-    currentMediaIndex = 0;
-
-    const related = orderRelatedForDisplay(data.related || [], data.product);
-    renderDetail(data.product, related);
-
-    // Update the URL silently.
-    url.searchParams.set('id', targetId);
-    url.searchParams.set('variant', String(
-      (getSelectedTile() && getSelectedTile().name) || 'Standard'
-    ));
-    window.history.replaceState({}, '', url.pathname + url.search + url.hash);
-
-    // Re-wire the arrows and gestures that renderDetail() just replaced.
-    injectBigMediaArrows();
-    wireBigMediaGestures();
-    updateBigMediaArrows();
-
-    // The sibling list does not change on an in-place swap, so we
-    // only need to re-check the enable state, not refetch.
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-  } catch (err) {
-    console.warn('In-place swap failed:', err.message);
-    if (typeof showToast === 'function') {
-      showToast('Could not load that product. Please try again.', 'error');
-    }
-  }
-}
-
-function stepProductByDirection(direction) {
-  const list = window.__productSwipeList || [];
-  if (!Array.isArray(list) || list.length <= 1) return;
-
-  const idx = list.findIndex(function (p) { return String(p.id) === String(productId); });
-  if (idx < 0) return;
-  const nextIdx = idx + direction;
-  if (nextIdx < 0 || nextIdx >= list.length) return;
-
-  const target = list[nextIdx];
-  if (!target || !target.id) return;
-
-  swapToProduct(target.id);
-}
