@@ -332,14 +332,6 @@ async function loadParentRow(client, productId) {
  * empty array and the caller falls back to the parent row.
  */
 async function listActiveVariants(productId) {
-    const cached = _cacheGet(productId);
-    if (cached !== undefined) return cached;
-    const fresh = await _listActiveVariantsUncached(productId);
-    _cacheSet(productId, fresh);
-    return fresh;
-}
-
-async function _listActiveVariantsUncached(productId) {
     if (!productId) return [];
 
     const parent = await loadParentRow(null, productId);
@@ -1053,96 +1045,6 @@ async function getVariantSummaryForProducts(productIds) {
 //  EXPORTS
 // ------------------------------------------------------------
 
-
-
-// ------------------------------------------------------------
-//  BATCHED READS + IN-PROCESS LRU (added by _slowfix_step1a)
-// ------------------------------------------------------------
-
-const _variantCache = new Map();
-const _VARIANT_CACHE_TTL_MS = 60 * 1000;
-const _VARIANT_CACHE_MAX = 500;
-
-function _cacheGet(productId) {
-  const entry = _variantCache.get(productId);
-  if (!entry) return undefined;
-  if (Date.now() - entry.at > _VARIANT_CACHE_TTL_MS) {
-    _variantCache.delete(productId);
-    return undefined;
-  }
-  return entry.value;
-}
-
-function _cacheSet(productId, value) {
-  if (_variantCache.size >= _VARIANT_CACHE_MAX) {
-    const firstKey = _variantCache.keys().next().value;
-    _variantCache.delete(firstKey);
-  }
-  _variantCache.set(productId, { at: Date.now(), value });
-}
-
-function _cacheInvalidate(productId) {
-  if (productId === undefined || productId === null) {
-    _variantCache.clear();
-    return;
-  }
-  _variantCache.delete(productId);
-}
-
-async function listActiveVariantsForProducts(productIds) {
-  const ids = Array.isArray(productIds)
-    ? productIds.map(Number).filter(Number.isFinite)
-    : [];
-  const out = new Map();
-  if (ids.length === 0) return out;
-
-  const missing = [];
-  for (const id of ids) {
-    const hit = _cacheGet(id);
-    if (hit !== undefined) {
-      out.set(id, hit);
-    } else {
-      missing.push(id);
-    }
-  }
-
-  if (missing.length === 0) return out;
-
-  const { rows: parents } = await pool.query(
-    'SELECT id, image, video, video_poster_url, price, old_price, discount_percent, stock FROM products WHERE id = ANY($1::int[])',
-    [missing]
-  );
-  const parentById = new Map(parents.map(r => [Number(r.id), r]));
-
-  const { rows: variantRows } = await pool.query(
-    `SELECT id, product_id, name, image, video, video_poster_url,
-            price, old_price, discount_percent, stock,
-            color_code, display_order, is_active
-       FROM product_variants
-      WHERE product_id = ANY($1::int[]) AND is_active = TRUE
-      ORDER BY product_id ASC, display_order ASC, id ASC`,
-    [missing]
-  );
-
-  const grouped = new Map();
-  for (const id of missing) grouped.set(id, []);
-  for (const v of variantRows) {
-    const pid = Number(v.product_id);
-    if (!grouped.has(pid)) grouped.set(pid, []);
-    grouped.get(pid).push(v);
-  }
-
-  for (const id of missing) {
-    const parent = parentById.get(id) || {};
-    const resolved = (grouped.get(id) || []).map(v => resolveVariant(v, parent));
-    _cacheSet(id, resolved);
-    out.set(id, resolved);
-  }
-
-  return out;
-}
-
-
 module.exports = {
     // Constants
     IMPLICIT_VARIANT_NAME,
@@ -1151,7 +1053,6 @@ module.exports = {
 
     // Reads
     listActiveVariants,
-    listActiveVariantsForProducts,
     listAllVariants,
     listRawVariants,
     getVariantById,

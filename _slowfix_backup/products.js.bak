@@ -65,7 +65,6 @@ const { logAdminActivity } = require('../services/orderService');
 // that table directly except the batch endpoint that already
 // existed.
 const variantService = require('../services/variantService');
-const listActiveVariantsForProducts = variantService.listActiveVariantsForProducts;
 const router = express.Router();
 
 // ============================================================
@@ -396,13 +395,6 @@ router.get('/:id/detail', async (req, res) => {
     `, [id, product.business_id, product.product_category_id || null]);
 
     const related = [];
-    let relatedVariantMap = new Map();
-    try {
-        relatedVariantMap = await listActiveVariantsForProducts(relatedResult.rows.map(r => r.id));
-    } catch (batchErr) {
-        console.warn('Batched related-variant load failed:', batchErr.message);
-    }
-
     for (const rel of relatedResult.rows) {
       // Phase 1 — use the service so the image resolution follows
       // the inheritance chain. A variant that carries no image of
@@ -410,13 +402,23 @@ router.get('/:id/detail', async (req, res) => {
       // instead of overriding it with null.
       let relatedImage = rel.image || null;
       try {
-        const relVariants = relatedVariantMap.get(rel.id) || [];
+        const relVariants = await variantService.listActiveVariants(rel.id);
         const firstWithImage = relVariants.find(v => v.image);
         if (firstWithImage && firstWithImage.image) {
           relatedImage = firstWithImage.image;
         }
       } catch (relVariantErr) {
-        // Keep the product image.
+        // Fall back to the raw read used previously.
+        try {
+          const vRes = await pool.query(
+            'SELECT image FROM product_variants WHERE product_id = $1 LIMIT 1',
+            [rel.id]
+          );
+          const variant = vRes.rows[0] || null;
+          if (variant?.image) relatedImage = variant.image;
+        } catch (rawErr) {
+          // Keep the product image.
+        }
       }
 
       related.push({

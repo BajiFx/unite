@@ -61,7 +61,6 @@ const Customer = require('../models/Customer');
 // product_variants, so no route in this file queries that table
 // directly.
 const variantService = require('../services/variantService');
-const listActiveVariantsForProducts = variantService.listActiveVariantsForProducts;
 const router = express.Router();
 
 function productFallbackImage(name) {
@@ -1848,19 +1847,17 @@ router.get('/:slug/products', async (req, res) => {
         const businessHero = businessResult.rows[0].heroImage || businessResult.rows[0].logo || null;
         const products = [];
 
-        let variantMap = new Map();
-        try {
-            variantMap = await listActiveVariantsForProducts(result.rows.map(r => r.id));
-        } catch (batchErr) {
-            console.warn('Batched variant load failed; falling back:', batchErr.message);
-            for (const p of result.rows) {
-                try { variantMap.set(p.id, await variantService.listActiveVariants(p.id)); }
-                catch (e) { variantMap.set(p.id, []); }
-            }
-        }
-
         for (const product of result.rows) {
-            let variants = variantMap.get(product.id) || [];
+            let variants = [];
+            try {
+                variants = await variantService.listActiveVariants(product.id);
+            } catch (variantErr) {
+                console.warn(
+                    `Unable to load variants for product ${product.id}:`,
+                    variantErr.message
+                );
+            }
+
             // Resolve the grid thumbnail for this product using the
             // same fallback chain the detail page will use.
             const firstVariantWithImage = variants.find(v => v.image);
