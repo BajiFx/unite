@@ -3,191 +3,557 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Dashboard</title>
+  <title>Super Admin Dashboard - BidhaaLink</title>
+  <meta name="description" content="BidhaaLink Super Admin Panel — view and manage customers and businesses.">
+
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/css/admin.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <style>
+    /* ============================================================
+       Super admin dashboard — page-only additions.
+       Everything here is scoped under #adminPanel or a new
+       class name so nothing else in admin.css is affected.
+       ============================================================ */
+
+    #adminPanel {
+      display: none;
+    }
+    #adminPanel.visible {
+      display: block;
+    }
+
+    .superadmin-list-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-top: 24px;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+    }
+
+    .superadmin-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .superadmin-list-header h3 {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .superadmin-list-header h3 i {
+      color: #2563eb;
+    }
+
+    .superadmin-list-header .list-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 26px;
+      height: 22px;
+      padding: 0 9px;
+      background: #e0e7ff;
+      color: #3730a3;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      margin-left: 6px;
+    }
+
+    .superadmin-list-header .list-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .superadmin-list-header .list-actions input {
+      padding: 6px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      min-width: 220px;
+    }
+
+    .superadmin-list-header .list-actions button {
+      padding: 6px 14px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #1e293b;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background-color 0.15s ease;
+    }
+
+    .superadmin-list-header .list-actions button:hover {
+      background: #e2e8f0;
+    }
+
+    .superadmin-table-wrap {
+      overflow-x: auto;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      background: #ffffff;
+    }
+
+    .superadmin-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      min-width: 720px;
+    }
+
+    .superadmin-table thead th {
+      background: #f8fafc;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 700;
+      color: #475569;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 2px solid #e2e8f0;
+    }
+
+    .superadmin-table tbody td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+      vertical-align: middle;
+    }
+
+    .superadmin-table tbody tr:hover td {
+      background: #fafbfc;
+    }
+
+    .superadmin-table tbody tr.is-inactive td {
+      background: #fff7ed;
+      color: #92400e;
+    }
+
+    .superadmin-table tbody tr.is-inactive .row-name {
+      color: #92400e;
+    }
+
+    .superadmin-table .row-name {
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .superadmin-table .row-sub {
+      display: block;
+      font-size: 0.72rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .superadmin-table .state-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .superadmin-table .state-pill.active {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
+    }
+
+    .superadmin-table .state-pill.suspended {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .row-actions button {
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .row-actions button:hover:not(:disabled) {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+
+    .row-actions button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .row-actions .btn-suspend {
+      background: #fffbeb;
+      color: #92400e;
+      border-color: #fcd34d;
+    }
+    .row-actions .btn-suspend:hover:not(:disabled) {
+      background: #fef3c7;
+      border-color: #f59e0b;
+    }
+
+    .row-actions .btn-activate {
+      background: #f0fdf4;
+      color: #166534;
+      border-color: #86efac;
+    }
+    .row-actions .btn-activate:hover:not(:disabled) {
+      background: #dcfce7;
+      border-color: #16a34a;
+    }
+
+    .row-actions .btn-delete {
+      background: #fef2f2;
+      color: #991b1b;
+      border-color: #fca5a5;
+    }
+    .row-actions .btn-delete:hover:not(:disabled) {
+      background: #fee2e2;
+      border-color: #ef4444;
+    }
+
+    .superadmin-empty {
+      text-align: center;
+      padding: 30px 16px;
+      color: #94a3b8;
+      font-size: 0.85rem;
+    }
+
+    .superadmin-empty i {
+      display: block;
+      font-size: 1.8rem;
+      color: #cbd5e1;
+      margin-bottom: 8px;
+    }
+
+    .superadmin-error {
+      text-align: center;
+      padding: 20px 16px;
+      color: #991b1b;
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 10px;
+      font-size: 0.85rem;
+    }
+
+    @media (max-width: 640px) {
+      .superadmin-list-header .list-actions {
+        width: 100%;
+      }
+      .superadmin-list-header .list-actions input {
+        flex: 1;
+        min-width: 0;
+      }
+    }
+  </style>
 </head>
 <body class="admin-body">
+
   <header class="admin-header">
-    <h1><i class="fas fa-chart-pie"></i> Operations Dashboard</h1>
-    <nav>
+    <div class="header-left">
+      <h1><i class="fas fa-shield-halved"></i> Super Admin</h1>
+    </div>
+    <nav class="header-right">
+      <a href="/admin-dashboard.html">Dashboard</a>
       <a href="/admin-orders.html">Orders</a>
-      <a href="/business-admin.html">Shop Management</a>
+      <a href="/" target="_blank" rel="noopener">Marketplace</a>
       <a href="#" onclick="logoutAdmin(); return false;">Logout</a>
     </nav>
   </header>
 
-  <main class="admin-dashboard">
-    <div class="dashboard-heading">
-      <div>
-        <p class="eyebrow">Doreen Household Fabrics</p>
-        <h2>Live operations</h2>
+  <div id="adminPanel">
+
+    <main class="admin-dashboard">
+
+      <div class="dashboard-heading">
+        <div>
+          <p class="eyebrow">BidhaaLink</p>
+          <h2>Live operations</h2>
+        </div>
+        <button class="btn btn-primary" onclick="loadAdminDashboard()">
+          <i class="fas fa-sync"></i> Refresh
+        </button>
       </div>
-      <button class="btn btn-primary" onclick="loadAdminDashboard()"><i class="fas fa-sync"></i> Refresh</button>
-    </div>
-    <div id="dashboardStatus" class="status-message"></div>
-    <section class="admin-stats-grid" id="adminStatsGrid"></section>
-    <section class="admin-quick-links">
-      <a href="/admin-orders.html"><i class="fas fa-box"></i><span>Manage Orders</span><small>Confirm, ship, deliver, refund, export</small></a>
-      <a href="/business-admin.html"><i class="fas fa-store"></i><span>Shop Profile & Products</span><small>Settings, products, variants, delivery</small></a>
-      <a href="/seller-chat.html"><i class="fas fa-comments"></i><span>Seller Chat</span><small>Customer and support conversations</small></a>
-      <a href="/seller-track.html"><i class="fas fa-map-marked-alt"></i><span>Live Customer Map</span><small>Location-sharing customers</small></a>
-      <a href="/minify.html"><i class="fas fa-tools"></i><span>Platform Tools</span><small>Maintenance and activity tools</small></a>
-    </section>
-  </main>
 
-  <script src="/js/cookie-auth-client.js"></script>
-  <script src="/js/admin-dashboard.js"></script>
+      <div id="dashboardStatus" class="status-message"></div>
 
-  <!-- ============================================================ -->
-<!-- LEGAL FOOTER — BidhaaLink                                     -->
-<!-- Terms · Privacy · Cookie Notice · Contact                     -->
-<!-- Loads /js/legal.js at the end so the cookie banner also        -->
-<!-- appears on this page, unless the page already loads it.        -->
-<!-- ============================================================ -->
+      <section class="admin-stats-grid" id="adminStatsGrid">
+        <p style="grid-column:1/-1; color:#94a3b8;">Loading live statistics...</p>
+      </section>
 
-<footer class="bidhaa-legal-footer" role="contentinfo">
-  <div class="bidhaa-legal-footer-inner">
-    <div class="bidhaa-legal-footer-brand">
-      <strong>BidhaaLink</strong>
-      <span>Kenya's Multi-Vendor Marketplace</span>
-    </div>
-    <nav class="bidhaa-legal-footer-links" aria-label="Legal and contact links">
-      <a href="/terms.html">
-        <i class="fas fa-file-contract" aria-hidden="true"></i> Terms and Conditions
-      </a>
-      <a href="/privacy.html">
-        <i class="fas fa-shield-halved" aria-hidden="true"></i> Privacy Policy
-      </a>
-      <a href="/privacy.html#cookies">
-        <i class="fas fa-cookie-bite" aria-hidden="true"></i> Cookie Notice
-      </a>
-      <a href="mailto:georgebabji1220@gmail.com">
-        <i class="fas fa-envelope" aria-hidden="true"></i> Contact
-      </a>
-    </nav>
+      <section class="admin-quick-links">
+        <a href="/admin-orders.html">
+          <i class="fas fa-box"></i>
+          <span>Manage Orders</span>
+          <small>Confirm, ship, deliver, refund, export</small>
+        </a>
+        <a href="/admin-dashboard.html#customersSection">
+          <i class="fas fa-users"></i>
+          <span>Customers</span>
+          <small>View, suspend, and delete customer accounts</small>
+        </a>
+        <a href="/admin-dashboard.html#businessesSection">
+          <i class="fas fa-store"></i>
+          <span>Businesses</span>
+          <small>View, suspend, and delete business accounts</small>
+        </a>
+        <a href="/" target="_blank" rel="noopener">
+          <i class="fas fa-globe"></i>
+          <span>Open Marketplace</span>
+          <small>See the site the way a customer sees it</small>
+        </a>
+      </section>
+
+      <section class="superadmin-list-card" id="customersSection">
+        <div class="superadmin-list-header">
+          <h3>
+            <i class="fas fa-users"></i>
+            Registered Customers
+            <span class="list-count" id="customersCountBadge">0</span>
+          </h3>
+          <div class="list-actions">
+            <input
+              type="search"
+              id="customersSearch"
+              placeholder="Search by name, email, or phone"
+              autocomplete="off">
+            <button type="button" onclick="loadAdminCustomers()">
+              <i class="fas fa-sync"></i> Refresh
+            </button>
+          </div>
+        </div>
+        <div class="superadmin-table-wrap">
+          <table class="superadmin-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Contact</th>
+                <th>Orders</th>
+                <th>Status</th>
+                <th>Registered</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="customersTableBody">
+              <tr>
+                <td colspan="6">
+                  <div class="superadmin-empty">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    Loading customers...
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="superadmin-list-card" id="businessesSection">
+        <div class="superadmin-list-header">
+          <h3>
+            <i class="fas fa-store"></i>
+            Registered Businesses
+            <span class="list-count" id="businessesCountBadge">0</span>
+          </h3>
+          <div class="list-actions">
+            <input
+              type="search"
+              id="businessesSearch"
+              placeholder="Search by business name or email"
+              autocomplete="off">
+            <button type="button" onclick="loadAdminBusinesses()">
+              <i class="fas fa-sync"></i> Refresh
+            </button>
+          </div>
+        </div>
+        <div class="superadmin-table-wrap">
+          <table class="superadmin-table">
+            <thead>
+              <tr>
+                <th>Business</th>
+                <th>Owner</th>
+                <th>Products</th>
+                <th>Status</th>
+                <th>Registered</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="businessesTableBody">
+              <tr>
+                <td colspan="6">
+                  <div class="superadmin-empty">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    Loading businesses...
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
   </div>
-</footer>
 
-<style>
-  /* ============================================================
-     Self-contained styles for the legal footer.
-     Scoped under .bidhaa-legal-footer so nothing else on any page
-     is affected. No external CSS file is required.
-     ============================================================ */
+  <footer class="bidhaa-legal-footer" role="contentinfo">
+    <div class="bidhaa-legal-footer-inner">
+      <div class="bidhaa-legal-footer-brand">
+        <strong>BidhaaLink</strong>
+        <span>Kenya's Multi-Vendor Marketplace</span>
+      </div>
+      <nav class="bidhaa-legal-footer-links" aria-label="Legal and contact links">
+        <a href="/terms.html">
+          <i class="fas fa-file-contract" aria-hidden="true"></i> Terms and Conditions
+        </a>
+        <a href="/privacy.html">
+          <i class="fas fa-shield-halved" aria-hidden="true"></i> Privacy Policy
+        </a>
+        <a href="/privacy.html#cookies">
+          <i class="fas fa-cookie-bite" aria-hidden="true"></i> Cookie Notice
+        </a>
+        <a href="mailto:georgebabji1220@gmail.com">
+          <i class="fas fa-envelope" aria-hidden="true"></i> Contact
+        </a>
+      </nav>
+    </div>
+  </footer>
 
-  .bidhaa-legal-footer {
-    background: #0f172a;
-    color: #94a3b8;
-    padding: 20px 20px;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 0.82rem;
-    line-height: 1.55;
-    margin-top: 32px;
-  }
+  <style>
+    .bidhaa-legal-footer {
+      background: #0f172a;
+      color: #94a3b8;
+      padding: 20px 20px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      margin-top: 32px;
+    }
 
-  .bidhaa-legal-footer-inner {
-    max-width: 1200px;
-    margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-
-  .bidhaa-legal-footer-brand {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .bidhaa-legal-footer-brand strong {
-    color: #ffffff;
-    font-weight: 800;
-    font-size: 0.9rem;
-  }
-
-  .bidhaa-legal-footer-brand span {
-    color: #64748b;
-    font-size: 0.72rem;
-  }
-
-  .bidhaa-legal-footer-links {
-    display: flex;
-    gap: 18px;
-    flex-wrap: wrap;
-  }
-
-  .bidhaa-legal-footer-links a {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: #cbd5e1;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.8rem;
-    transition: color 0.15s ease;
-  }
-
-  .bidhaa-legal-footer-links a:hover {
-    color: #ffffff;
-    text-decoration: underline;
-  }
-
-  .bidhaa-legal-footer-links i {
-    color: #2563eb;
-    font-size: 0.75rem;
-  }
-
-  /* On small screens, stack the brand above the links. */
-  @media (max-width: 640px) {
     .bidhaa-legal-footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .bidhaa-legal-footer-brand {
+      display: flex;
       flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
+      gap: 2px;
+    }
+
+    .bidhaa-legal-footer-brand strong {
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.9rem;
+    }
+
+    .bidhaa-legal-footer-brand span {
+      color: #64748b;
+      font-size: 0.72rem;
     }
 
     .bidhaa-legal-footer-links {
-      gap: 12px;
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
     }
 
     .bidhaa-legal-footer-links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #cbd5e1;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.8rem;
+      transition: color 0.15s ease;
+    }
+
+    .bidhaa-legal-footer-links a:hover {
+      color: #ffffff;
+      text-decoration: underline;
+    }
+
+    .bidhaa-legal-footer-links i {
+      color: #2563eb;
       font-size: 0.75rem;
     }
-  }
 
-  /* If the page already has a fixed bottom nav (e.g. the
-     marketplace home, the cart, the account page), make sure the
-     footer clears it so it is never hidden behind the nav. */
-  body.index-body .bidhaa-legal-footer,
-  body:has(.bottom-nav) .bidhaa-legal-footer {
-    margin-bottom: 90px;
-  }
-</style>
+    @media (max-width: 640px) {
+      .bidhaa-legal-footer-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .bidhaa-legal-footer-links {
+        gap: 12px;
+      }
+      .bidhaa-legal-footer-links a {
+        font-size: 0.75rem;
+      }
+    }
+  </style>
 
-<!-- Load the legal script only if the page did not already load it.
-     The script is idempotent: it will not double-bind if it is
-     loaded more than once, and it will not show the cookie banner
-     twice. -->
-<script>
-  (function () {
-    if (window.__bidhaa_legal_script_loaded) return;
-    window.__bidhaa_legal_script_loaded = true;
+  <script src="/js/cookie-auth-client.js"></script>
+  <script src="/js/admin.js"></script>
+  <script src="/js/admin-dashboard.js"></script>
 
-    var existing = Array.prototype.some.call(
-      document.getElementsByTagName('script'),
-      function (s) { return s.src && s.src.indexOf('/js/legal.js') !== -1; }
-    );
+  <script>
+    (function () {
+      if (window.__bidhaa_legal_script_loaded) return;
+      window.__bidhaa_legal_script_loaded = true;
 
-    if (existing) return;
+      var existing = Array.prototype.some.call(
+        document.getElementsByTagName('script'),
+        function (s) { return s.src && s.src.indexOf('/js/legal.js') !== -1; }
+      );
 
-    var tag = document.createElement('script');
-    tag.src = '/js/legal.js';
-    tag.defer = true;
-    document.body.appendChild(tag);
-  })();
-</script>
+      if (existing) return;
+
+      var tag = document.createElement('script');
+      tag.src = '/js/legal.js';
+      tag.defer = true;
+      document.body.appendChild(tag);
+    })();
+  </script>
+
 </body>
 </html>

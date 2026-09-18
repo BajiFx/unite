@@ -6,22 +6,41 @@
 //        and delete product categories.
 //
 //  F.4 — Platform admin can also list, create, update, deactivate,
-//        and delete business categories. Deletion policy (Q3):
-//        - If any business is assigned to the category, we
-//          deactivate it (is_active = false) and leave the
-//          assignments intact, mirroring the reject behaviour
-//          used for product categories.
-//        - If the category is unused, we hard-delete it.
+//        and delete business categories.
 //
-//  NOTE on business_categories schema:
-//   The existing `business_categories` table has columns:
-//     id, name, slug, icon, description, created_at
-//   It does NOT currently have an `is_active` column. F.4 needs
-//   one so we can deactivate instead of hard-delete when the
-//   category is in use. The migration below is defensive: it runs
-//   once and adds the column if missing. It is safe to run on
-//   every admin boot, but ideally this should live in its own
-//   migration file (see note at the end of this file).
+//  Section 11 — Platform admin can see, suspend, activate, and
+//        hard-delete customers and businesses.
+//
+//  Violations & Claims (this revision):
+//   New endpoints under /api/admin/violations so the super admin
+//   can record, list, filter, review, action, and delete
+//   violations and claims. Each action writes to admin_logs.
+//
+//   GET    /api/admin/violations                 — list with filters
+//   GET    /api/admin/violations/for/:type/:id   — violations for one subject
+//   GET    /api/admin/violations/:id             — one violation
+//   POST   /api/admin/violations                 — record a new violation
+//   PUT    /api/admin/violations/:id             — update status / action
+//   DELETE /api/admin/violations/:id             — hard-delete (admin only)
+//
+//  Complaints Inbox (this revision):
+//   New endpoints under /api/admin/messages so the super admin
+//   can read and reply to complaints from customers and
+//   businesses, and escalate a complaint into a violation.
+//
+//   GET    /api/admin/messages                   — list with filters
+//   GET    /api/admin/messages/counts            — unread badge
+//   GET    /api/admin/messages/:id               — one message
+//   PUT    /api/admin/messages/:id/read          — mark as read
+//   POST   /api/admin/messages/:id/reply         — reply + close
+//   POST   /api/admin/messages/:id/escalate      — convert to violation
+//   PUT    /api/admin/messages/:id/close         — close without reply
+//   DELETE /api/admin/messages/:id               — hard-delete
+//
+//  Dashboard (this revision):
+//   /dashboard now returns the compact top-row stats, the
+//   attention row, and the badge counts for the collapsible
+//   sections in a single response.
 // ============================================================
 
 const express = require('express');
@@ -30,11 +49,26 @@ const path = require('path');
 const { pool } = require('../config/database');
 const { authMiddleware, adminOnly, businessAdminOnly, getBusinessIdFromToken } = require('../middleware/auth');
 const { appendOrderStatus, restockOrder, logAdminActivity } = require('../services/orderService');
+const Customer = require('../models/Customer');
 const router = express.Router();
 
 // ============================================================
+//  Ensure customers.is_active exists.
+// ============================================================
+async function ensureCustomersActiveColumn() {
+  try {
+    await pool.query(`
+      ALTER TABLE customers
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
+    `);
+  } catch (err) {
+    console.warn('⚠️ Could not ensure customers.is_active:', err.message);
+  }
+}
+ensureCustomersActiveColumn();
+
+// ============================================================
 //  Ensure business_categories.is_active exists.
-//  Idempotent. Only adds the column; never changes data.
 // ============================================================
 async function ensureBusinessCategoryActiveColumn() {
   try {
@@ -50,61 +84,157 @@ ensureBusinessCategoryActiveColumn();
 
 // ============================================================
 //  ADMIN DASHBOARD STATS (Platform-wide)
+//
+//  Returns three blocks:
+//    top       — the six compact cards
+//    attention — the five attention cards
+//    badges    — the counters for the collapsible sections
+//
+//  The old fields (pending, confirmed, shipped, etc.) are still
+//  returned for backward compatibility, but the frontend no
+//  longer relies on them.
 // ============================================================
 
 router.get('/dashboard', authMiddleware, adminOnly, async (req, res) => {
   try {
     console.log('📊 Fetching super admin dashboard stats...');
 
-    const statuses = ['pending', 'confirmed', 'shipped', 'delivered', 'received', 'cancelled', 'pending_payment', 'completed'];
-    const stats = {};
+    // ---------- Top row: 6 compact cards ----------
+    const businessesActive = await pool.query(
+      'SELECT COUNT(*) FROM businesses WHERE is_active = true'
+    );
+    const customersActive = await pool.query(
+      'SELECT COUNT(*) FROM customers WHERE COALESCE(is_active, TRUE) = TRUE'
+    );
+    const productsActive = await pool.query(
+      'SELECT COUNT(*) FROM products WHERE is_active = true'
+    );
+    const ordersThisMonth = await pool.query(
+      `SELECT COUNT(*) FROM orders
+        WHERE created_at >= date_trunc('month', NOW())`
+    );
+    const revenueThisMonth = await pool.query(
+      `SELECT COALESCE(SUM(total), 0) FROM orders
+        WHERE status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')
+          AND created_at >= date_trunc('month', NOW())`
+    );
+    const pendingViolations = await pool.query(
+      `SELECT COUNT(*) FROM violations
+        WHERE status IN ('pending', 'under_review')`
+    );
 
+    const top = {
+      businesses_active: parseInt(businessesActive.rows[0].count, 10),
+      customers_active: parseInt(customersActive.rows[0].count, 10),
+      products_active: parseInt(productsActive.rows[0].count, 10),
+      orders_this_month: parseInt(ordersThisMonth.rows[0].count, 10),
+      revenue_this_month: parseFloat(revenueThisMonth.rows[0].sum) || 0,
+      pending_violations: parseInt(pendingViolations.rows[0].count, 10)
+    };
+
+    // ---------- Attention row: 5 cards ----------
+    const pendingClaims = await pool.query(
+      `SELECT COUNT(*) FROM violations
+        WHERE kind = 'claim'
+          AND status IN ('pending', 'under_review')`
+    );
+    const scheduledDeletions = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM customers WHERE deletion_scheduled_at IS NOT NULL)
+       + (SELECT COUNT(*) FROM businesses WHERE deletion_scheduled_at IS NOT NULL)`
+    );
+    const pendingCategoryRequests = await pool.query(
+      `SELECT COUNT(*) FROM product_categories
+        WHERE is_requested = true AND is_active = false`
+    );
+    const pendingReturns = await pool.query(
+      `SELECT COUNT(*) FROM returns WHERE status = 'pending'`
+    );
+    const failedPayments = await pool.query(
+      `SELECT COUNT(*) FROM payments
+        WHERE status = 'failed'
+          AND created_at >= NOW() - INTERVAL '7 days'`
+    );
+
+    const attention = {
+      pending_claims: parseInt(pendingClaims.rows[0].count, 10),
+      scheduled_deletions: parseInt(scheduledDeletions.rows[0].count, 10),
+      pending_category_requests: parseInt(pendingCategoryRequests.rows[0].count, 10),
+      pending_returns: parseInt(pendingReturns.rows[0].count, 10),
+      failed_payments_7d: parseInt(failedPayments.rows[0].count, 10)
+    };
+
+    // ---------- Badge counts ----------
+    const unreadComplaints = await pool.query(
+      `SELECT COUNT(*) FROM admin_messages WHERE status = 'unread'`
+    );
+    const totalCustomers = await pool.query('SELECT COUNT(*) FROM customers');
+    const totalBusinesses = await pool.query('SELECT COUNT(*) FROM businesses');
+    const totalViolations = await pool.query('SELECT COUNT(*) FROM violations');
+
+    const badges = {
+      unread_complaints: parseInt(unreadComplaints.rows[0].count, 10),
+      total_customers: parseInt(totalCustomers.rows[0].count, 10),
+      total_businesses: parseInt(totalBusinesses.rows[0].count, 10),
+      total_violations: parseInt(totalViolations.rows[0].count, 10)
+    };
+
+    // ---------- Legacy fields (kept for backward compatibility) ----------
+    const statuses = ['pending', 'confirmed', 'shipped', 'delivered', 'received', 'cancelled', 'pending_payment', 'completed'];
+    const legacyStats = {};
     for (const status of statuses) {
       const result = await pool.query('SELECT COUNT(*) FROM orders WHERE status = $1', [status]);
-      stats[status] = parseInt(result.rows[0].count);
+      legacyStats[status] = parseInt(result.rows[0].count, 10);
     }
 
     const replacementsPending = await pool.query(
       `SELECT COUNT(*) FROM orders WHERE replacement_status IN ('pending', 'pending_payment', 'pending_refund')`
     );
-    stats.replacements_pending = parseInt(replacementsPending.rows[0].count);
+    legacyStats.replacements_pending = parseInt(replacementsPending.rows[0].count, 10);
 
-    const refundsPending = await pool.query(`SELECT COUNT(*) FROM orders WHERE refund_status = 'pending'`);
-    stats.refunds_pending = parseInt(refundsPending.rows[0].count);
+    const refundsPending = await pool.query(
+      `SELECT COUNT(*) FROM orders WHERE refund_status = 'pending'`
+    );
+    legacyStats.refunds_pending = parseInt(refundsPending.rows[0].count, 10);
 
     const urgent = await pool.query(
       `SELECT COUNT(*) FROM orders WHERE urgent_delivery = true AND status NOT IN ('received', 'cancelled', 'completed')`
     );
-    stats.urgent = parseInt(urgent.rows[0].count);
+    legacyStats.urgent = parseInt(urgent.rows[0].count, 10);
 
     const total = await pool.query('SELECT COUNT(*) FROM orders');
-    stats.total_orders = parseInt(total.rows[0].count);
+    legacyStats.total_orders = parseInt(total.rows[0].count, 10);
 
     const revenue = await pool.query(
-      `SELECT COALESCE(SUM(total), 0) FROM orders WHERE status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')`
+      `SELECT COALESCE(SUM(total), 0) FROM orders
+        WHERE status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')`
     );
-    stats.total_revenue = parseFloat(revenue.rows[0].sum) || 0;
+    legacyStats.total_revenue = parseFloat(revenue.rows[0].sum) || 0;
 
-    const returnsPending = await pool.query(`SELECT COUNT(*) FROM returns WHERE status = 'pending'`);
-    stats.returns_pending = parseInt(returnsPending.rows[0].count);
-
-    const totalBusinesses = await pool.query('SELECT COUNT(*) FROM businesses WHERE is_active = true');
-    stats.total_businesses = parseInt(totalBusinesses.rows[0].count);
-
-    const totalCustomers = await pool.query('SELECT COUNT(*) FROM customers');
-    stats.total_customers = parseInt(totalCustomers.rows[0].count);
-
-    const totalProducts = await pool.query('SELECT COUNT(*) FROM products WHERE is_active = true');
-    stats.total_products = parseInt(totalProducts.rows[0].count);
-
-    // B.6 — surface pending product-category requests on the dashboard
-    const pendingProductCategories = await pool.query(
-      `SELECT COUNT(*) FROM product_categories WHERE is_requested = true AND is_active = false`
+    const returnsPending = await pool.query(
+      `SELECT COUNT(*) FROM returns WHERE status = 'pending'`
     );
-    stats.pending_product_categories = parseInt(pendingProductCategories.rows[0].count);
+    legacyStats.returns_pending = parseInt(returnsPending.rows[0].count, 10);
+
+    const totalBusinessesLegacy = await pool.query('SELECT COUNT(*) FROM businesses WHERE is_active = true');
+    legacyStats.total_businesses = parseInt(totalBusinessesLegacy.rows[0].count, 10);
+
+    const totalCustomersLegacy = await pool.query('SELECT COUNT(*) FROM customers');
+    legacyStats.total_customers = parseInt(totalCustomersLegacy.rows[0].count, 10);
+
+    const totalProductsLegacy = await pool.query('SELECT COUNT(*) FROM products WHERE is_active = true');
+    legacyStats.total_products = parseInt(totalProductsLegacy.rows[0].count, 10);
+
+    legacyStats.pending_product_categories = parseInt(pendingCategoryRequests.rows[0].count, 10);
 
     console.log('✅ Super admin dashboard stats fetched successfully');
-    res.json(stats);
+
+    res.json({
+      top,
+      attention,
+      badges,
+      ...legacyStats
+    });
 
   } catch (err) {
     console.error('❌ Dashboard error:', err);
@@ -124,10 +254,10 @@ router.get('/overview', authMiddleware, adminOnly, async (req, res) => {
     const totalOrders = await pool.query('SELECT COUNT(*) FROM orders');
 
     res.json({
-      total_businesses: parseInt(totalBusinesses.rows[0].count),
-      total_products: parseInt(totalProducts.rows[0].count),
-      total_customers: parseInt(totalCustomers.rows[0].count),
-      total_orders: parseInt(totalOrders.rows[0].count)
+      total_businesses: parseInt(totalBusinesses.rows[0].count, 10),
+      total_products: parseInt(totalProducts.rows[0].count, 10),
+      total_customers: parseInt(totalCustomers.rows[0].count, 10),
+      total_orders: parseInt(totalOrders.rows[0].count, 10)
     });
   } catch (err) {
     console.error('❌ Overview error:', err);
@@ -148,7 +278,9 @@ router.get('/businesses', authMiddleware, adminOnly, async (req, res) => {
              a.email AS owner_email,
              (SELECT COUNT(*) FROM products WHERE business_id = b.id AND is_active = true) as product_count,
              (SELECT COUNT(*) FROM orders WHERE business_id = b.id) as order_count,
-             (SELECT COALESCE(SUM(total), 0) FROM orders WHERE business_id = b.id AND status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')) as total_revenue
+             (SELECT COALESCE(SUM(total), 0) FROM orders WHERE business_id = b.id AND status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')) as total_revenue,
+             (SELECT COUNT(*) FROM violations WHERE subject_type = 'business' AND subject_id = b.id AND status IN ('pending', 'under_review')) as pending_violations,
+             (SELECT COUNT(*) FROM admin_messages WHERE sender_type = 'business' AND sender_id = b.id AND status = 'unread') as unread_messages
       FROM businesses b
       LEFT JOIN admin_users a ON b.owner_id = a.id
       WHERE 1=1
@@ -171,6 +303,8 @@ router.get('/businesses', authMiddleware, adminOnly, async (req, res) => {
       conditions.push(`b.is_verified = true`);
     } else if (status === 'pending') {
       conditions.push(`b.is_verified = false AND b.is_active = true`);
+    } else if (status === 'scheduled_deletion') {
+      conditions.push(`b.deletion_scheduled_at IS NOT NULL`);
     }
 
     if (conditions.length > 0) {
@@ -179,7 +313,7 @@ router.get('/businesses', authMiddleware, adminOnly, async (req, res) => {
 
     query += ' ORDER BY b.created_at DESC';
     query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
 
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -195,7 +329,7 @@ router.get('/businesses', authMiddleware, adminOnly, async (req, res) => {
 
 router.put('/businesses/:id/status', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const businessId = parseInt(req.params.id);
+    const businessId = parseInt(req.params.id, 10);
     const { is_active, is_verified, is_featured } = req.body;
 
     const result = await pool.query(
@@ -229,8 +363,6 @@ router.put('/businesses/:id/status', authMiddleware, adminOnly, async (req, res)
 
 // ============================================================
 //  PRODUCT CATEGORIES — list for super admin
-//  B.6 — filterable by is_active / is_requested so pending
-//        requests can be surfaced at the top of the admin UI.
 // ============================================================
 
 router.get('/product-categories', authMiddleware, adminOnly, async (req, res) => {
@@ -283,8 +415,6 @@ router.get('/product-categories', authMiddleware, adminOnly, async (req, res) =>
 
 // ============================================================
 //  PRODUCT CATEGORIES — create as platform admin
-//  B.6 — platform admin can add a category that is immediately
-//        active (no request workflow needed).
 // ============================================================
 
 router.post('/product-categories', authMiddleware, adminOnly, async (req, res) => {
@@ -379,7 +509,6 @@ router.put('/product-categories/:id', authMiddleware, adminOnly, async (req, res
 
 // ============================================================
 //  PRODUCT CATEGORIES — approve a business admin request
-//  B.6 — flips is_active=true and clears is_requested.
 // ============================================================
 
 router.post('/product-categories/:id/approve', authMiddleware, adminOnly, async (req, res) => {
@@ -408,7 +537,6 @@ router.post('/product-categories/:id/approve', authMiddleware, adminOnly, async 
 
 // ============================================================
 //  PRODUCT CATEGORIES — reject a business admin request
-//  B.6 — deletes the requested row if no product is using it.
 // ============================================================
 
 router.post('/product-categories/:id/reject', authMiddleware, adminOnly, async (req, res) => {
@@ -421,7 +549,6 @@ router.post('/product-categories/:id/reject', authMiddleware, adminOnly, async (
       [id]
     );
     if (inUse.rows[0].count > 0) {
-      // Cannot delete — deactivate instead and leave a note.
       const result = await pool.query(`
         UPDATE product_categories
         SET is_active = false, is_requested = false, updated_at = NOW()
@@ -453,8 +580,6 @@ router.post('/product-categories/:id/reject', authMiddleware, adminOnly, async (
 
 // ============================================================
 //  PRODUCT CATEGORIES — delete
-//  Guards against deleting a category that is still attached
-//  to at least one product.
 // ============================================================
 
 router.delete('/product-categories/:id', authMiddleware, adminOnly, async (req, res) => {
@@ -490,15 +615,6 @@ router.delete('/product-categories/:id', authMiddleware, adminOnly, async (req, 
 
 // ============================================================
 //  BUSINESS CATEGORIES — list for super admin (F.4)
-//
-//  Returns every category with:
-//   - name, slug, icon, description
-//   - is_active flag (defaults to true)
-//   - business_count (how many businesses use it)
-//   - product_category_count (how many product categories are linked)
-//
-//  Filterable by is_active so the admin UI can hide / show
-//  deactivated categories.
 // ============================================================
 
 router.get('/business-categories', authMiddleware, adminOnly, async (req, res) => {
@@ -638,19 +754,6 @@ router.put('/business-categories/:id', authMiddleware, adminOnly, async (req, re
 
 // ============================================================
 //  BUSINESS CATEGORIES — delete (F.4, Q3)
-//
-//  Policy:
-//   - If any business is assigned to the category → deactivate
-//     (is_active = false). Existing assignments are kept intact.
-//     This mirrors the reject behaviour for product categories
-//     and means the customer never loses a category mid-flight.
-//   - If the category is unused → hard-delete.
-//
-//  Product categories linked to it are NOT touched by the
-//  deactivation path. On the hard-delete path, product_categories
-//  whose business_category_id references this row are set to NULL
-//  by the ON DELETE SET NULL constraint already declared in the
-//  product-categories migration.
 // ============================================================
 
 router.delete('/business-categories/:id', authMiddleware, adminOnly, async (req, res) => {
@@ -704,12 +807,823 @@ router.delete('/business-categories/:id', authMiddleware, adminOnly, async (req,
 });
 
 // ============================================================
+//  VIOLATIONS & CLAIMS
+// ============================================================
+
+// ------------------------------------------------------------
+//  LIST with filters
+//    ?kind=violation|claim
+//    ?subject_type=customer|business
+//    ?status=pending|under_review|resolved|dismissed|escalated
+//    ?severity=low|medium|high|critical
+//    ?search=<text in title/description/subject_label>
+//    ?limit=50&offset=0
+// ------------------------------------------------------------
+router.get('/violations', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const {
+      kind,
+      subject_type,
+      status,
+      severity,
+      search,
+      limit = 50,
+      offset = 0
+    } = req.query;
+
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (kind) {
+      conditions.push(`kind = $${paramIndex}`);
+      params.push(kind);
+      paramIndex++;
+    }
+    if (subject_type) {
+      conditions.push(`subject_type = $${paramIndex}`);
+      params.push(subject_type);
+      paramIndex++;
+    }
+    if (status) {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    if (severity) {
+      conditions.push(`severity = $${paramIndex}`);
+      params.push(severity);
+      paramIndex++;
+    }
+    if (search) {
+      conditions.push(`(title ILIKE $${paramIndex} OR description ILIKE $${paramIndex} OR subject_label ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const query = `
+      SELECT *
+      FROM violations
+      ${where}
+      ORDER BY
+        CASE status
+          WHEN 'pending' THEN 0
+          WHEN 'under_review' THEN 1
+          WHEN 'escalated' THEN 2
+          WHEN 'resolved' THEN 3
+          WHEN 'dismissed' THEN 4
+          ELSE 5
+        END,
+        CASE severity
+          WHEN 'critical' THEN 0
+          WHEN 'high' THEN 1
+          WHEN 'medium' THEN 2
+          WHEN 'low' THEN 3
+          ELSE 4
+        END,
+        created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+    const result = await pool.query(query, params);
+
+    const countQuery = `SELECT COUNT(*)::int AS total FROM violations ${where}`;
+    const countParams = params.slice(0, params.length - 2);
+    const countResult = await pool.query(countQuery, countParams);
+    const total = countResult.rows[0].total;
+
+    res.json({
+      violations: result.rows,
+      total,
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10)
+    });
+  } catch (err) {
+    console.error('❌ List violations error:', err);
+    res.status(500).json({ error: 'Unable to load violations' });
+  }
+});
+
+// ------------------------------------------------------------
+//  LIST violations for one subject
+// ------------------------------------------------------------
+router.get('/violations/for/:type/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const type = req.params.type;
+    const id = parseInt(req.params.id, 10);
+
+    if (!['customer', 'business'].includes(type)) {
+      return res.status(400).json({ error: 'Subject type must be customer or business' });
+    }
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid subject id' });
+    }
+
+    const result = await pool.query(
+      `SELECT *
+         FROM violations
+        WHERE subject_type = $1 AND subject_id = $2
+        ORDER BY created_at DESC`,
+      [type, id]
+    );
+
+    const summary = {
+      total: result.rows.length,
+      pending: result.rows.filter(v => v.status === 'pending' || v.status === 'under_review').length,
+      resolved: result.rows.filter(v => v.status === 'resolved').length,
+      dismissed: result.rows.filter(v => v.status === 'dismissed').length,
+      escalations: result.rows.filter(v => v.status === 'escalated').length
+    };
+
+    res.json({ violations: result.rows, summary });
+  } catch (err) {
+    console.error('❌ List violations for subject error:', err);
+    res.status(500).json({ error: 'Unable to load violations' });
+  }
+});
+
+// ------------------------------------------------------------
+//  GET one
+// ------------------------------------------------------------
+router.get('/violations/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid violation id' });
+    }
+
+    const result = await pool.query('SELECT * FROM violations WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Violation not found' });
+    }
+
+    const row = result.rows[0];
+
+    let subjectSnapshot = null;
+    if (row.subject_type === 'customer') {
+      const c = await pool.query(
+        'SELECT id, name, email, phone, COALESCE(is_active, TRUE) AS is_active FROM customers WHERE id = $1',
+        [row.subject_id]
+      );
+      subjectSnapshot = c.rows[0] || null;
+    } else {
+      const b = await pool.query(
+        'SELECT id, business_name, slug, email, phone, is_active FROM businesses WHERE id = $1',
+        [row.subject_id]
+      );
+      subjectSnapshot = b.rows[0] || null;
+    }
+
+    res.json({ violation: row, subject: subjectSnapshot });
+  } catch (err) {
+    console.error('❌ Get violation error:', err);
+    res.status(500).json({ error: 'Unable to load violation' });
+  }
+});
+
+// ------------------------------------------------------------
+//  CREATE
+// ------------------------------------------------------------
+router.post('/violations', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const {
+      kind = 'violation',
+      subject_type,
+      subject_id,
+      subject_label = null,
+      reported_by_type = 'admin',
+      reported_by_id = null,
+      reporter_label = null,
+      category = null,
+      title,
+      description = null,
+      evidence_url = null,
+      related_order_id = null,
+      related_business_id = null,
+      severity = 'medium',
+      source_complaint_id = null
+    } = req.body;
+
+    if (!['violation', 'claim'].includes(kind)) {
+      return res.status(400).json({ error: 'Invalid kind' });
+    }
+    if (!['customer', 'business'].includes(subject_type)) {
+      return res.status(400).json({ error: 'Invalid subject type' });
+    }
+    if (!Number.isInteger(parseInt(subject_id, 10))) {
+      return res.status(400).json({ error: 'Invalid subject id' });
+    }
+    if (!title || !String(title).trim()) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+    if (!['low', 'medium', 'high', 'critical'].includes(severity)) {
+      return res.status(400).json({ error: 'Invalid severity' });
+    }
+
+    const result = await pool.query(`
+      INSERT INTO violations (
+        kind, subject_type, subject_id, subject_label,
+        reported_by_type, reported_by_id, reporter_label,
+        category, title, description, evidence_url,
+        related_order_id, related_business_id,
+        severity, status, action_taken,
+        source_complaint_id
+      )
+      VALUES (
+        $1, $2, $3, $4,
+        $5, $6, $7,
+        $8, $9, $10, $11,
+        $12, $13,
+        $14, 'pending', 'none',
+        $15
+      )
+      RETURNING *
+    `, [
+      kind,
+      subject_type,
+      parseInt(subject_id, 10),
+      subject_label,
+      reported_by_type,
+      reported_by_id,
+      reporter_label,
+      category,
+      String(title).trim().slice(0, 255),
+      description,
+      evidence_url,
+      related_order_id,
+      related_business_id,
+      severity,
+      source_complaint_id
+    ]);
+
+    const row = result.rows[0];
+
+    if (source_complaint_id) {
+      await pool.query(
+        `UPDATE admin_messages
+            SET status = 'escalated',
+                escalated_to_violation_id = $1,
+                updated_at = NOW()
+          WHERE id = $2`,
+        [row.id, source_complaint_id]
+      );
+    }
+
+    await logAdminActivity(req.userId, 'CREATE_VIOLATION', {
+      violationId: row.id,
+      kind,
+      subject_type,
+      subject_id,
+      severity
+    });
+
+    res.status(201).json({ success: true, violation: row });
+  } catch (err) {
+    console.error('❌ Create violation error:', err);
+    res.status(500).json({ error: 'Unable to record violation' });
+  }
+});
+
+// ------------------------------------------------------------
+//  UPDATE status / action
+//  Body: { status?, action_taken?, action_note?, severity? }
+// ------------------------------------------------------------
+router.put('/violations/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid violation id' });
+    }
+
+    const { status, action_taken, action_note, severity } = req.body;
+
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (status !== undefined) {
+      if (!['pending', 'under_review', 'resolved', 'dismissed', 'escalated'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      updates.push(`status = $${paramIndex}`);
+      values.push(status);
+      paramIndex++;
+    }
+
+    if (action_taken !== undefined) {
+      if (!['none', 'warned', 'suspended', 'scheduled_deletion', 'deleted', 'restored'].includes(action_taken)) {
+        return res.status(400).json({ error: 'Invalid action_taken' });
+      }
+      updates.push(`action_taken = $${paramIndex}`);
+      values.push(action_taken);
+      paramIndex++;
+    }
+
+    if (action_note !== undefined) {
+      updates.push(`action_note = $${paramIndex}`);
+      values.push(action_note);
+      paramIndex++;
+    }
+
+    if (severity !== undefined) {
+      if (!['low', 'medium', 'high', 'critical'].includes(severity)) {
+        return res.status(400).json({ error: 'Invalid severity' });
+      }
+      updates.push(`severity = $${paramIndex}`);
+      values.push(severity);
+      paramIndex++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    if (status === 'resolved' || status === 'dismissed') {
+      updates.push(`resolved_by_admin_id = $${paramIndex}`);
+      values.push(req.userId);
+      paramIndex++;
+      updates.push(`resolved_at = NOW()`);
+    }
+
+    values.push(id);
+    const result = await pool.query(
+      `UPDATE violations
+          SET ${updates.join(', ')}, updated_at = NOW()
+        WHERE id = $${paramIndex}
+        RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Violation not found' });
+    }
+
+    await logAdminActivity(req.userId, 'UPDATE_VIOLATION', {
+      violationId: id,
+      status,
+      action_taken
+    });
+
+    res.json({ success: true, violation: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Update violation error:', err);
+    res.status(500).json({ error: 'Unable to update violation' });
+  }
+});
+
+// ------------------------------------------------------------
+//  DELETE
+// ------------------------------------------------------------
+router.delete('/violations/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid violation id' });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM violations WHERE id = $1 RETURNING id',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Violation not found' });
+    }
+
+    await logAdminActivity(req.userId, 'DELETE_VIOLATION', { violationId: id });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Delete violation error:', err);
+    res.status(500).json({ error: 'Unable to delete violation' });
+  }
+});
+
+// ============================================================
+//  COMPLAINTS INBOX (admin_messages)
+// ============================================================
+
+// ------------------------------------------------------------
+//  COUNTS (badge)
+// ------------------------------------------------------------
+router.get('/messages/counts', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const unread = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM admin_messages WHERE status = 'unread'`
+    );
+    const pending = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM admin_messages WHERE status IN ('unread', 'read')`
+    );
+    const replied = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM admin_messages WHERE status = 'replied'`
+    );
+    const escalated = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM admin_messages WHERE status = 'escalated'`
+    );
+
+    res.json({
+      unread: unread.rows[0].n,
+      pending: pending.rows[0].n,
+      replied: replied.rows[0].n,
+      escalated: escalated.rows[0].n
+    });
+  } catch (err) {
+    console.error('❌ Message counts error:', err);
+    res.status(500).json({ error: 'Unable to load message counts' });
+  }
+});
+
+// ------------------------------------------------------------
+//  LIST
+//    ?status=unread|read|replied|escalated|closed
+//    ?sender_type=customer|business
+//    ?search=<text in subject/body/sender_label>
+// ------------------------------------------------------------
+router.get('/messages', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const {
+      status,
+      sender_type,
+      search,
+      limit = 50,
+      offset = 0
+    } = req.query;
+
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (status) {
+      conditions.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    if (sender_type) {
+      conditions.push(`sender_type = $${paramIndex}`);
+      params.push(sender_type);
+      paramIndex++;
+    }
+    if (search) {
+      conditions.push(`(subject ILIKE $${paramIndex} OR body ILIKE $${paramIndex} OR sender_label ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const query = `
+      SELECT *
+      FROM admin_messages
+      ${where}
+      ORDER BY
+        CASE status
+          WHEN 'unread' THEN 0
+          WHEN 'read' THEN 1
+          WHEN 'escalated' THEN 2
+          WHEN 'replied' THEN 3
+          WHEN 'closed' THEN 4
+          ELSE 5
+        END,
+        created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+    const result = await pool.query(query, params);
+
+    const countQuery = `SELECT COUNT(*)::int AS total FROM admin_messages ${where}`;
+    const countParams = params.slice(0, params.length - 2);
+    const countResult = await pool.query(countQuery, countParams);
+
+    res.json({
+      messages: result.rows,
+      total: countResult.rows[0].total,
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10)
+    });
+  } catch (err) {
+    console.error('❌ List messages error:', err);
+    res.status(500).json({ error: 'Unable to load messages' });
+  }
+});
+
+// ------------------------------------------------------------
+//  GET one
+// ------------------------------------------------------------
+router.get('/messages/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid message id' });
+    }
+
+    const result = await pool.query('SELECT * FROM admin_messages WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    // Mark as read on open (only if it is currently unread).
+    if (result.rows[0].status === 'unread') {
+      await pool.query(
+        `UPDATE admin_messages SET status = 'read', updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      result.rows[0].status = 'read';
+    }
+
+    const row = result.rows[0];
+
+    let senderSnapshot = null;
+    if (row.sender_type === 'customer') {
+      const c = await pool.query(
+        'SELECT id, name, email, phone, COALESCE(is_active, TRUE) AS is_active FROM customers WHERE id = $1',
+        [row.sender_id]
+      );
+      senderSnapshot = c.rows[0] || null;
+    } else {
+      const b = await pool.query(
+        'SELECT id, business_name, slug, email, phone, is_active FROM businesses WHERE id = $1',
+        [row.sender_id]
+      );
+      senderSnapshot = b.rows[0] || null;
+    }
+
+    let relatedOrder = null;
+    if (row.related_order_id) {
+      const o = await pool.query(
+        'SELECT id, order_ref, status, total, created_at FROM orders WHERE id = $1',
+        [row.related_order_id]
+      );
+      relatedOrder = o.rows[0] || null;
+    }
+
+    let relatedBusiness = null;
+    if (row.related_business_id) {
+      const b = await pool.query(
+        'SELECT id, business_name, slug FROM businesses WHERE id = $1',
+        [row.related_business_id]
+      );
+      relatedBusiness = b.rows[0] || null;
+    }
+
+    res.json({
+      message: row,
+      sender: senderSnapshot,
+      related_order: relatedOrder,
+      related_business: relatedBusiness
+    });
+  } catch (err) {
+    console.error('❌ Get message error:', err);
+    res.status(500).json({ error: 'Unable to load message' });
+  }
+});
+
+// ------------------------------------------------------------
+//  MARK AS READ
+// ------------------------------------------------------------
+router.put('/messages/:id/read', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid message id' });
+    }
+
+    const result = await pool.query(
+      `UPDATE admin_messages
+          SET status = CASE WHEN status = 'unread' THEN 'read' ELSE status END,
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING *`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    res.json({ success: true, message: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Mark read error:', err);
+    res.status(500).json({ error: 'Unable to mark message as read' });
+  }
+});
+
+// ------------------------------------------------------------
+//  REPLY
+//  Body: { reply: string }
+// ------------------------------------------------------------
+router.post('/messages/:id/reply', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid message id' });
+    }
+
+    const reply = String(req.body.reply || '').trim();
+    if (!reply) {
+      return res.status(400).json({ error: 'Reply is required' });
+    }
+
+    const result = await pool.query(
+      `UPDATE admin_messages
+          SET admin_reply = $1,
+              replied_by_admin_id = $2,
+              replied_at = NOW(),
+              status = 'replied',
+              updated_at = NOW()
+        WHERE id = $3
+        RETURNING *`,
+      [reply.slice(0, 5000), req.userId, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    await logAdminActivity(req.userId, 'REPLY_ADMIN_MESSAGE', { messageId: id });
+
+    const io = req.app.get('io');
+    if (io) io.emit('admin-message-updated', { id, status: 'replied' });
+
+    res.json({ success: true, message: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Reply message error:', err);
+    res.status(500).json({ error: 'Unable to send reply' });
+  }
+});
+
+// ------------------------------------------------------------
+//  ESCALATE to violation
+//  Body: { subject_type, subject_id, severity?, category? }
+// ------------------------------------------------------------
+router.post('/messages/:id/escalate', authMiddleware, adminOnly, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid message id' });
+    }
+
+    const {
+      subject_type,
+      subject_id,
+      severity = 'medium',
+      category = null
+    } = req.body;
+
+    if (!['customer', 'business'].includes(subject_type)) {
+      return res.status(400).json({ error: 'Invalid subject type' });
+    }
+    if (!Number.isInteger(parseInt(subject_id, 10))) {
+      return res.status(400).json({ error: 'Invalid subject id' });
+    }
+    if (!['low', 'medium', 'high', 'critical'].includes(severity)) {
+      return res.status(400).json({ error: 'Invalid severity' });
+    }
+
+    await client.query('BEGIN');
+
+    const msgResult = await client.query(
+      'SELECT * FROM admin_messages WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (msgResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    const msg = msgResult.rows[0];
+
+    if (msg.escalated_to_violation_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This message has already been escalated.' });
+    }
+
+    const insertResult = await client.query(`
+      INSERT INTO violations (
+        kind, subject_type, subject_id, subject_label,
+        reported_by_type, reported_by_id, reporter_label,
+        category, title, description, evidence_url,
+        related_order_id, related_business_id,
+        severity, status, action_taken,
+        source_complaint_id
+      )
+      VALUES (
+        'claim', $1, $2, $3,
+        $4, $5, $6,
+        $7, $8, $9, $10,
+        $11, $12,
+        $13, 'pending', 'none',
+        $14
+      )
+      RETURNING *
+    `, [
+      subject_type,
+      parseInt(subject_id, 10),
+      null,
+      msg.sender_type,
+      msg.sender_id,
+      msg.sender_label,
+      category || msg.category,
+      String(msg.subject || '').slice(0, 255) || 'Escalated complaint',
+      msg.body,
+      msg.attachment_url,
+      msg.related_order_id,
+      msg.related_business_id,
+      severity,
+      msg.id
+    ]);
+
+    await client.query(
+      `UPDATE admin_messages
+          SET status = 'escalated',
+              escalated_to_violation_id = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [insertResult.rows[0].id, id]
+    );
+
+    await client.query('COMMIT');
+
+    await logAdminActivity(req.userId, 'ESCALATE_ADMIN_MESSAGE', {
+      messageId: id,
+      violationId: insertResult.rows[0].id,
+      severity
+    });
+
+    const io = req.app.get('io');
+    if (io) io.emit('admin-message-updated', { id, status: 'escalated' });
+
+    res.json({ success: true, violation: insertResult.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('❌ Escalate message error:', err);
+    res.status(500).json({ error: 'Unable to escalate message' });
+  } finally {
+    client.release();
+  }
+});
+
+// ------------------------------------------------------------
+//  CLOSE without reply
+// ------------------------------------------------------------
+router.put('/messages/:id/close', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid message id' });
+    }
+
+    const result = await pool.query(
+      `UPDATE admin_messages
+          SET status = 'closed', updated_at = NOW()
+        WHERE id = $1
+        RETURNING *`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    await logAdminActivity(req.userId, 'CLOSE_ADMIN_MESSAGE', { messageId: id });
+    res.json({ success: true, message: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Close message error:', err);
+    res.status(500).json({ error: 'Unable to close message' });
+  }
+});
+
+// ------------------------------------------------------------
+//  DELETE
+// ------------------------------------------------------------
+router.delete('/messages/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid message id' });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM admin_messages WHERE id = $1 RETURNING id',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    await logAdminActivity(req.userId, 'DELETE_ADMIN_MESSAGE', { messageId: id });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Delete message error:', err);
+    res.status(500).json({ error: 'Unable to delete message' });
+  }
+});
+
+// ============================================================
 //  ADMIN - GET RECENT ORDERS (Platform-wide)
 // ============================================================
 
 router.get('/recent-orders', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit, 10) || 10;
 
     const result = await pool.query(`
       SELECT o.*, c.name AS customer_name, c.email AS customer_email,
@@ -771,7 +1685,7 @@ router.get('/orders', authMiddleware, adminOnly, async (req, res) => {
 
     if (business_id) {
       conditions.push(`o.business_id = $${paramIndex}`);
-      params.push(parseInt(business_id));
+      params.push(parseInt(business_id, 10));
       paramIndex++;
     }
 
@@ -793,7 +1707,7 @@ router.get('/orders', authMiddleware, adminOnly, async (req, res) => {
 
     query += ' ORDER BY o.created_at DESC';
     query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
 
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -809,7 +1723,7 @@ router.get('/orders', authMiddleware, adminOnly, async (req, res) => {
 
 router.put('/orders/:id/confirm', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const orderId = parseInt(req.params.id, 10);
 
     const orderResult = await pool.query(
       `SELECT o.*, c.name AS customer_name, c.email AS customer_email
@@ -863,7 +1777,7 @@ router.put('/orders/:id/confirm', authMiddleware, adminOnly, async (req, res) =>
 
 router.put('/orders/:id/status', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const orderId = parseInt(req.params.id, 10);
     const { status, tracking_number } = req.body;
 
     const current = await pool.query('SELECT status, customer_id, order_ref FROM orders WHERE id = $1', [orderId]);
@@ -1015,7 +1929,7 @@ router.delete('/orders/bulk', authMiddleware, adminOnly, async (req, res) => {
 
 router.put('/orders/:id/cancel', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const orderId = parseInt(req.params.id, 10);
     const { reason } = req.body;
 
     if (!reason) {
@@ -1077,7 +1991,7 @@ router.put('/orders/:id/cancel', authMiddleware, adminOnly, async (req, res) => 
 
 router.put('/orders/:id/refund', authMiddleware, async (req, res) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const orderId = parseInt(req.params.id, 10);
     const { action } = req.body;
 
     if (!['approve', 'reject'].includes(action)) {
@@ -1129,7 +2043,7 @@ router.put('/orders/:id/refund', authMiddleware, async (req, res) => {
 
 router.put('/orders/:id/replace', authMiddleware, async (req, res) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const orderId = parseInt(req.params.id, 10);
     const { action } = req.body;
     if (!['approve', 'reject'].includes(action)) {
       return res.status(400).json({ error: 'Invalid action.' });
@@ -1171,7 +2085,7 @@ router.put('/orders/:id/replace', authMiddleware, async (req, res) => {
 
 router.post('/orders/:id/remind', authMiddleware, async (req, res) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const orderId = parseInt(req.params.id, 10);
     const result = await pool.query(
       `SELECT o.order_ref, o.status, o.business_id, c.name, c.email
        FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id = $1`,
@@ -1198,6 +2112,9 @@ router.post('/orders/:id/remind', authMiddleware, async (req, res) => {
 
 // ============================================================
 //  ADMIN - GET CUSTOMERS
+//
+//  Adds pending_violations and unread_messages so the
+//  dashboard can warn before suspend.
 // ============================================================
 
 router.get('/customers', authMiddleware, adminOnly, async (req, res) => {
@@ -1205,8 +2122,13 @@ router.get('/customers', authMiddleware, adminOnly, async (req, res) => {
     const result = await pool.query(`
       SELECT
         id, name, email, phone, created_at,
+        COALESCE(is_active, TRUE) AS is_active,
         (SELECT COUNT(*) FROM orders WHERE customer_id = customers.id) as order_count,
-        (SELECT COALESCE(SUM(total), 0) FROM orders WHERE customer_id = customers.id AND status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')) as total_spent
+        (SELECT COALESCE(SUM(total), 0) FROM orders WHERE customer_id = customers.id AND status IN ('confirmed', 'shipped', 'delivered', 'received', 'completed')) as total_spent,
+        (SELECT COUNT(*) FROM violations WHERE subject_type = 'customer' AND subject_id = customers.id AND status IN ('pending', 'under_review')) as pending_violations,
+        (SELECT COUNT(*) FROM admin_messages WHERE sender_type = 'customer' AND sender_id = customers.id AND status = 'unread') as unread_messages,
+        deletion_scheduled_at,
+        deletion_reason
       FROM customers
       ORDER BY created_at DESC
     `);
@@ -1214,6 +2136,101 @@ router.get('/customers', authMiddleware, adminOnly, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Customers error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  ADMIN - SUSPEND / ACTIVATE A CUSTOMER
+// ============================================================
+
+router.put('/customers/:id/status', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const customerId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(customerId)) {
+      return res.status(400).json({ error: 'Invalid customer ID' });
+    }
+
+    const { is_active } = req.body;
+    if (typeof is_active !== 'boolean') {
+      return res.status(400).json({ error: 'is_active (boolean) is required' });
+    }
+
+    const result = await pool.query(
+      `UPDATE customers
+         SET is_active = $1,
+             updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, name, email, phone, is_active, updated_at`,
+      [is_active, customerId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    await logAdminActivity(req.userId, is_active ? 'ACTIVATE_CUSTOMER' : 'SUSPEND_CUSTOMER', { customerId });
+
+    res.json({ success: true, customer: result.rows[0] });
+  } catch (err) {
+    console.error('❌ Update customer status error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  ADMIN - DELETE A CUSTOMER
+// ============================================================
+
+router.delete('/customers/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const customerId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(customerId)) {
+      return res.status(400).json({ error: 'Invalid customer ID' });
+    }
+
+    const deleted = await Customer.delete(customerId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    await logAdminActivity(req.userId, 'DELETE_CUSTOMER', { customerId });
+
+    res.json({ success: true, deleted_id: customerId });
+  } catch (err) {
+    console.error('❌ Delete customer error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  ADMIN - DELETE A BUSINESS
+// ============================================================
+
+router.delete('/businesses/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const businessId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(businessId)) {
+      return res.status(400).json({ error: 'Invalid business ID' });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM businesses WHERE id = $1 RETURNING id, business_name',
+      [businessId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    await logAdminActivity(req.userId, 'DELETE_BUSINESS', {
+      businessId,
+      businessName: result.rows[0].business_name
+    });
+
+    res.json({ success: true, deleted_id: businessId });
+  } catch (err) {
+    console.error('❌ Delete business error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1264,7 +2281,7 @@ router.post('/promo-codes', authMiddleware, adminOnly, async (req, res) => {
 
 router.delete('/promo-codes/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
     await pool.query('DELETE FROM promo_codes WHERE id = $1', [id]);
     await logAdminActivity(req.userId, 'DELETE_PROMO', { id });
     res.json({ success: true });
@@ -1300,7 +2317,7 @@ router.get('/location-requests', authMiddleware, adminOnly, async (req, res) => 
 
 router.post('/location-requests/:id/approve', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
 
     await pool.query('UPDATE location_requests SET status = $1, updated_at = NOW() WHERE id = $2', ['approved', id]);
 
@@ -1326,7 +2343,7 @@ router.post('/location-requests/:id/approve', authMiddleware, adminOnly, async (
 
 router.post('/location-requests/:id/reject', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
     await pool.query('UPDATE location_requests SET status = $1, updated_at = NOW() WHERE id = $2', ['rejected', id]);
     await logAdminActivity(req.userId, 'REJECT_LOCATION', { requestId: id });
     res.json({ success: true });
@@ -1342,8 +2359,16 @@ router.post('/location-requests/:id/reject', authMiddleware, adminOnly, async (r
 
 router.get('/logs', authMiddleware, adminOnly, async (req, res) => {
   try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
     const result = await pool.query(
-      'SELECT * FROM admin_logs ORDER BY created_at DESC LIMIT 100'
+      `SELECT l.*, a.email AS admin_email, a.username AS admin_username
+         FROM admin_logs l
+         LEFT JOIN admin_users a ON a.id = l.admin_id
+        ORDER BY l.created_at DESC
+        LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
     res.json(result.rows);
   } catch (err) {
@@ -1417,7 +2442,7 @@ router.get('/returns', authMiddleware, adminOnly, async (req, res) => {
 
 router.put('/returns/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
     const { action } = req.body;
 
     if (!['approve', 'reject'].includes(action)) {

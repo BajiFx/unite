@@ -76,6 +76,23 @@
 //     account. Also called automatically from /business/login.
 //   The business row is never hard-deleted. A daily cron job
 //   in server.js finalizes the row past the grace period.
+//
+//  Super Admin — registration & login hardening:
+//   POST /register
+//     - Server now blocks a second super admin from being
+//       created, even when the caller races two requests.
+//     - Response is always JSON and always includes
+//       { success, role } so the admin-login.js redirect
+//       logic cannot be fooled by a stray non-JSON body.
+//   POST /login
+//     - Response is always JSON and always includes
+//       { success, role: 'super_admin' } on success.
+//     - Any non-super-admin account is rejected with 403 and
+//       an explicit error string, so the client never redirects
+//       a customer or business admin into the admin dashboard.
+//   GET /admin-exists
+//     - Returns { exists: boolean } for the login/register tab
+//       selection on admin.html.
 // ============================================================
 
 const express = require('express');
@@ -132,7 +149,6 @@ const upload = multer({
 
 // ============================================================
 //  Section D — coordinate validation helpers
-//  Kept local so the auth route never trusts an unvalidated pair.
 // ============================================================
 
 function parseCoordinatePair(inputLat, inputLng) {
@@ -168,9 +184,6 @@ function normaliseAccuracy(value) {
 
 // ============================================================
 //  Section E.2 — preferred-location normaliser
-//  Accepts any scalar, trims it, caps the length at 100, and
-//  returns null for empty values so the caller can COALESCE or
-//  clear as required.
 // ============================================================
 
 function normalisePreferred(value) {
@@ -204,9 +217,6 @@ function validateSearchPrefix(prefix) {
         };
     }
 
-    // Section 3 — reserved namespace. The 004 migration uses
-    // "000" as the prefix for auto-generated placeholder tags
-    // assigned to legacy businesses. Block both exact strings.
     if (str === '000' || str === '0000') {
         return {
             ok: false,
@@ -238,11 +248,6 @@ function validateSearchName(name) {
 //  Section 7 — auto-generation helpers
 // ============================================================
 
-/**
- * Build a valid, unique business username from the business name.
- * Format: <slug-of-name><4 random digits>. Retries up to 20 times
- * against both the admin_users and customers tables.
- */
 async function generateUniqueBusinessUsername(businessName) {
     const base = String(businessName || 'business')
         .toLowerCase()
@@ -262,18 +267,8 @@ async function generateUniqueBusinessUsername(businessName) {
     return `${base}${Date.now().toString().slice(-6)}`;
 }
 
-/**
- * Pick a random 3–4 digit search-tag prefix that is not yet used
- * by another business and is not the reserved "000"/"0000". The
- * caller supplies the candidate tag to check against the unique
- * index (which is what actually enforces uniqueness).
- *
- * Returns a string like "363" or "3734", or null if no free prefix
- * could be found within the attempt limit (unreachable in practice).
- */
 async function pickRandomFreeSearchPrefix(searchName, maxAttempts = 20) {
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        // 50/50 between 3-digit and 4-digit prefixes.
         const useFour = Math.random() < 0.5;
         let candidate;
         if (useFour) {
@@ -282,7 +277,6 @@ async function pickRandomFreeSearchPrefix(searchName, maxAttempts = 20) {
             candidate = String(Math.floor(100 + Math.random() * 900));
         }
 
-        // Never the reserved placeholders.
         if (candidate === '000' || candidate === '0000') continue;
 
         const candidateTag = buildSearchTag(candidate, searchName);
@@ -299,8 +293,6 @@ async function pickRandomFreeSearchPrefix(searchName, maxAttempts = 20) {
 
 // ============================================================
 //  Section 11.A — customer deletion reason set
-//  Kept in one place so the client dropdown and the server
-//  validation can never drift apart.
 // ============================================================
 
 const CUSTOMER_DELETION_REASONS = new Set([
@@ -435,17 +427,28 @@ router.get('/check-business-tag', async (req, res) => {
 
 router.get('/admin-exists', async (req, res) => {
   try {
-    const result = await pool.query('SELECT COUNT(*) FROM admin_users WHERE role = $1', ['super_admin']);
-    const count = parseInt(result.rows[0].count);
+    const result = await pool.query(
+      'SELECT COUNT(*) FROM admin_users WHERE role = $1',
+      ['super_admin']
+    );
+    const count = parseInt(result.rows[0].count, 10);
     res.json({ exists: count > 0 });
   } catch (err) {
     console.error('❌ Admin exists error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ exists: false, error: err.message });
   }
 });
 
 // ============================================================
 //  REGISTER SUPER ADMIN (First-time setup only)
+//
+//  Hardening:
+//   - Every response is JSON.
+//   - The guard uses a single INSERT ... WHERE NOT EXISTS
+//     statement so two concurrent requests cannot both succeed.
+//   - The success body always includes { success: true,
+//     role: 'super_admin' } so the client redirect is
+//     deterministic.
 // ============================================================
 
 router.post('/register', [
@@ -454,41 +457,97 @@ router.post('/register', [
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    return res.status(400).json({
+      success: false,
+      error: errors.array()[0].msg || 'Invalid registration data'
+    });
   }
 
   try {
     const { email, password } = req.body;
     const username = email.split('@')[0];
 
-    const existsResult = await pool.query('SELECT COUNT(*) FROM admin_users WHERE role = $1', ['super_admin']);
-    const count = parseInt(existsResult.rows[0].count);
+    const existing = await pool.query(
+      'SELECT COUNT(*) FROM admin_users WHERE role = $1',
+      ['super_admin']
+    );
+    const count = parseInt(existing.rows[0].count, 10);
 
     if (count > 0) {
-      return res.status(403).json({ error: 'A super admin account already exists.' });
+      return res.status(403).json({
+        success: false,
+        error: 'A super admin account already exists.'
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await pool.query(
-      'INSERT INTO admin_users (username, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id',
-      [username, email, hashedPassword, 'super_admin']
-    );
 
-    const token = generateToken(email, 'super_admin');
+    // Atomic guard: this INSERT only writes a row if no
+    // super_admin exists at the moment the statement runs.
+    const insertResult = await pool.query(`
+      INSERT INTO admin_users (username, email, password, role)
+      SELECT $1, $2, $3, 'super_admin'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM admin_users WHERE role = 'super_admin'
+      )
+      RETURNING id, email, role
+    `, [username, email, hashedPassword]);
+
+    if (insertResult.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        error: 'A super admin account already exists.'
+      });
+    }
+
+    const inserted = insertResult.rows[0];
+
+    const token = generateToken(email, 'super_admin', inserted.id);
     setAuthCookie(res, token);
-    await logAdminActivity(result.rows[0].id, 'REGISTER_SUPER_ADMIN', { email });
+
+    try {
+      await logAdminActivity(inserted.id, 'REGISTER_SUPER_ADMIN', { email });
+    } catch (logErr) {
+      console.warn('⚠️ Could not log super admin registration:', logErr.message);
+    }
 
     console.log('✅ Super admin account created for:', email);
-    res.json({ success: true, message: '✅ Super admin account created successfully!' });
+
+    res.json({
+      success: true,
+      role: 'super_admin',
+      message: '✅ Super admin account created successfully!'
+    });
 
   } catch (err) {
     console.error('❌ Register error:', err);
-    res.status(500).json({ error: err.message });
+
+    // Map a unique-constraint violation to the same clean
+    // 403 that the guard above returns, so a race can never
+    // leak a raw 500.
+    if (err && err.code === '23505') {
+      return res.status(403).json({
+        success: false,
+        error: 'A super admin account already exists.'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Registration failed. Please try again.'
+    });
   }
 });
 
 // ============================================================
 //  SUPER ADMIN LOGIN
+//
+//  Hardening:
+//   - Every response is JSON.
+//   - Non super_admin roles are rejected with 403 and an
+//     explicit error string before any token is issued.
+//   - Success body always carries { success: true,
+//     role: 'super_admin' }.
 // ============================================================
 
 router.post('/login', loginLimiter, [
@@ -497,52 +556,83 @@ router.post('/login', loginLimiter, [
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    return res.status(400).json({
+      success: false,
+      error: errors.array()[0].msg || 'Invalid login data'
+    });
   }
 
   try {
     const { email, password } = req.body;
     console.log('🔑 Admin login attempt for:', email);
 
-    const result = await pool.query('SELECT * FROM admin_users WHERE email = $1', [email]);
+    const result = await pool.query(
+      'SELECT id, email, password, role FROM admin_users WHERE email = $1',
+      [email]
+    );
 
     if (result.rows.length === 0) {
       console.log('❌ Admin not found:', email);
-      return res.status(401).json({ error: 'Invalid credentials - Admin not found' });
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials - Admin not found'
+      });
     }
 
     const user = result.rows[0];
+
+    if (!user.password) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials'
+      });
+    }
+
     const match = await bcrypt.compare(password, user.password);
 
     if (!match) {
       console.log('❌ Invalid password for:', email);
-      return res.status(401).json({ error: 'Invalid credentials - Wrong password' });
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials - Wrong password'
+      });
     }
 
     if (user.role !== 'super_admin') {
       console.log('❌ Not a super admin:', user.role);
-      return res.status(403).json({ error: 'This is not a super admin account.' });
+      return res.status(403).json({
+        success: false,
+        error: 'This is not a super admin account.'
+      });
     }
 
-    const token = generateToken(email, 'super_admin');
+    const token = generateToken(email, 'super_admin', user.id);
     setAuthCookie(res, token);
-    await logAdminActivity(user.id, 'SUPER_ADMIN_LOGIN', { email });
+
+    try {
+      await logAdminActivity(user.id, 'SUPER_ADMIN_LOGIN', { email });
+    } catch (logErr) {
+      console.warn('⚠️ Could not log super admin login:', logErr.message);
+    }
 
     console.log('✅ Super admin login successful for:', email);
-    res.json({ success: true, role: 'super_admin' });
+
+    res.json({
+      success: true,
+      role: 'super_admin'
+    });
 
   } catch (err) {
     console.error('❌ Login error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      success: false,
+      error: 'Login failed. Please try again.'
+    });
   }
 });
 
 // ============================================================
 //  CUSTOMER REGISTER — Section 6 simplified form
-//
-//  Required: name, phone, password
-//  Optional: email (kept for password recovery)
-//  Optional: username (auto-generated from name if missing)
 // ============================================================
 
 router.post('/customer/register', [
@@ -565,13 +655,11 @@ router.post('/customer/register', [
 
     const cleanPhone = phone.replace(/[^0-9]/g, '');
 
-    // ---- Phone uniqueness (always required) ----
     const existingPhone = await pool.query('SELECT id FROM customers WHERE phone = $1', [cleanPhone]);
     if (existingPhone.rows.length > 0) {
       return res.status(409).json({ error: 'Phone number already registered.' });
     }
 
-    // ---- Email uniqueness (only when one was supplied) ----
     if (email) {
       const existingEmail = await pool.query('SELECT id FROM customers WHERE email = $1', [email]);
       if (existingEmail.rows.length > 0) {
@@ -579,7 +667,6 @@ router.post('/customer/register', [
       }
     }
 
-    // ---- Username: honour it if supplied, otherwise generate ----
     if (username) {
       const existingUsername = await pool.query(
         'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
@@ -612,10 +699,6 @@ router.post('/customer/register', [
   }
 });
 
-/**
- * Generate a human-friendly unique username from the customer's
- * name. Format: <slug-of-name><4 random digits>
- */
 async function generateUniqueCustomerUsername(name) {
   const base = String(name || 'customer')
     .toLowerCase()
@@ -637,13 +720,6 @@ async function generateUniqueCustomerUsername(name) {
 
 // ============================================================
 //  CUSTOMER LOGIN — SMART
-//
-//  Section 6 — the lookup key can be username, email, or phone.
-//
-//  Section 11.A — if the customer has a pending deletion, this
-//  handler auto-cancels it before returning success. The
-//  customer is never told their account was scheduled, unless
-//  the toast surfaces it on the client (which it does).
 // ============================================================
 
 router.post('/customer/login', loginLimiter, [
@@ -685,9 +761,6 @@ router.post('/customer/login', loginLimiter, [
     }
     const customer = result.rows[0];
 
-    // If the account has been anonymized by the cron job, the
-    // password column is NULL. bcrypt.compare throws on NULL, so
-    // we guard before calling it.
     if (!customer.password) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -697,9 +770,6 @@ router.post('/customer/login', loginLimiter, [
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Section 11.A — auto-cancel a pending deletion on successful
-    // login. The customer is logged in either way; the flag tells
-    // the client whether to show the "welcome back" toast.
     let deletionCancelled = false;
     let cancellationContext = null;
 
@@ -749,21 +819,6 @@ router.post('/customer/login', loginLimiter, [
 
 // ============================================================
 //  BUSINESS REGISTRATION — Section 7 simplified form
-//
-//  Required: business_name, category, email, phone, password,
-//            location.
-//
-//  Optional / auto-generated:
-//    - username       → generated from business name + random suffix
-//    - search_prefix  → random 3 or 4 digits (never 000/0000)
-//    - search_name    → defaults to the business name
-//    - additional_categories, description, mission, vision,
-//      address, socials, payment fields → all optional
-//
-//  The route still accepts every old field, so a client that
-//  sends them keeps working. Missing pieces are filled in on the
-//  server. If the auto-generated search prefix collides with an
-//  existing tag, we retry with a new random prefix.
 // ============================================================
 
 router.post('/business/register', upload.fields([
@@ -807,8 +862,6 @@ router.post('/business/register', upload.fields([
 
     const additional_categories = req.body.additional_categories;
 
-    // Section 7 — username, search_prefix and search_name are all
-    // optional now. Accept them if supplied, otherwise generate.
     let username = (req.body.username && String(req.body.username).trim()) || null;
     let search_prefix = (req.body.search_prefix && String(req.body.search_prefix).trim()) || null;
     let search_name = (req.body.search_name && String(req.body.search_name).trim()) || null;
@@ -834,13 +887,11 @@ router.post('/business/register', upload.fields([
       return res.status(400).json({ error: 'Business category is required' });
     }
 
-    // A.4 / A.5 — primary category ID
     const primaryCategoryId = parseInt(category, 10);
     if (Number.isNaN(primaryCategoryId)) {
       return res.status(400).json({ error: 'Invalid business category' });
     }
 
-    // A.6 — additional categories (optional)
     const additionalCategoryIds = [
       ...new Set(
         String(additional_categories || '')
@@ -866,10 +917,6 @@ router.post('/business/register', upload.fields([
       });
     }
 
-    // ----------------------------------------------------------
-    //  Existing username + email checks
-    // ----------------------------------------------------------
-
     if (username) {
       const existingUsername = await pool.query(
         'SELECT id FROM customers WHERE username = $1 UNION SELECT id FROM admin_users WHERE username = $1',
@@ -879,7 +926,6 @@ router.post('/business/register', upload.fields([
         return res.status(409).json({ error: 'Username already taken. Please choose another.' });
       }
     } else {
-      // Section 7 — auto-generate a unique business username.
       username = await generateUniqueBusinessUsername(business_name);
     }
 
@@ -911,20 +957,6 @@ router.post('/business/register', upload.fields([
         } catch (e) { console.error('Hero upload error:', e); }
       }
     }
-
-    // ----------------------------------------------------------
-    //  Section 7 — resolve the search tag.
-    //
-    //  Precedence:
-    //   1. If the caller supplied BOTH search_prefix and
-    //      search_name, validate them the old way. If the tag is
-    //      already taken, reject with 409 (the old behaviour).
-    //   2. Otherwise, default search_name to the business name
-    //      and pick a random free prefix on the server.
-    //
-    //  This keeps Postman / old-client behaviour intact while
-    //  letting the simplified form skip the whole concept.
-    // ----------------------------------------------------------
 
     let resolvedPrefix = null;
     let resolvedName = null;
@@ -962,13 +994,10 @@ router.post('/business/register', upload.fields([
       resolvedPrefix = prefixCheck.value;
       resolvedName = nameCheck.value;
     } else {
-      // Section 7 — auto-generate the search tag.
       resolvedName = String(business_name || '').trim().slice(0, 120) || 'My Shop';
 
       resolvedPrefix = await pickRandomFreeSearchPrefix(resolvedName);
       if (!resolvedPrefix) {
-        // Extremely unlikely; surface a clean error rather than
-        // let the DB raise a raw unique-index violation.
         return res.status(500).json({
           error: 'Could not allocate a search tag right now. Please try again.'
         });
@@ -1088,11 +1117,6 @@ router.post('/business/register', upload.fields([
 
 // ============================================================
 //  BUSINESS LOGIN - SMART (Username or Email)
-//
-//  Section 11.B — if the admin has a pending business deletion,
-//  this handler auto-cancels it on both the business row and the
-//  admin row, reactivates both, and returns success. The admin is
-//  never locked out by their own grace period.
 // ============================================================
 
 router.post('/business/login', loginLimiter, [
@@ -1125,11 +1149,6 @@ router.post('/business/login', loginLimiter, [
     const user = result.rows[0];
     console.log('👤 User found, checking password...');
 
-    // Section 11.B — a business admin whose account has been
-    // scheduled for deletion still carries a valid password hash
-    // during the grace period, so bcrypt.compare works normally.
-    // Only the finalization cron clears the password, and by then
-    // the account cannot log in at all.
     if (!user.password) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -1165,9 +1184,6 @@ router.post('/business/login', loginLimiter, [
 
     const businessRow = businessCheck.rows[0];
 
-    // Section 11.B — auto-cancel a pending deletion on successful
-    // login. The admin is logged in either way; the flag tells
-    // the client whether to show the "welcome back" toast.
     let deletionCancelled = false;
     let cancellationContext = null;
 
@@ -1202,9 +1218,6 @@ router.post('/business/login', loginLimiter, [
       }
     }
 
-    // The business is active again if we just cancelled, so the
-    // is_active check below is only a hard block for any other
-    // reason the business might be inactive (super-admin action).
     if (!businessRow.is_active && !deletionCancelled) {
       console.log('❌ Business is inactive:', user.business_id);
       return res.status(403).json({ error: 'Business is inactive.' });
@@ -1678,16 +1691,6 @@ router.post('/logout', (req, res) => {
 
 // ============================================================
 //  SECTION 11.A — CUSTOMER ACCOUNT DELETION
-//
-//  POST /customer/request-deletion
-//    Required: password, reason.
-//    Verifies the password against the customer's hash, then
-//    schedules the deletion 30 days out and stores the reason.
-//    Does NOT log the customer out — the client does that.
-//
-//  POST /customer/cancel-deletion
-//    Cancels a pending deletion on the requesting customer's own
-//    row. Also called automatically from /customer/login.
 // ============================================================
 
 router.post('/customer/request-deletion', authMiddleware, customerOnly, [
@@ -1789,20 +1792,6 @@ router.post('/customer/cancel-deletion', authMiddleware, customerOnly, async (re
 
 // ============================================================
 //  SECTION 11.B — BUSINESS ACCOUNT DELETION
-//
-//  POST /business/request-deletion
-//    Required: password, reason.
-//    Verifies the password against the admin's hash, then:
-//      1. Schedules the deletion 60 days out on the business row.
-//      2. Stores the reason.
-//      3. Sets businesses.is_active = FALSE immediately.
-//      4. Sets admin_users.is_active = FALSE for the owner.
-//    Does NOT log the admin out — the client does that.
-//
-//  POST /business/cancel-deletion
-//    Cancels a pending deletion on the requesting admin's own
-//    business and reactivates both the business and the admin
-//    account. Also called automatically from /business/login.
 // ============================================================
 
 router.post('/business/request-deletion', authMiddleware, businessAdminOnly, getBusinessIdFromToken, [

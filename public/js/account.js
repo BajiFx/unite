@@ -208,6 +208,7 @@ function navigateToAccount(section) {
             loadCustomerPreferredAreaState();
             loadAddressesContent();
             loadPaymentsContent();
+            loadCustomerAdminReplies();
             break;
         case 'messages':
             loadMessagesContent();
@@ -1681,7 +1682,170 @@ async function logout() {
     window.currentUser = null;
     window.location.href = '/';
 }
+  // ============================================================
+//  CONTACT ADMIN — send a message to the platform admin
+// ============================================================
 
+function openCustomerContactAdmin() {
+    const wrap = document.getElementById('customerContactAdminFormWrap');
+    const btn = document.getElementById('customerContactAdminBtn');
+    if (!wrap) return;
+
+    wrap.style.display = 'block';
+    if (btn) btn.style.display = 'none';
+
+    const status = document.getElementById('customerContactStatus');
+    if (status) { status.textContent = ''; status.style.color = ''; }
+}
+
+function closeCustomerContactAdmin() {
+    const wrap = document.getElementById('customerContactAdminFormWrap');
+    const btn = document.getElementById('customerContactAdminBtn');
+    if (wrap) wrap.style.display = 'none';
+    if (btn) btn.style.display = 'inline-flex';
+
+    const subjectEl = document.getElementById('customerContactSubject');
+    const categoryEl = document.getElementById('customerContactCategory');
+    const bodyEl = document.getElementById('customerContactBody');
+    const orderRefEl = document.getElementById('customerContactOrderRef');
+    if (subjectEl) subjectEl.value = '';
+    if (categoryEl) categoryEl.value = '';
+    if (bodyEl) bodyEl.value = '';
+    if (orderRefEl) orderRefEl.value = '';
+}
+
+async function submitCustomerContactAdmin() {
+    const status = document.getElementById('customerContactStatus');
+    const btn = document.getElementById('customerContactSubmitBtn');
+
+    const subject = (document.getElementById('customerContactSubject')?.value || '').trim();
+    const body = (document.getElementById('customerContactBody')?.value || '').trim();
+    const category = (document.getElementById('customerContactCategory')?.value || '').trim();
+    const orderRef = (document.getElementById('customerContactOrderRef')?.value || '').trim();
+
+    if (!subject || subject.length < 3) {
+        if (status) { status.textContent = '❌ Please write a subject (at least 3 characters).'; status.style.color = '#ef4444'; }
+        return;
+    }
+    if (!body || body.length < 10) {
+        if (status) { status.textContent = '❌ Please describe what happened (at least 10 characters).'; status.style.color = '#ef4444'; }
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending…';
+    }
+    if (status) { status.textContent = '⏳ Sending your message…'; status.style.color = '#2563eb'; }
+
+    try {
+        const res = await fetch('/api/contact-admin/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                subject,
+                body,
+                category: category || null,
+                related_order_ref: orderRef || null
+            })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Could not send your message right now.');
+        }
+
+        if (status) {
+            status.textContent = '✅ Message sent. You will see the admin\'s reply below.';
+            status.style.color = '#16a34a';
+        }
+        if (typeof window.showToast === 'function') {
+            window.showToast('✅ Message sent to admin.', 'success');
+        }
+
+        closeCustomerContactAdmin();
+        loadCustomerAdminReplies();
+    } catch (err) {
+        if (status) { status.textContent = '❌ ' + err.message; status.style.color = '#ef4444'; }
+        if (typeof window.showToast === 'function') {
+            window.showToast('❌ ' + err.message, 'error');
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send message';
+        }
+    }
+}
+
+async function loadCustomerAdminReplies() {
+    const listEl = document.getElementById('customerAdminRepliesList');
+    if (!listEl) return;
+
+    listEl.innerHTML = '<div class="loading-spinner" style="padding:12px 0;"><i class="fas fa-spinner fa-spin"></i> Loading your messages…</div>';
+
+    try {
+        const res = await fetch('/api/contact-admin/mine', {
+            credentials: 'same-origin',
+            cache: 'no-store'
+        });
+        if (!res.ok) throw new Error('Could not load your messages');
+        const data = await res.json();
+        const messages = Array.isArray(data.messages) ? data.messages : [];
+
+        if (messages.length === 0) {
+            listEl.innerHTML = '<p style="font-size:0.8rem; color:#94a3b8; margin:0;">You have not sent any messages to the admin yet.</p>';
+            return;
+        }
+
+        listEl.innerHTML = messages.map(m => {
+            const created = m.created_at ? new Date(m.created_at).toLocaleString() : '—';
+            const replied = m.admin_reply
+                ? `<div style="margin-top:8px; padding:10px 12px; background:#ecfdf5; border-left:3px solid #22c55e; border-radius:6px;">
+                     <div style="font-size:0.65rem; font-weight:800; color:#166534; text-transform:uppercase; letter-spacing:0.05em;">Admin reply</div>
+                     <div style="font-size:0.82rem; color:#14532d; line-height:1.5; white-space:pre-wrap; margin-top:4px;">${escapeHtmlSafe(m.admin_reply)}</div>
+                   </div>`
+                : `<div style="font-size:0.72rem; color:#94a3b8; margin-top:6px; font-style:italic;">Awaiting admin reply…</div>`;
+
+            const statusColor = m.status === 'replied'
+                ? '#dcfce7'
+                : m.status === 'escalated'
+                    ? '#fee2e2'
+                    : m.status === 'closed'
+                        ? '#e2e8f0'
+                        : '#fef3c7';
+            const statusText = m.status === 'replied'
+                ? '#166534'
+                : m.status === 'escalated'
+                    ? '#991b1b'
+                    : m.status === 'closed'
+                        ? '#334155'
+                        : '#92400e';
+
+            return `
+                <div style="padding:10px 12px; background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center;">
+                        <strong style="font-size:0.85rem; color:#0f172a;">${escapeHtmlSafe(m.subject || '(no subject)')}</strong>
+                        <span style="font-size:0.62rem; font-weight:800; text-transform:uppercase; padding:2px 8px; border-radius:10px; background:${statusColor}; color:${statusText};">${escapeHtmlSafe(m.status || 'unread')}</span>
+                    </div>
+                    <div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Sent ${escapeHtmlSafe(created)}${m.category ? ' · ' + escapeHtmlSafe(m.category) : ''}</div>
+                    <div style="font-size:0.82rem; color:#334155; line-height:1.55; white-space:pre-wrap; margin-top:6px;">${escapeHtmlSafe(m.body || '')}</div>
+                    ${replied}
+                </div>
+            `;
+        }).join('');
+    } catch (err) {
+        listEl.innerHTML = '<p style="font-size:0.8rem; color:#ef4444; margin:0;">Could not load your messages right now.</p>';
+    }
+}
+
+function escapeHtmlSafe(value) {
+    const div = document.createElement('div');
+    div.textContent = String(value == null ? '' : value);
+    return div.innerHTML;
+}
 // ============================================================
 //  INIT - OVERRIDES ANY OLD LAYOUT
 // ============================================================
@@ -1725,6 +1889,7 @@ document.addEventListener('DOMContentLoaded', function() {
     renderProfileUsername(user.username);
 
     updateCartBadge();
+    loadCustomerAdminReplies();
 });
 
 function returnToMarketplace() {
@@ -1772,6 +1937,11 @@ window.renderProfileUsername = renderProfileUsername;
 
 window.openAccountCart = openAccountCart;
 window.scrollToProfileSection = scrollToProfileSection;
+
+window.openCustomerContactAdmin = openCustomerContactAdmin;
+window.closeCustomerContactAdmin = closeCustomerContactAdmin;
+window.submitCustomerContactAdmin = submitCustomerContactAdmin;
+window.loadCustomerAdminReplies = loadCustomerAdminReplies;
 
 // Section 11.A — expose the deletion flow helpers so the modal
 // buttons in account.html resolve.

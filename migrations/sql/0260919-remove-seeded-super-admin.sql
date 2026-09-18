@@ -1,0 +1,1 @@
+DELETE FROM admin_users WHERE role = 'super_admin';

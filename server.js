@@ -22,6 +22,11 @@
 //   entry for nominatim.openstreetmap.org is kept, because
 //   address-lookup and geocoding still use it — the tile-block
 //   policy does not apply to that endpoint.
+//
+//  Contact Admin route (this revision):
+//   The new src/routes/contact-admin.js file is registered at
+//   /api/contact-admin. It provides the public side of the
+//   Complaints Inbox that the super admin dashboard reads from.
 // ============================================================
 
 require('dotenv').config();
@@ -83,6 +88,12 @@ const returnsRoutes = require('./src/routes/returns');
 
 const businessesRoutes = require('./src/routes/businesses');
 const businessAdminRoutes = require('./src/routes/business-admin');
+
+// ============================================================
+//  CONTACT ADMIN ROUTE (Complaints Inbox, public side)
+// ============================================================
+
+const contactAdminRoutes = require('./src/routes/contact-admin');
 
 // ============================================================
 //  INITIALIZE APP
@@ -444,6 +455,12 @@ app.use('/api/businesses', businessesRoutes);
 app.use('/api/business-admin', businessAdminRoutes);
 
 // ============================================================
+//  CONTACT ADMIN ROUTES (Complaints Inbox, public side)
+// ============================================================
+
+app.use('/api/contact-admin', contactAdminRoutes);
+
+// ============================================================
 //  CSRF TOKEN ENDPOINT
 // ============================================================
 
@@ -731,7 +748,7 @@ async function initDatabase() {
     } else {
       // Check if any businesses exist
       const businessCount = await pool.query('SELECT COUNT(*) FROM businesses');
-      const count = parseInt(businessCount.rows[0].count);
+      const count = parseInt(businessCount.rows[0].count, 10);
 
       if (count === 0) {
         console.log('🔄 No businesses found. Creating a default business...');
@@ -783,7 +800,7 @@ async function initDatabase() {
 
     // 2. Check if system_settings exists
     const settingsResult = await pool.query('SELECT COUNT(*) FROM system_settings');
-    if (parseInt(settingsResult.rows[0].count) === 0) {
+    if (parseInt(settingsResult.rows[0].count, 10) === 0) {
       await pool.query(`
         INSERT INTO system_settings (key, value) VALUES
           ('replacement_hours', '6'),
@@ -918,6 +935,7 @@ async function startServer() {
       console.log(`⏰ Cron Jobs: ${cron ? '✅ Enabled' : '⚠️ Disabled'}`);
       console.log(`👋 Welcome splash: ${welcomeFileExists() ? '✅ Enabled' : '⚠️ Disabled (welcome.html not found)'}`);
       console.log(`🗺️ Tile provider: CartoDB Positron`);
+      console.log(`📬 Contact Admin route: /api/contact-admin`);
       console.log(`🌐 Base URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
       console.log(`\n📋 Admin Panel: http://localhost:${PORT}/admin.html`);
       console.log(`📋 Business Admin: http://localhost:${PORT}/business-admin.html`);

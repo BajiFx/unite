@@ -1903,10 +1903,17 @@
 .sidebar-overlay-dash,
 .dashboard-panel,
 .top-bar .hamburger,
-#userBadge,
-.admin-dot {
+#userBadge {
   display: none !important;
 }
+
+/* ------------------------------------------------------------
+   .admin-dot is the small dot in the top-right corner of the
+   marketplace that opens /admin.html. It is no longer forced
+   to display:none. Its size, position, and opacity come from
+   public/css/index.css. It is now visible so a super admin
+   has a permanent entry point to the admin panel.
+   ------------------------------------------------------------ */
 
 .main-content {
   width: 100%;
@@ -3450,5 +3457,117 @@ html.embedded .category-blocks-section {
 
   .block-card .block-card-body .business-description {
     font-size: 0.68rem;
+  }
+}
+
+/* ============================================================
+   PHASE 2 — PRODUCT-MATCH TILE MEDIA PILL
+   ------------------------------------------------------------
+   The marketplace's product-match tiles render the same media
+   pill the shop-page grid uses (Video / Mixed), so a customer
+   who searches "shoes" sees the same badge on the tile that
+   the shop-page grid would show. The pill is scoped to the
+   tile's own media wrapper so it never overlaps the category
+   chip on the top-left of the frame.
+   ============================================================ */
+
+.product-match-card .product-match-media {
+  position: relative;
+}
+
+.product-match-card .product-match-media-pill {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+  pointer-events: none;
+}
+
+.product-match-card .product-match-media-pill i {
+  font-size: 0.55rem;
+}
+
+.product-match-card .product-match-media-pill.product-match-media-pill--video {
+  background: linear-gradient(135deg, #7c3aed, #4c1d95);
+}
+
+.product-match-card .product-match-media-pill.product-match-media-pill--mixed {
+  background: linear-gradient(135deg, #0ea5e9, #0369a1);
+}
+
+/* ============================================================
+   PHASE 2 — PRODUCT-MATCH TILE VARIANT COUNT LABEL
+   ------------------------------------------------------------
+   Small label under the price row showing "N colours",
+   "N sizes", or "N variants". Hidden by the client renderer
+   when the count is 1 or less.
+   ============================================================ */
+
+.product-match-card .product-match-variant-count {
+  display: inline-block;
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 2px 0 0 0;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #f5f3ff;
+  color: #5b21b6;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+/* ============================================================
+   PHASE 2 — SMALL-SCREEN TUNING
+   ============================================================ */
+
+@media (max-width: 720px) {
+  .product-match-card .product-match-media-pill {
+    font-size: 0.5rem;
+    padding: 1px 6px;
+    bottom: 6px;
+    left: 6px;
+  }
+
+  .product-match-card .product-match-media-pill i {
+    font-size: 0.5rem;
+  }
+
+  .product-match-card .product-match-variant-count {
+    font-size: 0.54rem;
+    padding: 1px 7px;
+  }
+}
+
+@media (max-width: 480px) {
+  .product-match-card .product-match-media-pill {
+    font-size: 0.45rem;
+    padding: 1px 5px;
+    bottom: 4px;
+    left: 4px;
+  }
+
+  .product-match-card .product-match-media-pill i {
+    font-size: 0.45rem;
+  }
+
+  .product-match-card .product-match-variant-count {
+    font-size: 0.5rem;
+    padding: 1px 6px;
   }
 }

@@ -3434,3 +3434,73 @@ console.log('✅ Index.js loaded successfully (Section 9 — customer workspace 
     setTimeout(forcePinnedFooter, ms);
   });
 })();
+
+// ============================================================
+//  FOOTER — "CONTACT ADMIN" LINK HANDLER
+//  Location: bottom of public/js/index.js
+//
+//  The footer link is a doorway to the "Contact the platform
+//  admin" section that already exists on /account.html (for
+//  customers) and /business-admin.html (for business admins).
+//  The link itself does not send anything and does not need
+//  its own form; it just routes the visitor to the right
+//  page and lets that page scroll to the right sub-section.
+//
+//  Behaviour:
+//    Guest              → open the login modal, remember to
+//                         return to /account.html after login.
+//    Customer (logged in) → /account.html and scroll to the
+//                         Contact Admin sub-section.
+//    Business admin      → /business-admin.html and open
+//                         My Shop → Business Profile.
+//    Super admin         → /admin-dashboard.html (they have
+//                         their own inbox there).
+// ============================================================
+
+(function () {
+  if (typeof window.openFooterContactAdmin === 'function') return;
+
+  window.openFooterContactAdmin = function (event) {
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+
+    var user = {};
+    try {
+      user = JSON.parse(localStorage.getItem('currentUser') || '{}') || {};
+    } catch (err) {
+      user = {};
+    }
+
+    var email = user.email || '';
+    var role  = user.role || '';
+
+    // ----- Guest: ask them to log in first -----
+    if (!email) {
+      try {
+        localStorage.setItem('postLoginDestination', 'contact-admin');
+      } catch (err) { /* storage may be blocked, that is fine */ }
+
+      if (typeof window.openAuthModal === 'function') {
+        window.openAuthModal('login');
+      }
+      return false;
+    }
+
+    // ----- Super admin: the admin dashboard has its own inbox -----
+    if (role === 'super_admin' || role === 'admin') {
+      window.location.href = '/admin-dashboard.html';
+      return false;
+    }
+
+    // ----- Business admin: My Shop → Business Profile -----
+    if (role === 'business_admin' || user.business_id) {
+      window.location.href = '/business-admin.html#myshop-business-profile';
+      return false;
+    }
+
+    // ----- Customer: the account page's Contact Admin sub-section -----
+    window.location.href = '/account.html#profileSectionContactAdmin';
+    return false;
+  };
+})();

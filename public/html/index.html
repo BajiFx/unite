@@ -71,6 +71,10 @@
           <a href="#" onclick="openAuthModal('register'); return false;" class="auth-btn" style="background:#2563eb;color:white;padding:6px 14px;border-radius:20px;font-weight:700;font-size:0.75rem;text-decoration:none;">
             <i class="fas fa-user-plus"></i> Register
           </a>
+          <a href="/admin.html" class="auth-btn" title="Super Admin login"
+             style="color:#64748b;font-weight:700;font-size:0.72rem;text-decoration:none;">
+            <i class="fas fa-lock"></i> Super Admin
+          </a>
         </div>
         <!-- LOGGED IN NAV -->
         <div id="loggedInNavTop" style="display:none;gap:8px;align-items:center;">
@@ -597,10 +601,19 @@
 
 <footer class="bidhaa-legal-footer" role="contentinfo">
   <div class="bidhaa-legal-footer-inner">
+
     <div class="bidhaa-legal-footer-brand">
       <strong>BidhaaLink</strong>
       <span>Kenya's Multi-Vendor Marketplace</span>
     </div>
+
+    <div class="bidhaa-legal-footer-thanks" id="footerThankYou">
+      <span class="bidhaa-legal-footer-thanks-icon" aria-hidden="true">🙏</span>
+      <span class="bidhaa-legal-footer-thanks-text">
+        Thank you for visiting <span id="footerThankYouBusinessName">our business</span>. We value you!
+      </span>
+    </div>
+
     <nav class="bidhaa-legal-footer-links" aria-label="Legal and contact links">
       <a href="/terms.html">
         <i class="fas fa-file-contract" aria-hidden="true"></i> Terms and Conditions
@@ -615,6 +628,7 @@
         <i class="fas fa-envelope" aria-hidden="true"></i> Contact
       </a>
     </nav>
+
   </div>
 </footer>
 
@@ -623,6 +637,20 @@
      Self-contained styles for the legal footer.
      Scoped under .bidhaa-legal-footer so nothing else on any page
      is affected. No external CSS file is required.
+
+     Embedded-mode rule (this revision):
+     When a page is loaded inside the marketplace workspace
+     iframe, the inline script at the top of the document adds
+     the class `embedded` to <html>. The parent page
+     (index.html) then renders the workspace panel on top of
+     its own content. Without the rule below, the embedded
+     page's own legal footer would appear a second time inside
+     the iframe, and the customer would see two identical
+     BidhaaLink footers stacked on the page.
+
+     The rule hides the footer only when the page is embedded.
+     Every standalone view — guest marketplace, terms, privacy,
+     admin, register-business, etc. — keeps its footer.
      ============================================================ */
 
   .bidhaa-legal-footer {
@@ -712,6 +740,14 @@
   body.index-body .bidhaa-legal-footer,
   body:has(.bottom-nav) .bidhaa-legal-footer {
     margin-bottom: 90px;
+  }
+
+  /* ============================================================
+     EMBEDDED MODE — hide the footer inside the workspace iframe.
+     See the header comment above for the full reasoning.
+     ============================================================ */
+  html.embedded .bidhaa-legal-footer {
+    display: none !important;
   }
 </style>
 

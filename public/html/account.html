@@ -585,6 +585,96 @@
       </div>
     </section>
 
+    <!-- ============================================================ -->
+    <!-- CONTACT ADMIN — send a message to the platform admin          -->
+    <!-- ============================================================ -->
+    <section class="profile-subsection" id="profileSectionContactAdmin">
+      <h3 class="profile-subsection-title">
+        <i class="fas fa-headset"></i> Contact the platform admin
+      </h3>
+
+      <p style="font-size:0.85rem; color:#475569; line-height:1.55; margin:0 0 12px 0;">
+        Have a problem with an order, a payment, a shop, or your account?
+        Send a message to the BidhaaLink admin. You will see their reply in the
+        <strong>My Messages</strong> list below.
+      </p>
+
+      <button type="button"
+              class="btn-quick primary"
+              id="customerContactAdminBtn"
+              onclick="openCustomerContactAdmin()"
+              style="padding:10px 20px;">
+        <i class="fas fa-paper-plane"></i> Send a message to admin
+      </button>
+
+      <div id="customerContactAdminFormWrap"
+           style="display:none; margin-top:14px; padding:14px 16px; background:#ffffff; border:1px solid #e2e8f0; border-radius:10px;">
+        <div class="form-group">
+          <label style="font-size:0.78rem; font-weight:700; color:#334155;">Subject *</label>
+          <input type="text" id="customerContactSubject" maxlength="255" placeholder="Short summary of your message">
+        </div>
+
+        <div class="form-group">
+          <label style="font-size:0.78rem; font-weight:700; color:#334155;">Category</label>
+          <select id="customerContactCategory">
+            <option value="">Choose a category…</option>
+            <option value="Order problem">Order problem</option>
+            <option value="Payment issue">Payment issue</option>
+            <option value="Delivery issue">Delivery issue</option>
+            <option value="Return or refund">Return or refund</option>
+            <option value="Report a business">Report a business</option>
+            <option value="Account issue">Account issue</option>
+            <option value="Product quality">Product quality</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label style="font-size:0.78rem; font-weight:700; color:#334155;">Message *</label>
+          <textarea id="customerContactBody" rows="4" maxlength="5000"
+                    placeholder="Describe what happened. Include order references, dates, and shop names if you know them."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label style="font-size:0.78rem; font-weight:700; color:#334155;">Order reference (optional)</label>
+          <input type="text" id="customerContactOrderRef" maxlength="100"
+                 placeholder="e.g. ORD-XXXX-XXXX">
+        </div>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+          <button type="button"
+                  class="btn-quick primary"
+                  id="customerContactSubmitBtn"
+                  onclick="submitCustomerContactAdmin()"
+                  style="padding:9px 18px;">
+            <i class="fas fa-paper-plane"></i> Send message
+          </button>
+          <button type="button"
+                  class="btn-quick"
+                  onclick="closeCustomerContactAdmin()"
+                  style="padding:9px 18px; background:#e2e8f0; color:#1e293b;">
+            Cancel
+          </button>
+        </div>
+
+        <div id="customerContactStatus"
+             style="margin-top:10px; font-size:0.85rem; min-height:18px;"></div>
+      </div>
+
+      <div id="customerAdminReplies"
+           style="margin-top:14px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px;">
+        <h4 style="font-size:0.82rem; font-weight:800; color:#0f172a; margin:0 0 8px 0;">
+          My messages to the admin
+        </h4>
+        <div id="customerAdminRepliesList">
+          <div class="loading-spinner" style="padding:12px 0;">
+            <i class="fas fa-spinner fa-spin"></i>
+            Loading your messages…
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ======================= -->
     <!-- SECTION: Location       -->
     <!-- ======================= -->
@@ -1065,10 +1155,19 @@
 
 <footer class="bidhaa-legal-footer" role="contentinfo">
   <div class="bidhaa-legal-footer-inner">
+
     <div class="bidhaa-legal-footer-brand">
       <strong>BidhaaLink</strong>
       <span>Kenya's Multi-Vendor Marketplace</span>
     </div>
+
+    <div class="bidhaa-legal-footer-thanks" id="footerThankYou">
+      <span class="bidhaa-legal-footer-thanks-icon" aria-hidden="true">🙏</span>
+      <span class="bidhaa-legal-footer-thanks-text">
+        Thank you for visiting <span id="footerThankYouBusinessName">our business</span>. We value you!
+      </span>
+    </div>
+
     <nav class="bidhaa-legal-footer-links" aria-label="Legal and contact links">
       <a href="/terms.html">
         <i class="fas fa-file-contract" aria-hidden="true"></i> Terms and Conditions
@@ -1083,67 +1182,132 @@
         <i class="fas fa-envelope" aria-hidden="true"></i> Contact
       </a>
     </nav>
+
   </div>
 </footer>
 
 <style>
   /* ============================================================
-     Self-contained styles for the legal footer.
-     Scoped under .bidhaa-legal-footer so nothing else on any page
-     is affected. No external CSS file is required.
+     Self-contained footer styles.
+     Pinned to the bottom of the viewport. Does not scroll.
+     Left   : brand
+     Middle : personalised thank-you band
+     Right  : legal links (single line)
      ============================================================ */
 
+  :root {
+    --bidhaa-footer-height: 64px;
+  }
+
+  body {
+    /* Keep the last line of page content above the pinned footer. */
+    padding-bottom: var(--bidhaa-footer-height) !important;
+  }
+
   .bidhaa-legal-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 900;
+
     background: #0f172a;
     color: #94a3b8;
-    padding: 20px 20px;
+
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 0.82rem;
-    line-height: 1.55;
-    margin-top: 32px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.18);
+
+    transform: translateZ(0);
   }
 
   .bidhaa-legal-footer-inner {
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
+    padding: 8px 20px;
+
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
+    gap: 20px;
+
+    min-height: var(--bidhaa-footer-height);
   }
 
   .bidhaa-legal-footer-brand {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
+    white-space: nowrap;
   }
 
   .bidhaa-legal-footer-brand strong {
     color: #ffffff;
     font-weight: 800;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
   }
 
   .bidhaa-legal-footer-brand span {
     color: #64748b;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
+  }
+
+  .bidhaa-legal-footer-thanks {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    min-width: 0;
+    padding: 4px 14px;
+
+    background: rgba(34, 197, 94, 0.10);
+    border: 1px solid rgba(34, 197, 94, 0.28);
+    border-radius: 999px;
+
+    color: #d1fae5;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .bidhaa-legal-footer-thanks-icon {
+    font-size: 0.95rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .bidhaa-legal-footer-thanks-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  #footerThankYouBusinessName {
+    color: #ffffff;
+    font-weight: 800;
   }
 
   .bidhaa-legal-footer-links {
     display: flex;
-    gap: 18px;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    white-space: nowrap;
   }
 
   .bidhaa-legal-footer-links a {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
+
     color: #cbd5e1;
     text-decoration: none;
     font-weight: 600;
-    font-size: 0.8rem;
+    font-size: 0.76rem;
+
     transition: color 0.15s ease;
   }
 
@@ -1154,32 +1318,51 @@
 
   .bidhaa-legal-footer-links i {
     color: #2563eb;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
   }
 
-  /* On small screens, stack the brand above the links. */
-  @media (max-width: 640px) {
+  @media (max-width: 900px) {
     .bidhaa-legal-footer-inner {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "brand links"
+        "thanks thanks";
+      gap: 8px 16px;
+      padding: 8px 16px;
+    }
+
+    .bidhaa-legal-footer-brand  { grid-area: brand; }
+    .bidhaa-legal-footer-thanks { grid-area: thanks; justify-content: flex-start; }
+    .bidhaa-legal-footer-links  { grid-area: links; }
+  }
+
+  @media (max-width: 640px) {
+    :root { --bidhaa-footer-height: 92px; }
+
+    .bidhaa-legal-footer-inner {
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "brand"
+        "thanks"
+        "links";
+      gap: 6px;
+      padding: 10px 14px;
+      text-align: left;
+    }
+
+    .bidhaa-legal-footer-thanks {
+      justify-content: flex-start;
+      font-size: 0.72rem;
     }
 
     .bidhaa-legal-footer-links {
-      gap: 12px;
+      flex-wrap: wrap;
+      gap: 10px 14px;
     }
 
     .bidhaa-legal-footer-links a {
-      font-size: 0.75rem;
+      font-size: 0.72rem;
     }
-  }
-
-  /* If the page already has a fixed bottom nav (e.g. the
-     marketplace home, the cart, the account page), make sure the
-     footer clears it so it is never hidden behind the nav. */
-  body.index-body .bidhaa-legal-footer,
-  body:has(.bottom-nav) .bidhaa-legal-footer {
-    margin-bottom: 90px;
   }
 </style>
 
