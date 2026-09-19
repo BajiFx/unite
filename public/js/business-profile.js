@@ -916,7 +916,7 @@ function renderBusinessProductGrid(products) {
             ? '<span class="video-pill"><i class="fas fa-play"></i> Video</span>'
             : '';
 
-        const ratingHtml = p.rating ? '<div class="rating"><span>⭐</span>(' + p.rating + ')</div>' : '';
+        const ratingHtml = '';
         const categoryHtml = p.product_category_name
             ? '<div class="product-category-chip" title="' + p.product_category_name + '">' + (p.product_category_icon || '📦') + ' ' + p.product_category_name + '</div>'
             : '';

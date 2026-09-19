@@ -368,7 +368,7 @@ function renderDetail(product, related) {
   `;
 
   // ---------- Rating ----------
-  const ratingValue = parseFloat(product.rating) || 0;
+  const ratingValue = parseFloat(product.avg_rating) || 0;
   const fullStars = Math.round(ratingValue);
   let ratingHtml = '';
   if (ratingValue > 0) {
@@ -398,9 +398,7 @@ function renderDetail(product, related) {
   const descriptionHtml = `<div class="description">${product.description || 'No description available for this product.'}</div>`;
 
   let servicesHtml = '';
-  if (product.shipping) {
-    servicesHtml = `<div class="services"><span>Delivery Information:</span> ${product.shipping}</div>`;
-  }
+  servicesHtml = '';
 
   const returnDays = product.return_window_days || 14;
   const restockingFee = product.restocking_fee_percent || 0;

@@ -179,12 +179,15 @@ router.post('/mpesa/initiate', authMiddleware, sensitiveLimiter, [
     const paymentSettings = businessResult.rows[0] || {};
     const type = payment_type || paymentSettings.mpesa_payment_type || 'paybill';
     if (!['paybill', 'till', 'pochi'].includes(type)) return res.status(400).json({ error: 'Invalid payment type' });
-    const shortcode = type === 'paybill' ? paymentSettings.mpesa_paybill_number : type === 'till' ? paymentSettings.mpesa_till_number : paymentSettings.pochi_la_biashara_number;
+    const clientShortcode = req.body && req.body.shortcode ? String(req.body.shortcode).trim() : '';
+    const fallbackShortcode = type === 'paybill' ? paymentSettings.mpesa_paybill_number : type === 'till' ? paymentSettings.mpesa_till_number : paymentSettings.pochi_la_biashara_number;
+    const shortcode = clientShortcode || fallbackShortcode;
     const stkResult = await initiateMpesaStkPush(phone, amount, orderRef, 'Payment for order', { paymentType: type, shortcode, accountReference: type === 'paybill' ? paymentSettings.mpesa_paybill_account || orderRef : orderRef });
 
     if (stkResult.success) {
       const paymentResult = await pool.query(`
-        INSERT INTO payments (customer_id, order_id, amount, method, status, transaction_id, payment_details)
+        INSERT INTO payments (c
+        ustomer_id, order_id, amount, method, status, transaction_id, payment_details)
         VALUES ($1, $2, $3, 'mpesa', 'pending', $4, $5)
         RETURNING *
       `, [

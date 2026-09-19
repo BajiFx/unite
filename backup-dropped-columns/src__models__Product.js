@@ -205,8 +205,8 @@ class Product {
     let paramIndex = 1;
 
     const allowedFields = [
-      'name', 'price', 'old_price', 'category', 'product_category_id',
-      'badge1', 'badge2', 'isFlashSale', 'isNewArrival',
+      'name', 'price', 'old_price', 'discount_percent', 'category', 'product_category_id',
+      'contact', 'rating', 'badge1', 'badge2', 'shipping', 'isFlashSale', 'isNewArrival',
       'image', 'description', 'shipping_fee', 'free_shipping_eligible',
       'return_enabled', 'return_window_days', 'restocking_fee_percent',
       'return_shipping_paid_by', 'return_condition', 'stock', 'is_featured'
